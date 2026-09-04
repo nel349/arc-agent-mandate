@@ -1,0 +1,31 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.arcmandate.passkey'
+version = '0.1.0'
+
+expoModule {
+  canBePublished false
+}
+
+android {
+  namespace 'com.arcmandate.passkey'
+  defaultConfig {
+    // expo-module-gradle-plugin requires both; without versionName the project fails to
+    // configure with "'android.defaultConfig.versionName' is not defined" — before any Kotlin
+    // is compiled, so the message names the module rather than the mistake.
+    versionCode 1
+    versionName '0.1.0'
+    // Credential Manager passkeys need API 28+.
+    minSdkVersion 28
+  }
+}
+
+dependencies {
+  // Credential Manager is Android's passkey surface — the counterpart to ASAuthorization.
+  // The play-services artifact is what actually provides passkey support on Google devices.
+  implementation 'androidx.credentials:credentials:1.3.0'
+  implementation 'androidx.credentials:credentials-play-services-auth:1.3.0'
+}

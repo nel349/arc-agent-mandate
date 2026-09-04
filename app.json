@@ -1,0 +1,35 @@
+{
+  "expo": {
+    "name": "Arc Agent Mandate",
+    "slug": "arc-agent-mandate",
+    "scheme": "arcmandate",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "bundleIdentifier": "com.kuiralabs.arcmandate",
+      "associatedDomains": [
+        "webcredentials:kuiralabs.github.io"
+      ]
+    },
+    "android": {
+      "package": "com.kuiralabs.arcmandate"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-dev-client",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 28
+          },
+          "ios": {
+            "deploymentTarget": "15.1"
+          }
+        }
+      ]
+    ]
+  }
+}

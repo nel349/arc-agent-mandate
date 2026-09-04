@@ -1,0 +1,7 @@
+{
+  "name": "arc-passkey",
+  "version": "0.1.0",
+  "description": "Platform passkey ceremony for Circle Modular Wallets. The one OS-deep part of the SDK.",
+  "main": "src/index.ts",
+  "private": true
+}
