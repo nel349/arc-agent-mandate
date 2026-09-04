@@ -8,6 +8,20 @@ one. This gives it an allowance instead: *up to $50 this week, only to these pay
 spends inside that on its own, and it cannot go over — not because it behaves, but because the
 money refuses. Revoke it with your face and it stops instantly.
 
+## Why we built it
+
+We wanted to build something real on Arc and find out what it takes. It turned out to take more
+than expected: session keys are listed as priority infrastructure but the only one deployed on Arc
+cannot serve a Circle wallet, and Circle's wallets do not reach React Native at all — so a phone
+app on a chain whose whole argument is that dollars are the currency was not buildable without
+closing both gaps first.
+
+So we closed them, and the app is what proves they are closed. The allowance is a genuine product
+and we would ship it; the port and the passkey bridge are the parts anyone else can pick up, and
+[docs/FINDINGS.md](docs/FINDINGS.md) is what we would have wanted to read before starting.
+
+That is the intent here — **contribute the plumbing, and use the product to show it works.**
+
 ## See it work in 30 seconds
 
 ```bash
