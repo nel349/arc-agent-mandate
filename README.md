@@ -78,6 +78,17 @@ That also decided the design: the mandate is denominated in native USDC and the 
 closed to agents — because `approve` creates an allowance that lives in the token contract and
 **survives revocation**, which would quietly break the one promise the product makes.
 
+## What this contributes to Arc
+
+Two pieces outlive the demo, and both fill gaps Arc's own docs make visible: **session keys that
+work with Circle Modular Wallets** (the one deployed on Arc is EntryPoint v0.6 against Circle's
+v0.7 — it installs, then reverts at first use), and **Circle wallets on React Native** (App Kit is
+web-only; `docs.arc.io/integrate` lists no mobile SDK).
+
+- [docs/CONTRIBUTION.md](docs/CONTRIBUTION.md) — what we built for the ecosystem and why
+- [docs/FINDINGS.md](docs/FINDINGS.md) — five things building on Arc taught us that the docs don't
+  cover, including a dual-decimal USDC trap that can read a funded account as empty
+
 ## Where to look
 
 | | |
