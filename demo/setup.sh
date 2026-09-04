@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Stands the whole demo up on a local fork of Arc. Nothing here touches a real chain.
 set -euo pipefail
+export FOUNDRY_DISABLE_NIGHTLY_WARNING=1
 cd "$(dirname "$0")/.."
 R=http://127.0.0.1:8545
 EP=0x0000000071727De22E5E9d8BAf0edAc6f37da032
@@ -37,5 +38,5 @@ cd ..
 
 nohup node demo/seller.mjs > /tmp/seller.log 2>&1 &
 sleep 2
-echo "ready. plugin=$PLUGIN  agent=$AGENT  seller=$SELLER"
+echo "  fork up, plugin deployed, mandate granted."
 echo "$PLUGIN" > /tmp/demo-plugin.txt

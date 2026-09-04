@@ -9,7 +9,8 @@
     "android": "expo run:android",
     "test": "node --experimental-transform-types --disable-warning=ExperimentalWarning --test 'src/**/*.test.ts'",
     "typecheck": "tsc --noEmit",
-    "check": "npm run typecheck && npm test"
+    "check": "npm run typecheck && npm test",
+    "demo": "./demo/setup.sh && PLUGIN=$(cat /tmp/demo-plugin.txt) node demo/run.mjs"
   },
   "dependencies": {
     "@circle-fin/modular-wallets-core": "^1.0.15",
