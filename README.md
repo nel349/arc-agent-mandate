@@ -56,8 +56,13 @@ one transaction, with nothing left behind.
   ours (`modules/arc-passkey`, `src/passkey`).
 - **The allowance rules on-chain** (`contracts/src/session`) — spend caps, payee lists, expiry,
   gas budgets — running against Circle's real deployed account contracts.
-- **60 tests**: `npm test` (34) and `cd contracts && forge test` (26), the latter against a fork
-  of Arc with the plugin installed on a real Circle account.
+- **73 tests behind one gate.** `npm run gate` must be green before anything ships:
+
+  | | | |
+  |---|---|---|
+  | `npm test` | 34 | parsing, encoding, the money type |
+  | `npm run test:contracts` | 26 | the allowance rules, against a fork with the plugin installed on a real Circle account |
+  | `npm run test:integration` | 13 | the whole path — a signed user operation through the real EntryPoint, money moving, refusals costing nothing, revocation taking effect |
 
 **Not built yet:** the phone screens for granting and revoking. The wallet screen is real; the
 mandate flow is driven from the demo above, not from the app. Said plainly because a judge will
