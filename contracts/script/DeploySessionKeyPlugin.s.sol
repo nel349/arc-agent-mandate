@@ -37,6 +37,13 @@ contract DeploySessionKeyPlugin is Script {
         );
     }
 
+    /// The hash `installPlugin` checks. Fixed for a given build, so the SDK carries it as a
+    /// constant and a test pins the constant to this value.
+    function manifestHash() public returns (bytes32 h) {
+        h = keccak256(abi.encode(new SessionKeyPlugin().pluginManifest()));
+        console.logBytes32(h);
+    }
+
     function run() external {
         address predicted = predictedAddress();
         console.log("SessionKeyPlugin predicted address:", predicted);

@@ -1,4 +1,7 @@
-import { createPublicClient, http, type Address } from "viem";
+import { createPublicClient, type Address } from "viem";
+// Re-exported so callers keep one import site. The client itself lives in `client.ts`, which has
+// no React Native in its import graph and can therefore be reached from tests and scripts.
+export { arcPublicClient, isDeployed } from "./client.ts";
 import { createBundlerClient, type SmartAccount } from "viem/account-abstraction";
 import {
   toCircleSmartAccount,
@@ -38,12 +41,6 @@ export interface ArcAccount {
   readonly smartAccount: SmartAccount;
   readonly bundler: ReturnType<typeof createBundlerClient>;
 }
-
-/** Reads Arc directly, bypassing Circle. Balances and deployment checks do not need a bundler. */
-export const arcPublicClient = createPublicClient({
-  chain: arcTestnet,
-  transport: http(arcTestnet.rpcUrls.default.http[0]),
-});
 
 /**
  * Registers a new passkey, or signs in with an existing one, and returns the smart account.
@@ -96,12 +93,6 @@ export async function connectArcAccount(
   });
 
   return { address: smartAccount.address, smartAccount, bundler };
-}
-
-/** Whether the account contract exists yet. False before the first user operation is expected. */
-export async function isDeployed(address: Address): Promise<boolean> {
-  const code = await arcPublicClient.getCode({ address });
-  return code !== undefined && code !== "0x";
 }
 
 /** Re-exported so callers need not import the SDK directly to choose register vs login. */

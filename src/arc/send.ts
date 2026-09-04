@@ -2,7 +2,9 @@ import { encodeFunctionData, erc20Abi, type Address, type Hash } from "viem";
 import { getUserOperationGasPrice } from "@circle-fin/modular-wallets-core";
 import { ARC_CONTRACTS } from "./chain.ts";
 import { Usdc } from "./usdc.ts";
-import { arcPublicClient, type ArcAccount } from "./account.ts";
+import { arcPublicClient } from "./client.ts";
+// Type-only: erased at runtime, so this file never loads the passkey shim.
+import type { ArcAccount } from "./account.ts";
 
 /**
  * Moving USDC on Arc.
