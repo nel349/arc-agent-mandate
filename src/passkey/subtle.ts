@@ -44,6 +44,15 @@ function toBytes(data: BufferSource): Uint8Array {
     : new Uint8Array(data);
 }
 
+/** A view's own bytes as a detached `ArrayBuffer`.
+ *
+ *  `.buffer` alone is the whole backing store, which is only the same thing when the view starts
+ *  at offset zero and spans it entirely. That happens to hold for `@noble/hashes` output today,
+ *  which is exactly why it would go unnoticed if it stopped holding. */
+function detach(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+}
+
 function algorithmName(algorithm: AlgorithmIdentifier): string {
   return typeof algorithm === "string" ? algorithm : algorithm.name;
 }
@@ -52,8 +61,8 @@ const subtleShim = {
   async digest(algorithm: AlgorithmIdentifier, data: BufferSource): Promise<ArrayBuffer> {
     const name = algorithmName(algorithm).toUpperCase();
     const bytes = toBytes(data);
-    if (name === "SHA-256") return sha256(bytes).buffer as ArrayBuffer;
-    if (name === "SHA-512") return sha512(bytes).buffer as ArrayBuffer;
+    if (name === "SHA-256") return detach(sha256(bytes));
+    if (name === "SHA-512") return detach(sha512(bytes));
     throw new SubtleShimError(`digest: ${name} is not implemented by this shim`);
   },
 
@@ -103,8 +112,7 @@ const subtleShim = {
     if (format !== "raw") {
       throw new SubtleShimError(`exportKey: format "${format}" is not implemented by this shim`);
     }
-    const p = key.__rawPoint;
-    return p.buffer.slice(p.byteOffset, p.byteOffset + p.byteLength) as ArrayBuffer;
+    return detach(key.__rawPoint);
   },
 };
 

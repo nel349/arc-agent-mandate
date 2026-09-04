@@ -3,6 +3,14 @@ import { arcPasskey } from "@passkey-native";
 import { anyToBase64url, fromBase64url, toArrayBuffer, toBase64url } from "./base64url.ts";
 import { parseAttestationObject } from "./cose.ts";
 import { installSubtleShim } from "./subtle.ts";
+import { PasskeyShimError } from "./errors.ts";
+import {
+  ASSERTION_FIELDS,
+  parseNativeJson,
+  REGISTRATION_FIELDS,
+  type NativeAssertionJson,
+  type NativeRegistrationJson,
+} from "./native-json.ts";
 
 /**
  * Makes Circle's TypeScript SDK work on React Native.
@@ -47,13 +55,6 @@ interface SynthesisedCredential<R> {
   toJSON(): Record<string, unknown>;
 }
 
-export class PasskeyShimError extends Error {
-  constructor(message: string, options?: { cause: unknown }) {
-    super(message, options);
-    this.name = "PasskeyShimError";
-  }
-}
-
 /**
  * Builds the credential object Circle's SDK expects, and — critically — the JSON its relying
  * party expects.
@@ -91,16 +92,6 @@ function synthesise<R>(
   };
 }
 
-/** Credential Manager returns WebAuthn JSON as a string; a malformed one must not surface as a
- *  bare `SyntaxError` with no indication of which ceremony produced it. */
-function parseNativeJson(json: string, ceremony: string): Record<string, any> {
-  try {
-    return JSON.parse(json);
-  } catch (cause) {
-    throw new PasskeyShimError(`Credential Manager returned malformed JSON for ${ceremony}`, { cause });
-  }
-}
-
 async function create(
   options: { publicKey: PublicKeyCredentialCreationOptions },
 ): Promise<SynthesisedCredential<AttestationResponse>> {
@@ -110,6 +101,12 @@ async function create(
 
   const challenge = anyToBase64url(publicKey.challenge);
   const userId = anyToBase64url(publicKey.user.id);
+  // Descriptor ids are `BufferSource`, which `JSON.stringify` renders as an index-keyed object
+  // ({"0":9,"1":9}) rather than base64url, so spreading the options unconverted hands Credential
+  // Manager an id it cannot read. `get()` already converts `allowCredentials`; this is the same
+  // obligation on the registration side. It is not cosmetic: `excludeCredentials` is what stops a
+  // second passkey being created for a user who already has one on this device.
+  const excludedCredentialIds = (publicKey.excludeCredentials ?? []).map((c) => anyToBase64url(c.id));
 
   let credentialId: string;
   let attestationObjectB64: string;
@@ -117,17 +114,25 @@ async function create(
 
   if (Platform.OS === "android") {
     // Credential Manager speaks WebAuthn JSON natively; hand it the options as-is.
-    const json = parseNativeJson(
+    const json = parseNativeJson<NativeRegistrationJson>(
       await arcPasskey.registerJson(
-        JSON.stringify({ ...publicKey, challenge, user: { ...publicKey.user, id: userId } }),
+        JSON.stringify({
+          ...publicKey,
+          challenge,
+          user: { ...publicKey.user, id: userId },
+          excludeCredentials: excludedCredentialIds.map((id) => ({ id, type: CREDENTIAL_TYPE })),
+        }),
       ),
       "registration",
+      REGISTRATION_FIELDS,
     );
     credentialId = json.id;
     attestationObjectB64 = json.response.attestationObject;
     clientDataJSONB64 = json.response.clientDataJSON;
   } else {
-    const native = await arcPasskey.register(rpId, challenge, userId, publicKey.user.name ?? "");
+    const native = await arcPasskey.register(
+      rpId, challenge, userId, publicKey.user.name ?? "", excludedCredentialIds,
+    );
     credentialId = native.credentialId;
     attestationObjectB64 = native.attestationObject;
     clientDataJSONB64 = native.clientDataJSON;
@@ -176,7 +181,7 @@ async function get(
   let userHandleB64: string;
 
   if (Platform.OS === "android") {
-    const json = parseNativeJson(
+    const json = parseNativeJson<NativeAssertionJson>(
       await arcPasskey.authenticateJson(
         JSON.stringify({
           ...publicKey,
@@ -185,6 +190,7 @@ async function get(
         }),
       ),
       "authentication",
+      ASSERTION_FIELDS,
     );
     credentialId = json.id;
     authenticatorDataB64 = json.response.authenticatorData;
@@ -286,7 +292,7 @@ function installAppInfoRewrite(passkeyDomain: string): void {
 
   globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-    if (!CIRCLE_HOST.test(url)) return original(input, init);
+    if (!isCircleHost(url)) return original(input, init);
 
     const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
     const existing = headers.get("X-AppInfo");
@@ -298,5 +304,23 @@ function installAppInfoRewrite(passkeyDomain: string): void {
   };
 }
 
-const CIRCLE_HOST = /(^|\/\/)([^/]*\.)?circle\.com\//i;
+const CIRCLE_DOMAIN = "circle.com";
+
+/**
+ * True when the URL's **host** is Circle's, parsed rather than pattern-matched.
+ *
+ * A substring test over the whole URL is wrong in both directions: it matches
+ * `https://attacker.com/?x=//circle.com/`, and it misses `https://api.circle.com`, which has no
+ * trailing slash after the host. Only the header's `uri` field is at stake so neither is severe,
+ * but a host check is what this means, and `URL` already knows how to do it.
+ */
+function isCircleHost(url: string): boolean {
+  let host: string;
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    return false; // not a URL we can reason about; leave the request untouched
+  }
+  return host === CIRCLE_DOMAIN || host.endsWith(`.${CIRCLE_DOMAIN}`);
+}
 

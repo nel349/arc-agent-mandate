@@ -24,7 +24,8 @@ public class ArcPasskeyModule: Module {
     // The challenge, rpId, user id and name all come from Circle's relying party via
     // `getRegistrationOptions`. We do not invent them.
     AsyncFunction("register") { (rpId: String, challengeB64: String, userIdB64: String,
-                                 userName: String, promise: Promise) in
+                                 userName: String, excludedCredentialIds: [String],
+                                 promise: Promise) in
       guard let challenge = Self.fromBase64url(challengeB64),
             let userId = Self.fromBase64url(userIdB64) else {
         promise.reject(PasskeyError.badInput("challenge or user id is not valid base64url")); return
@@ -34,6 +35,16 @@ public class ArcPasskeyModule: Module {
           let provider = ASAuthorizationPlatformPublicKeyCredentialProvider(relyingPartyIdentifier: rpId)
           let request = provider.createCredentialRegistrationRequest(
             challenge: challenge, name: userName, userID: userId)
+          // What stops a second passkey being created for a user who already has one on this
+          // device. ASAuthorization only exposes it from iOS 17.4; this module's floor is 15.1,
+          // so below that the exclusion cannot be honoured and the relying party is the only
+          // remaining defence. Silently ignoring it on a version that supports it would be the
+          // real bug.
+          if #available(iOS 17.4, *), !excludedCredentialIds.isEmpty {
+            request.excludedCredentials = excludedCredentialIds.compactMap {
+              Self.fromBase64url($0).map { ASAuthorizationPlatformPublicKeyCredentialDescriptor(credentialID: $0) }
+            }
+          }
           guard let reg = try await self.run(request)
                   as? ASAuthorizationPlatformPublicKeyCredentialRegistration else {
             promise.reject(PasskeyError.unexpectedCredentialType); return

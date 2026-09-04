@@ -20,9 +20,23 @@
 
 type Cbor = number | Uint8Array | string | Cbor[] | Map<Cbor, Cbor> | boolean | null;
 
+/**
+ * Nesting allowed before a structure is treated as hostile rather than merely unusual.
+ *
+ * A WebAuthn attestation object nests four or five deep at most: the outer map, `attStmt`, an
+ * array of certificates, a byte string. Anything past this is not a credential.
+ *
+ * Without the bound, arrays, maps and tags each recurse once per level, so a run of tag bytes
+ * (`0xc0` repeated) recurses once per byte and exits as a `RangeError: Maximum call stack size
+ * exceeded`, which is not a `CoseError` -- so every caller that catches `CoseError` misses it.
+ * Every length read in this file is already guarded; depth is the same obligation.
+ */
+const MAX_CBOR_DEPTH = 32;
+
 /** Decodes one CBOR item. Returns the value and how many bytes it consumed — the length
  *  matters because a COSE key sits at the end of authData with no length prefix of its own. */
-function decodeItem(b: Uint8Array, pos: number): { value: Cbor; next: number } {
+function decodeItem(b: Uint8Array, pos: number, depth = 0): { value: Cbor; next: number } {
+  if (depth > MAX_CBOR_DEPTH) throw new CoseError(`CBOR nested deeper than ${MAX_CBOR_DEPTH}`);
   if (pos >= b.length) throw new CoseError("truncated CBOR");
   const initial = b[pos]!;
   const major = initial >> 5;
@@ -61,18 +75,18 @@ function decodeItem(b: Uint8Array, pos: number): { value: Cbor; next: number } {
     }
     case 4: {
       const arr: Cbor[] = [];
-      for (let i = 0; i < arg; i++) { const r = decodeItem(b, p); arr.push(r.value); p = r.next; }
+      for (let i = 0; i < arg; i++) { const r = decodeItem(b, p, depth + 1); arr.push(r.value); p = r.next; }
       return { value: arr, next: p };
     }
     case 5: {
       const map = new Map<Cbor, Cbor>();
       for (let i = 0; i < arg; i++) {
-        const k = decodeItem(b, p); const v = decodeItem(b, k.next);
+        const k = decodeItem(b, p, depth + 1); const v = decodeItem(b, k.next, depth + 1);
         map.set(k.value, v.value); p = v.next;
       }
       return { value: map, next: p };
     }
-    case 6: return decodeItem(b, p); // tag — WebAuthn does not use them meaningfully; unwrap
+    case 6: return decodeItem(b, p, depth + 1); // tag — WebAuthn does not use them meaningfully; unwrap
     case 7:
       if (ai === 20) return { value: false, next: p };
       if (ai === 21) return { value: true, next: p };
@@ -180,8 +194,13 @@ export function parseAuthData(authData: Uint8Array): AttestedCredential {
 /** Parses a raw attestation object and returns the attested credential.
  *  This is the whole reason this module exists — see the file header. */
 export function parseAttestationObject(attestationObject: Uint8Array): AttestedCredential {
-  const { value } = decodeItem(attestationObject, 0);
+  const { value, next } = decodeItem(attestationObject, 0);
   if (!(value instanceof Map)) throw new CoseError("attestationObject is not a CBOR map");
+  // The same strictness `coseKeyToSpki` applies. Trailing bytes mean the input is not what it
+  // claims to be, and accepting them here while rejecting them there is an inconsistency.
+  if (next !== attestationObject.length) {
+    throw new CoseError(`attestationObject has ${attestationObject.length - next} trailing bytes`);
+  }
   const authData = value.get("authData");
   if (!(authData instanceof Uint8Array)) throw new CoseError("attestationObject has no authData");
   return parseAuthData(authData);

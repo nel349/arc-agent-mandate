@@ -24,7 +24,15 @@ export interface NativeAssertion {
  */
 export interface ArcPasskeyNative {
   isSupported(): Promise<boolean>;
-  register(rpId: string, challenge: string, userId: string, userName: string): Promise<NativeRegistration>;
+  /** `excludedCredentialIds` are base64url. Applied on iOS 17.4+, where ASAuthorization first
+   *  exposed `excludedCredentials`; below that the OS offers no way to honour them. */
+  register(
+    rpId: string,
+    challenge: string,
+    userId: string,
+    userName: string,
+    excludedCredentialIds: string[],
+  ): Promise<NativeRegistration>;
   authenticate(rpId: string, challenge: string, allowedCredentialIds: string[]): Promise<NativeAssertion>;
   registerJson(requestJson: string): Promise<string>;
   authenticateJson(requestJson: string): Promise<string>;

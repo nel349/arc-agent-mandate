@@ -4,8 +4,34 @@ import { connectArcAccount, WebAuthnMode, type ArcAccount } from "../arc/account
 import { balanceOf, sendUsdc, waitForSend } from "../arc/send.ts";
 import { Usdc } from "../arc/usdc.ts";
 
+/**
+ * Read once at module scope, not per render.
+ *
+ * As a value built inside the component it was rebuilt every render and then captured by
+ * `useCallback`s that did not list it as a dependency — so they kept the first one forever.
+ * Harmless while these are inlined env constants, and a latent stale-closure bug the moment
+ * any of them becomes dynamic. `EXPO_PUBLIC_*` is inlined at build time, so module scope is
+ * where this belongs.
+ */
+const CIRCLE_CONFIG = {
+  clientKey: process.env.EXPO_PUBLIC_CIRCLE_CLIENT_KEY ?? "",
+  clientUrl: process.env.EXPO_PUBLIC_CIRCLE_CLIENT_URL ?? "",
+  passkeyDomain: process.env.EXPO_PUBLIC_CIRCLE_PASSKEY_DOMAIN ?? "kuiralabs.github.io",
+} as const;
+
+export interface W1Ceremony {
+  readonly log: readonly string[];
+  readonly busy: boolean;
+  readonly address: Address | null;
+  readonly balance: string | null;
+  connect(): void;
+  signIn(): void;
+  refresh(): void;
+  send(to: Address): void;
+}
+
 /** The W1 flow, kept out of the view so the screen renders and does nothing else. */
-export function useW1Ceremony() {
+export function useW1Ceremony(): W1Ceremony {
   const [account, setAccount] = useState<ArcAccount | null>(null);
   const [balance, setBalance] = useState<string | null>(null);
   const [log, setLog] = useState<string[]>([]);
@@ -19,7 +45,19 @@ export function useW1Ceremony() {
     setLog((previous) => [...previous, `${new Date().toISOString().slice(11, 19)}  ${line}`]);
   }, []);
 
-  /** Every step reports failure the same way; an unlabelled throw in a harness is wasted. */
+  /** The fields viem attaches to its errors, in the order worth reading them. */
+/** The amount the harness sends. Small enough to repeat, large enough to see. */
+const DEMO_SEND_AMOUNT = "0.01";
+
+const VIEM_ERROR_FIELDS = ["shortMessage", "details", "metaMessages", "cause"] as const;
+
+/** Reads an optional field off an unknown thrown value without asserting its shape. */
+function readField(error: unknown, field: string): unknown {
+  if (typeof error !== "object" || error === null) return undefined;
+  return (error as Record<string, unknown>)[field];
+}
+
+/** Every step reports failure the same way; an unlabelled throw in a harness is wasted. */
   const step = useCallback(async (what: string, run: () => Promise<void>) => {
     setBusy(true);
     say(`${what} …`);
@@ -31,26 +69,20 @@ export function useW1Ceremony() {
       // The screen truncates and drops structure. Dump the whole thing to console so the
       // details that actually identify a bundler or paymaster rejection survive.
       console.error(`[w1] ${what} FAILED`, error);
-      const detail = error as { details?: unknown; metaMessages?: unknown; shortMessage?: unknown; cause?: unknown };
-      if (detail.shortMessage) console.error("[w1]   shortMessage:", detail.shortMessage);
-      if (detail.details) console.error("[w1]   details:", detail.details);
-      if (detail.metaMessages) console.error("[w1]   metaMessages:", detail.metaMessages);
-      if (detail.cause) console.error("[w1]   cause:", detail.cause);
+      // viem hangs its useful diagnostics off these fields; the screen flattens them away.
+      for (const field of VIEM_ERROR_FIELDS) {
+        const value = readField(error, field);
+        if (value !== undefined) console.error(`[w1]   ${field}:`, value);
+      }
     } finally {
       setBusy(false);
     }
   }, [say]);
 
-  const config = {
-    clientKey: process.env.EXPO_PUBLIC_CIRCLE_CLIENT_KEY ?? "",
-    clientUrl: process.env.EXPO_PUBLIC_CIRCLE_CLIENT_URL ?? "",
-    passkeyDomain: process.env.EXPO_PUBLIC_CIRCLE_PASSKEY_DOMAIN ?? "kuiralabs.github.io",
-  };
-
   /** Mints a NEW passkey, and therefore a new account. Use `signIn` to return to an old one. */
   const connect = useCallback(() => step("register NEW passkey + create account", async () => {
     const next = await connectArcAccount(
-      { ...config, username: `arc-${Date.now()}` },
+      { ...CIRCLE_CONFIG, username: `arc-${Date.now()}` },
       WebAuthnMode.Register,
     );
     setAccount(next);
@@ -68,7 +100,7 @@ export function useW1Ceremony() {
    */
   const signIn = useCallback(() => step("sign in with an existing passkey", async () => {
     const next = await connectArcAccount(
-      { ...config, username: "" },
+      { ...CIRCLE_CONFIG, username: "" },
       WebAuthnMode.Login,
     );
     setAccount(next);
@@ -82,9 +114,9 @@ export function useW1Ceremony() {
     say(`✓ ${amount}${amount.hasErc20Dust() ? "  (has sub-cent dust the ERC-20 view cannot see)" : ""}`);
   }), [account, step, say]);
 
-  const send = useCallback((to: string) => step("send 0.01 USDC, gasless", async () => {
+  const send = useCallback((to: Address) => step("send 0.01 USDC, gasless", async () => {
     if (!account) throw new Error("no account yet");
-    const userOpHash = await sendUsdc(account, { to: to as Address, amount: Usdc.parse("0.01") });
+    const userOpHash = await sendUsdc(account, { to, amount: Usdc.parse(DEMO_SEND_AMOUNT) });
     say(`  userOp ${userOpHash}`);
     const txHash = await waitForSend(account, userOpHash);
     say(`✓ final ${txHash}`);

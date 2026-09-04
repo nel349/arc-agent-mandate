@@ -122,3 +122,22 @@ test("rejects what it should reject", async () => {
     ]));
   }
 });
+
+// ---- hostile input ---------------------------------------------------------
+
+test("deeply nested CBOR fails as a CoseError, not a stack overflow", () => {
+  // Tag (major 6) carries no length, so each byte nests one level deeper. Before the depth
+  // bound this exited as `RangeError: Maximum call stack size exceeded` -- which is not a
+  // CoseError, so every caller catching CoseError missed it.
+  const nested = new Uint8Array(60_000).fill(0xc0);
+  assert.throws(() => parseAttestationObject(nested), CoseError);
+});
+
+test("an attestation object with trailing bytes is rejected", async () => {
+  // coseKeyToSpki has always rejected trailing bytes; the outer parse now agrees.
+  const { x, y } = await realKey();
+  const valid = attestationObject(authData(new Uint8Array([1, 2, 3, 4]), coseKey(x, y)));
+  const padded = new Uint8Array(valid.length + 1);
+  padded.set(valid);
+  assert.throws(() => parseAttestationObject(padded), /trailing bytes/);
+});

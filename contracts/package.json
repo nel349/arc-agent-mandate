@@ -1,0 +1,11 @@
+{
+  "name": "arc-agent-mandate-contracts",
+  "private": true,
+  "license": "GPL-3.0-or-later",
+  "description": "Session-key mandate plugin for Circle's ERC-6900 v0.7 MSCA on Arc. Derived from Alchemy's Modular Account (GPL-3.0-or-later).",
+  "dependencies": {
+    "@openzeppelin/contracts": "5.0.2",
+    "@openzeppelin/contracts-upgradeable": "5.0.2",
+    "solady": "0.0.243"
+  }
+}

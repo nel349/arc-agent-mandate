@@ -1,0 +1,9 @@
+@openzeppelin/contracts/=node_modules/@openzeppelin/contracts/
+@openzeppelin/contracts-upgradeable/=node_modules/@openzeppelin/contracts-upgradeable/
+@solady/=node_modules/solady/src/
+@account-abstraction/=lib/account-abstraction/
+@eth-infinitism/account-abstraction/=lib/account-abstraction/contracts/
+@modular-account-libs/=lib/modular-account-libs/src/
+@fcl/=lib/FreshCryptoLib/solidity/src/
+forge-std/=lib/forge-std/src/
+@circle/=lib/buidl-wallet-contracts/src/

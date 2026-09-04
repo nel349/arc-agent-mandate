@@ -41,3 +41,9 @@ coverage/
 .idea/
 .vscode/
 *.swp
+
+# Foundry (contracts/)
+contracts/out/
+contracts/cache/
+contracts/node_modules/
+contracts/broadcast/

@@ -25,9 +25,11 @@ export class UsdcError extends Error {
 
 /** An amount of USDC, held at native (18-decimal) precision — the widest of the two views. */
 export class Usdc {
-  // An explicit field rather than a parameter property: parameter properties *emit* runtime
-  // code, and Node's type-stripping is strip-only, so they break `node --test`. The same
-  // applies to `enum`, `namespace` and decorators — prefer `const` objects and plain fields.
+  // A `#private` field rather than a parameter property. The original reason was that Node's
+  // strip-only type removal could not handle parameter properties; that constraint is gone
+  // (the test script now passes `--experimental-transform-types`). Kept because true privacy
+  // at runtime is worth more here than the brevity — nothing outside this class can reach the
+  // raw integer, which is the whole point of the type.
   readonly #nativeUnits: bigint;
 
   private constructor(nativeUnits: bigint) {
