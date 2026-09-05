@@ -4,6 +4,7 @@ import { Link } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useAppearance } from "../src/ui/theme-context.tsx";
 import { THEMES, type ThemeId } from "../src/ui/themes.ts";
+import { Label } from "../src/ui/Label.tsx";
 import { Surface } from "../src/ui/Surface.tsx";
 import { Screen } from "../src/ui/Screen.tsx";
 import { tokens } from "../src/ui/tokens.ts";
@@ -25,7 +26,7 @@ export default function SettingsScreen() {
   return (
     <Screen>
       <Surface>
-        <Text style={[styles.section, { color: c.muted }]}>Appearance</Text>
+        <Label>Appearance</Label>
 
         {THEMES.map((option) => {
           const active = option.id === theme.id;
@@ -60,7 +61,7 @@ export default function SettingsScreen() {
       </Surface>
 
       <Surface>
-        <Text style={[styles.section, { color: c.muted }]}>Network</Text>
+        <Label>Network</Label>
         <View style={styles.plain}>
           <Text style={[styles.name, { color: c.paper }]}>Arc</Text>
           <Text style={[styles.value, { color: c.dim }]}>Testnet</Text>
@@ -71,7 +72,7 @@ export default function SettingsScreen() {
           though the two were peers; here it is where someone goes looking for it and nowhere
           near where someone is trying to give an agent money. */}
       <Surface>
-        <Text style={[styles.section, { color: c.muted }]}>Diagnostics</Text>
+        <Label>Diagnostics</Label>
         <Link href="/dev" asChild>
           <Pressable
             style={[styles.row, { borderColor: c.hairline }]}
@@ -94,12 +95,6 @@ export default function SettingsScreen() {
 }
 
 const styles = StyleSheet.create({
-  section: {
-    fontFamily: tokens.font.mono,
-    fontSize: tokens.font.label,
-    letterSpacing: tokens.font.labelTracking,
-    textTransform: "uppercase",
-  },
   row: {
     flexDirection: "row",
     alignItems: "center",

@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View, type KeyboardTypeOptions } from "react-native";
+import { StyleSheet, Text, TextInput, View, type KeyboardTypeOptions } from "react-native";
+import { IconButton } from "./IconButton.tsx";
 import { useTheme } from "./theme-context.tsx";
 import { tokens } from "./tokens.ts";
 
@@ -36,25 +37,14 @@ export function Field({
         <Text style={[styles.label, { color: c.muted }]}>{label}</Text>
 
         {hint !== undefined && (
-          <Pressable
+          <IconButton
+            glyph="?"
+            size={20}
+            active={open}
             onPress={toggle}
-            // The glyph is small; the target is not. `hitSlop` grows the touchable area without
-            // padding the row out to 44pt, which would undo the space this pattern exists to save.
-            hitSlop={tokens.space.md}
-            accessibilityRole="button"
-            accessibilityState={{ expanded: open }}
-            accessibilityLabel={`About ${label}`}
-            accessibilityHint={hint}
-          >
-            <Text
-              style={[
-                styles.mark,
-                { color: open ? c.signal : c.dim, borderColor: open ? c.signal : c.hairline },
-              ]}
-            >
-              ?
-            </Text>
-          </Pressable>
+            label={`About ${label}`}
+            hint={hint}
+          />
         )}
       </View>
 
@@ -78,23 +68,7 @@ export function Field({
 const styles = StyleSheet.create({
   group: { gap: tokens.space.xs },
   labelRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  label: {
-    fontFamily: tokens.font.mono,
-    fontSize: tokens.font.label,
-    letterSpacing: tokens.font.labelTracking,
-    textTransform: "uppercase",
-  },
-  mark: {
-    fontFamily: tokens.font.mono,
-    fontSize: tokens.font.small,
-    lineHeight: 17,
-    width: 18,
-    height: 18,
-    borderRadius: 99,
-    borderWidth: 1,
-    textAlign: "center",
-    overflow: "hidden",
-  },
+  label: tokens.type.label,
   input: {
     borderWidth: 1,
     borderRadius: tokens.radius.md,

@@ -7,6 +7,7 @@ import { useMandate } from "../src/ui/useMandate.ts";
 import { MandateCard } from "../src/ui/MandateCard.tsx";
 import { Button } from "../src/ui/Button.tsx";
 import { Field } from "../src/ui/Field.tsx";
+import { Label } from "../src/ui/Label.tsx";
 import { Surface } from "../src/ui/Surface.tsx";
 import { Usdc } from "../src/arc/usdc.ts";
 import { tokens } from "../src/ui/tokens.ts";
@@ -72,13 +73,13 @@ export default function AllowancesScreen() {
     <View style={styles.header}>
       {wallet.account ? (
         <Surface raised>
-          <Text style={[styles.label, { color: c.muted }]}>Your Wallet</Text>
+          <Label>Your Wallet</Label>
           <Text style={[styles.balance, { color: c.paper }]}>{wallet.balance?.format(2) ?? "—"}</Text>
           <Text style={[styles.mono, { color: c.dim }]}>{wallet.account.address}</Text>
         </Surface>
       ) : (
         <Surface raised>
-          <Text style={[styles.label, { color: c.muted }]}>No Wallet Yet</Text>
+          <Label>No Wallet Yet</Label>
           <Button tier="solid" title="Create a Wallet" onPress={wallet.create} busy={busy} />
           <Button title="Use an Existing Passkey" onPress={wallet.signIn} busy={busy} />
         </Surface>
@@ -92,7 +93,7 @@ export default function AllowancesScreen() {
       )}
       {wallet.account !== null && (
         <Surface>
-          <Text style={[styles.label, { color: c.muted }]}>Give an Agent an Allowance</Text>
+          <Label>Give an Agent an Allowance</Label>
           <Field
             label="Agent address"
             value={agent}
@@ -131,7 +132,7 @@ export default function AllowancesScreen() {
         </Surface>
       )}
 
-      {mandate.mandates.length > 0 && <Text style={[styles.label, { color: c.muted }]}>Active Allowances</Text>}
+      {mandate.mandates.length > 0 && <Label>Active Allowances</Label>}
     </View>
   );
 
@@ -164,12 +165,6 @@ const GAS_FLOAT = Usdc.parse("0.5");
 const styles = StyleSheet.create({
   content: { padding: tokens.space.lg, gap: tokens.space.md },
   header: { gap: tokens.space.md, paddingBottom: tokens.space.xs },
-  label: {
-    fontFamily: tokens.font.mono,
-    fontSize: tokens.font.label,
-    letterSpacing: tokens.font.labelTracking,
-    textTransform: "uppercase",
-  },
   balance: {
     fontFamily: tokens.font.mono,
     fontSize: tokens.font.display,

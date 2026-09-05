@@ -55,11 +55,5 @@ const styles = StyleSheet.create({
     minHeight: tokens.size.tapTarget,
   },
   off: { opacity: tokens.opacity.disabled },
-  label: {
-    fontFamily: tokens.font.mono,
-    fontSize: tokens.font.small,
-    fontWeight: "700",
-    letterSpacing: 1.2,
-    textTransform: "uppercase",
-  },
+  label: tokens.type.label,
 });

@@ -3,6 +3,8 @@ import { FlashList } from "@shopify/flash-list";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import type { Address } from "viem";
 import { useW1Ceremony, type LogLine } from "../src/ui/useW1Ceremony.ts";
+import { Button } from "../src/ui/Button.tsx";
+import { Label } from "../src/ui/Label.tsx";
 import { tokens } from "../src/ui/tokens.ts";
 import { useTheme } from "../src/ui/theme-context.tsx";
 
@@ -46,18 +48,18 @@ export default function DevHarnessScreen() {
   const header = (
     <View style={styles.header}>
       <View style={[styles.card, { backgroundColor: c.glass, borderColor: c.hairline }]}>
-        <Text style={[styles.label, { color: c.muted }]}>smart account</Text>
+        <Label>smart account</Label>
         <Text style={[styles.mono, { color: c.paper }]}>{address ?? NOT_SET}</Text>
-        <Text style={[styles.label, { color: c.muted }]}>native balance</Text>
+        <Label>native balance</Label>
         <Text style={[styles.mono, { color: c.paper }]}>{balance ?? NOT_SET}</Text>
       </View>
 
-      <Step title="1 · Register NEW passkey + account" onPress={connect} busy={busy} />
-      <Step title="1b · Sign in with an existing passkey" onPress={signIn} busy={busy} />
-      <Step title="2 · Read balance from Arc" onPress={refresh} busy={busy} disabled={!address} />
-      <Step title="3 · Send 0.01 USDC (gasless)" onPress={sendToDemoRecipient} busy={busy} disabled={!address} />
+      <Button title="1 · Register NEW passkey + account" onPress={connect} busy={busy} />
+      <Button title="1b · Sign in with an existing passkey" onPress={signIn} busy={busy} />
+      <Button title="2 · Read balance from Arc" onPress={refresh} busy={busy} disabled={!address} />
+      <Button title="3 · Send 0.01 USDC (gasless)" onPress={sendToDemoRecipient} busy={busy} disabled={!address} />
 
-      <Text style={[styles.label, { color: c.muted }]}>log</Text>
+      <Label>log</Label>
     </View>
   );
 
@@ -87,26 +89,6 @@ const LogRow = memo(function LogRow({ text }: { readonly text: string }) {
   return <Text style={[styles.logLine, { color: c.dim }]}>{text}</Text>;
 });
 
-/** Presentational only — no state, no effects, no fetching. */
-const Step = memo(function Step({
-  title, onPress, busy, disabled,
-}: {
-  readonly title: string;
-  readonly onPress: () => void;
-  readonly busy: boolean;
-  readonly disabled?: boolean;
-}) {
-  const c = useTheme().color;
-  const isOff = busy || disabled === true;
-  return (
-    // Two prebuilt styles rather than an inline `[a, cond && b]` array, which allocates a new
-    // array on every render and defeats the memo above it.
-    <Pressable style={[styles.button, { backgroundColor: c.actionFill }, isOff && styles.off]} onPress={onPress} disabled={isOff}>
-      {busy ? <ActivityIndicator color={c.actionText} /> : <Text style={[styles.buttonText, { color: c.actionText }]}>{title}</Text>}
-    </Pressable>
-  );
-});
-
 const styles = StyleSheet.create({
   page: { flex: 1 },
   content: { padding: tokens.space.lg },
@@ -117,20 +99,7 @@ const styles = StyleSheet.create({
     padding: tokens.space.base,
     gap: tokens.space.xs,
   },
-  label: {
-    fontFamily: tokens.font.mono,
-    fontSize: tokens.font.label,
-    textTransform: "uppercase",
-    letterSpacing: tokens.font.labelTracking,
-  },
   mono: { fontFamily: tokens.font.mono, fontSize: tokens.font.small },
-  button: {
-    borderRadius: tokens.radius.lg,
-    padding: tokens.space.base,
-    alignItems: "center",
-    minHeight: tokens.size.tapTarget,
-    justifyContent: "center",
-  },
   off: { opacity: tokens.opacity.disabled },
   buttonText: { fontFamily: tokens.font.mono, fontSize: tokens.font.small, fontWeight: "700" },
   logLine: {

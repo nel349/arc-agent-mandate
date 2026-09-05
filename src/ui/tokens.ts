@@ -33,6 +33,20 @@ export const tokens = {
   },
   border: { hairline: 1 },
 
+  /**
+   * Shared type roles. Typography is structure, not palette — the same label reads the same in
+   * every theme, only its colour changes. Defined once here because it was defined five times
+   * across the screens, and five copies of a rule is four chances to drift.
+   */
+  type: {
+    label: {
+      fontFamily: "Menlo",
+      fontSize: 12,
+      letterSpacing: 1,
+      textTransform: "uppercase",
+    },
+  },
+
   size: {
     /**
      * The smallest comfortable touch target, per Apple's guidance. Anything a finger has to hit
