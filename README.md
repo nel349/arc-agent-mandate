@@ -103,11 +103,11 @@ recipient lists, expiry — are untouched, because they were never the broken pa
   Codex can spend inside an allowance. The agent makes its own key, shows you a public address, and
   after you grant it finds the rest by itself — it watches for the `SessionKeyAdded` event naming
   its own address. One scan, no config file. See [mcp/README.md](mcp/README.md).
-- **86 tests behind one gate.** `npm run gate` must be green before anything ships:
+- **93 tests behind one gate.** `npm run gate` must be green before anything ships:
 
   | | | |
   |---|---|---|
-  | `npm test` | 47 | parsing, encoding, the money type, mandate formatting |
+  | `npm test` | 54 | parsing, encoding, the money type, mandate formatting |
   | `npm run test:contracts` | 26 | the allowance rules, against a fork with the plugin installed on a real Circle account |
   | `npm run test:integration` | 13 | the whole path — a signed user operation through the real EntryPoint, money moving, refusals costing nothing, revocation taking effect |
 

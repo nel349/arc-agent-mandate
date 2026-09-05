@@ -17,6 +17,9 @@ import { balanceOf } from "../arc/send.ts";
  * headroom their agent does not have.
  */
 
+/** Slow enough to be unhurried on a chain that settles in under a second. */
+const POLL_INTERVAL_MS = 10_000;
+
 export interface MandateScreen {
   readonly mandates: readonly Mandate[];
   readonly balance: Usdc | null;
@@ -51,8 +54,23 @@ export function useMandate(account: ArcAccount | null): MandateScreen {
     })();
   }, [account]);
 
-  // Read once when an account arrives. Payments are watched separately, by the feed.
   useEffect(refresh, [refresh]);
+
+  /**
+   * Keep reading while the screen is open.
+   *
+   * The agent spends from outside this app, so a screen that reads once shows a number that is
+   * quietly wrong the moment anything happens — the worst failure available for a figure whose
+   * whole job is to be trusted. Arc settles in under a second, so ten is unhurried.
+   *
+   * Paused while a write is in flight: re-reading mid-grant would show the old allowance and
+   * make a confirmed action look like it failed.
+   */
+  useEffect(() => {
+    if (!account || busy) return;
+    const timer = setInterval(refresh, POLL_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [account, busy, refresh]);
 
   /**
    * Every write follows the same shape: clear the last error, run, then re-read the chain.

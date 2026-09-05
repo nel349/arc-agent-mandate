@@ -52,6 +52,9 @@ export default function AllowancesScreen() {
       agent,
       limit,
       payees: [],
+      // Authorising an agent that cannot pay to submit is authorising nothing. This goes in the
+      // same user operation, so it is one confirmation and the two can never come apart.
+      gasFloat: GAS_FLOAT,
       expiresAt: Number.isFinite(window) && window > 0
         ? Math.floor(Date.now() / 1000) + Math.round(window * 86_400)
         : undefined,
@@ -147,6 +150,9 @@ export default function AllowancesScreen() {
 // Module scope: defined inside the component these would be new references every render, and the
 // list would treat every row as changed.
 const keyOfMandate = (item: Mandate) => item.agent;
+
+/** Enough for roughly 350 payments at the measured ~0.0014 USDC per submission. */
+const GAS_FLOAT = Usdc.parse("0.5");
 
 // Components rather than elements: an element built at module scope would evaluate `styles`
 // before the StyleSheet below it exists.

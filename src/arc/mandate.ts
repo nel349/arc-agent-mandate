@@ -85,6 +85,16 @@ export interface MandateTerms {
   readonly expiresAt?: number;
   /** Optional label, surfaced by `readMandate`. */
   readonly label?: string;
+  /**
+   * A small amount of USDC sent to the agent so it can submit its own operations.
+   *
+   * Without this a granted agent is authorised and still cannot spend: submitting a user
+   * operation is an ordinary transaction, and someone has to pay for it. The account reimburses
+   * most of it, so the float drains at roughly 0.0014 USDC per payment — about 700 payments per
+   * dollar. It is the agent's own money, so losing the agent's key loses the float and nothing
+   * more.
+   */
+  readonly gasFloat?: Usdc;
 }
 
 export interface Mandate {
@@ -178,25 +188,51 @@ export async function isPluginInstalled(address: Address): Promise<boolean> {
  * rather than twice — and a half-granted mandate cannot exist.
  */
 export async function grantMandate(account: ArcAccount, terms: MandateTerms): Promise<Hash> {
+  const calls = buildGrantCalls(account.address, terms, await isPluginInstalled(account.address));
+  try {
+    return await account.bundler.sendUserOperation({
+      account: account.smartAccount, calls, ...(await fees(account)),
+    });
+  } catch (cause) {
+    throw new MandateError(`granting ${terms.limit} to ${terms.agent} failed`, { cause });
+  }
+}
+
+export interface GrantCall {
+  readonly to: Address;
+  readonly data?: Hex;
+  readonly value?: bigint;
+}
+
+/**
+ * The calls a grant sends, as one user operation.
+ *
+ * Pure and exported so it can be checked without a bundler or a passkey. This is the most
+ * consequential thing the app does — get the shape wrong and someone authorises more than they
+ * meant to — and it was previously only reachable through a network call.
+ */
+export function buildGrantCalls(
+  /** The granting account. Management calls target it, because that is where the plugin lives. */
+  accountAddress: Address,
+  terms: MandateTerms,
+  pluginInstalled: boolean,
+): GrantCall[] {
   if (terms.limit.isNegative() || terms.limit.isZero()) {
     throw new MandateError("a mandate must allow something; use revokeMandate to take one away");
-  }
-  if (terms.payees.length === 0) {
-    throw new MandateError("a mandate with no payees can pay nobody — name at least one");
   }
 
   const updates = permissionUpdates(terms);
   const tag = keccak256(toHex(terms.label ?? "mandate"));
 
-  const call = (await isPluginInstalled(account.address))
+  const grantCall: GrantCall = pluginInstalled
     ? {
-        to: account.address,
+        to: accountAddress,
         data: encodeFunctionData({
           abi: pluginAbi, functionName: "addSessionKey", args: [terms.agent, tag, updates],
         }),
       }
     : {
-        to: account.address,
+        to: accountAddress,
         data: encodeFunctionData({
           abi: accountAbi,
           functionName: "installPlugin",
@@ -210,13 +246,13 @@ export async function grantMandate(account: ArcAccount, terms: MandateTerms): Pr
         }),
       };
 
-  try {
-    return await account.bundler.sendUserOperation({
-      account: account.smartAccount, calls: [call], ...(await fees(account)),
-    });
-  } catch (cause) {
-    throw new MandateError(`granting ${terms.limit} to ${terms.agent} failed`, { cause });
+  // Authorising the agent and funding it are one user operation, so the person confirms once and
+  // an agent can never end up authorised but unable to act.
+  if (terms.gasFloat !== undefined && !terms.gasFloat.isZero()) {
+    if (terms.gasFloat.isNegative()) throw new MandateError("a gas float cannot be negative");
+    return [grantCall, { to: terms.agent, value: terms.gasFloat.toNativeUnits() }];
   }
+  return [grantCall];
 }
 
 /** `abi.encode(address[], bytes32[], bytes[][])`, the plugin's `onInstall` payload. */

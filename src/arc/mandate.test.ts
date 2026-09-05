@@ -2,7 +2,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { decodeAbiParameters, parseAbiParameters } from "viem";
-import { SESSION_KEY_PLUGIN, SESSION_KEY_PLUGIN_MANIFEST_HASH } from "./mandate.ts";
+import {
+  buildGrantCalls, SESSION_KEY_PLUGIN, SESSION_KEY_PLUGIN_MANIFEST_HASH,
+  type MandateTerms,
+} from "./mandate.ts";
+import { Usdc } from "./usdc.ts";
 
 /**
  * These two constants are the SDK's only hard links to the deployed contract. If either drifts,
@@ -48,4 +52,69 @@ test("install data round-trips through the ABI encoding the plugin expects", asy
   assert.deepEqual(gotKeys, keys);
   assert.deepEqual(gotTags, tags);
   assert.deepEqual(gotUpdates, updates);
+});
+
+// ---- what a grant actually sends -------------------------------------------
+
+const ACCOUNT = "0xa8546Ff7D7Fcd3BBd08C0ef31E74C73DF6BcC447" as const;
+const AGENT = "0x1f940d717c07c0ff7289771e61da39fd6143F107" as const;
+const terms = (extra: Partial<MandateTerms> = {}): MandateTerms => ({
+  agent: AGENT, limit: Usdc.parse("10"), payees: [], ...extra,
+});
+
+test("the first grant installs the plugin; later ones only add a key", async () => {
+  const { decodeFunctionData, parseAbi } = await import("viem");
+  const first = buildGrantCalls(ACCOUNT, terms(), false);
+  const later = buildGrantCalls(ACCOUNT, terms(), true);
+
+  const nameOf = (data: `0x${string}`, sig: string) =>
+    decodeFunctionData({ abi: parseAbi([sig]), data }).functionName;
+
+  assert.equal(
+    nameOf(first[0]!.data!, "function installPlugin(address plugin, bytes32 manifestHash, bytes pluginInstallData, (address plugin, uint8 functionId)[] dependencies)"),
+    "installPlugin",
+  );
+  assert.equal(
+    nameOf(later[0]!.data!, "function addSessionKey(address sessionKey, bytes32 tag, bytes[] permissionUpdates)"),
+    "addSessionKey",
+  );
+});
+
+test("management calls target the granting account, never the zero address", () => {
+  // The account routes these to the plugin. Sending them anywhere else silently does nothing,
+  // and sending them to 0x0 burns the operation.
+  for (const installed of [true, false]) {
+    assert.equal(buildGrantCalls(ACCOUNT, terms(), installed)[0]!.to, ACCOUNT);
+  }
+});
+
+test("a gas float rides along in the same operation", () => {
+  const calls = buildGrantCalls(ACCOUNT, terms({ gasFloat: Usdc.parse("0.5") }), true);
+  assert.equal(calls.length, 2, "one confirmation, not two");
+  assert.equal(calls[1]!.to, AGENT, "the float goes to the agent, not the account");
+  assert.equal(calls[1]!.value, 500_000_000_000_000_000n);
+  assert.equal(calls[1]!.data, undefined, "a plain transfer carries no calldata");
+});
+
+test("no gas float means one call, not a zero-value transfer", () => {
+  assert.equal(buildGrantCalls(ACCOUNT, terms(), true).length, 1);
+  assert.equal(buildGrantCalls(ACCOUNT, terms({ gasFloat: Usdc.ZERO }), true).length, 1);
+});
+
+test("a grant that allows nothing is refused", () => {
+  assert.throws(() => buildGrantCalls(ACCOUNT, terms({ limit: Usdc.ZERO }), true), /allow something/);
+  assert.throws(() => buildGrantCalls(ACCOUNT, terms({ limit: Usdc.parse("-5") }), true), /allow something/);
+});
+
+test("a negative gas float is refused rather than silently encoded", () => {
+  assert.throws(
+    () => buildGrantCalls(ACCOUNT, terms({ gasFloat: Usdc.parse("-1") }), true),
+    /cannot be negative/,
+  );
+});
+
+test("an allowance with no payees is allowed, and bounds money and time instead", () => {
+  // Requiring payees up front cannot work: an agent does not know who it will pay until it finds
+  // a service. See agent-mandate/UX_FLOW.md.
+  assert.doesNotThrow(() => buildGrantCalls(ACCOUNT, terms({ payees: [] }), true));
 });
