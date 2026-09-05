@@ -85,12 +85,21 @@ const updatesAbi = parseAbi([
 const ACCESS_LIST = { allowlist: 0, denylist: 1, allowAll: 2 } as const;
 
 /**
- * Arc's ERC-20 view over the same balance the native rail spends.
+ * Every contract that can move this account's USDC **without** carrying `msg.value`.
  *
- * Named here rather than reached through `chain.ts` because this is not the address we send to;
- * it is the address a session key must never reach. See `denyTheSecondRail`.
+ * The mandate's native limit counts `call.value` on every call, whatever it targets, so a
+ * value-carrying call to any address is already bounded. What escapes the count is a contract with
+ * protocol-level authority to move the balance on the account's behalf — on Arc, the ERC-20 view,
+ * where `transfer` moves the same dollars with `value == 0`.
+ *
+ * Exported because it is a claim about the chain, not an implementation detail: it says these are
+ * *all* of them. `integration/arc-rails.test.mjs` re-derives the set from Arc and fails if the
+ * chain ever grows one this list does not name — which is the single weakness of granting on a
+ * denylist, made loud instead of silent.
  */
-const USDC_ERC20_VIEW: Address = "0x3600000000000000000000000000000000000000";
+export const DENIED_RAILS: readonly Address[] = [
+  "0x3600000000000000000000000000000000000000",
+];
 
 /**
  * Shutting the rail a denylist would otherwise leave open.
@@ -100,12 +109,14 @@ const USDC_ERC20_VIEW: Address = "0x3600000000000000000000000000000000000000";
  * without the native limit ever seeing them. Under an allowlist that call was refused for being
  * unlisted; under a denylist it has to be refused by name, or the limit on screen is half a bound.
  */
-function denyTheSecondRail(): Hex {
-  return encodeFunctionData({
-    abi: updatesAbi,
-    functionName: "updateAccessListAddressEntry",
-    args: [USDC_ERC20_VIEW, true, false],
-  });
+function denyTheSecondRail(): Hex[] {
+  return DENIED_RAILS.map((rail) =>
+    encodeFunctionData({
+      abi: updatesAbi,
+      functionName: "updateAccessListAddressEntry",
+      args: [rail, true, false],
+    }),
+  );
 }
 
 export interface MandateTerms {
@@ -181,7 +192,7 @@ function permissionUpdates(terms: MandateTerms): Hex[] {
     }));
   }
 
-  if (!scoped) updates.push(denyTheSecondRail());
+  if (!scoped) updates.push(...denyTheSecondRail());
 
   updates.push(encodeFunctionData({
     abi: updatesAbi,
