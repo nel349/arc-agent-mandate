@@ -47,6 +47,25 @@ function MandateCardView({
         <Text style={{ color: c.track }}>{"█".repeat(SEGMENTS - filled)}</Text>
       </Text>
 
+      {/*
+        A bar needs saying what it measures, and this one especially: the figure above is what is
+        **left**, while the bar fills with what has been **spent**, so the number counts down as
+        the bar fills up. Unlabelled and at zero it reads as an empty box rather than a meter —
+        which is exactly how it was read.
+
+        The float is here for a different reason: granting sends the agent this money, and until
+        it appeared on the card the only trace of the transfer was a wallet balance that had
+        quietly gone down.
+      */}
+      <View style={styles.row}>
+        <Text style={[styles.meta, { color: c.dim }]}>
+          {mandate.spent.isZero() ? "nothing spent yet" : `${mandate.spent.format(2)} spent`}
+        </Text>
+        <Text style={[styles.meta, { color: c.dim }]}>
+          {mandate.agentFloat.format(2)} held for fees
+        </Text>
+      </View>
+
       {/* Right-aligned and sized to itself. Taking an allowance back is the one thing you can do
           to a card, but it is not what the screen is for, and a column of full-width Revokes
           reads as a list of demands rather than a list of allowances. */}
@@ -62,7 +81,7 @@ function MandateCardView({
  *
  * The screen re-reads the chain every ten seconds and builds fresh `Mandate` objects each time, so
  * a default memo would never match and every card would re-render on every poll — for figures that
- * mostly have not changed. These four are everything the card draws.
+ * mostly have not changed. These are everything the card draws.
  */
 export const MandateCard = memo(MandateCardView, (a, b) =>
   a.busy === b.busy &&
@@ -70,7 +89,10 @@ export const MandateCard = memo(MandateCardView, (a, b) =>
   a.mandate.agent === b.mandate.agent &&
   a.mandate.limit.toNativeUnits() === b.mandate.limit.toNativeUnits() &&
   a.mandate.spent.toNativeUnits() === b.mandate.spent.toNativeUnits() &&
-  a.mandate.expiresAt === b.mandate.expiresAt,
+  a.mandate.expiresAt === b.mandate.expiresAt &&
+  // The float drains as the agent submits, so a comparator blind to it would freeze that figure
+  // at whatever it was on first render.
+  a.mandate.agentFloat.toNativeUnits() === b.mandate.agentFloat.toNativeUnits(),
 );
 
 const styles = StyleSheet.create({

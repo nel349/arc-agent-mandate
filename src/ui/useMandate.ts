@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { Address } from "viem";
+import type { Address, Hash } from "viem";
 import type { ArcAccount } from "../arc/account.ts";
 import {
   grantMandate, isPluginDeployed, listMandates, revokeMandate, updateMandate,
@@ -7,6 +7,8 @@ import {
 } from "../arc/mandate.ts";
 import { Usdc } from "../arc/usdc.ts";
 import { describeMandateFailure } from "./mandate-errors.ts";
+
+declare const __DEV__: boolean;
 
 /**
  * Granting, watching and revoking mandates, kept out of the view.
@@ -84,15 +86,32 @@ export function useMandate(account: ArcAccount | null): MandateScreen {
    * The re-read is the important half. A user operation is accepted by the bundler before it is
    * mined, so returning early would show a mandate that does not exist yet.
    */
+  /**
+   * Run one mandate operation and wait for it to land.
+   *
+   * `run` returns **every** hash it produced, not one: a grant is two user operations, and the
+   * previous shape returned `unknown` and cast it to a hash, which both hid that and would have
+   * waited on the wrong thing. The last hash is the one to wait for, because they are sequential.
+   *
+   * Success is announced. Only failures used to reach the console, so a grant that worked moved
+   * real money and left no trace anywhere — no hash to look up, and a wallet balance that had
+   * quietly gone down. The hashes are public identifiers of operations the person just authorised
+   * themselves, so this is not credential-adjacent, but it stays out of release builds anyway.
+   */
   const perform = useCallback(
-    (run: (account: ArcAccount) => Promise<unknown>) => {
+    (label: string, run: (account: ArcAccount) => Promise<readonly Hash[]>) => {
       if (!account || busy) return;
       setError(null);
       setBusy(true);
       void (async () => {
         try {
-          const userOpHash = await run(account);
-          await account.bundler.waitForUserOperationReceipt({ hash: userOpHash as `0x${string}` });
+          const hashes = await run(account);
+          const last = hashes[hashes.length - 1];
+          if (last !== undefined) await account.bundler.waitForUserOperationReceipt({ hash: last });
+          if (__DEV__) {
+            console.log(`[mandate] ${label} — ${hashes.length} user operation(s)`);
+            for (const hash of hashes) console.log(`[mandate]   ${hash}`);
+          }
           refresh();
         } catch (cause) {
           setError(describeMandateFailure(cause));
@@ -105,12 +124,16 @@ export function useMandate(account: ArcAccount | null): MandateScreen {
   );
 
   const grant = useCallback(
-    (terms: MandateTerms) => perform((a) => grantMandate(a, terms)),
+    (terms: MandateTerms) =>
+      perform("granted an allowance", async (a) => {
+        const receipt = await grantMandate(a, terms);
+        return receipt.float === null ? [receipt.grant] : [receipt.grant, receipt.float];
+      }),
     [perform],
   );
 
   const revoke = useCallback(
-    (agent: Address) => perform((a) => revokeMandate(a, agent)),
+    (agent: Address) => perform("revoked an allowance", async (a) => [await revokeMandate(a, agent)]),
     [perform],
   );
 
@@ -125,7 +148,7 @@ export function useMandate(account: ArcAccount | null): MandateScreen {
         setError(`no mandate for ${agent}`);
         return;
       }
-      perform((a) => updateMandate(a, { agent, limit }));
+      perform("changed an allowance", async (a) => [await updateMandate(a, { agent, limit })]);
     },
     [mandates, perform],
   );

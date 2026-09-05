@@ -153,6 +153,7 @@ const sample = (limit: string, spent: string, expiresAt?: number): Mandate => {
     spent: s,
     remaining: s.compare(l) >= 0 ? Usdc.ZERO : l.subtract(s),
     expiresAt,
+    agentFloat: Usdc.parse("0.5"),
   };
 };
 

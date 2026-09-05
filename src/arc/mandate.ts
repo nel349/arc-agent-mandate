@@ -148,6 +148,15 @@ export interface Mandate {
   readonly spent: Usdc;
   readonly remaining: Usdc;
   readonly expiresAt?: number;
+  /**
+   * What the agent holds of its own, to pay for submitting.
+   *
+   * Read from the chain rather than remembered, because it is the agent's balance and it goes
+   * down as the agent works. It is here so the card can account for money that left the wallet:
+   * granting sends this float, and without it on screen the only evidence of the transfer is a
+   * balance that is smaller than it was, with nothing saying why.
+   */
+  readonly agentFloat: Usdc;
 }
 
 /**
@@ -330,7 +339,22 @@ async function sendManagement(account: ArcAccount, callData: Hex): Promise<Hash>
   });
 }
 
-export async function grantMandate(account: ArcAccount, terms: MandateTerms): Promise<Hash> {
+/**
+ * What a grant actually did, because one grant is two operations.
+ *
+ * Returned rather than logged from in here: the SDK should not decide what reaches a console, and
+ * a hash the caller never sees is a transfer nobody can look up. A successful grant used to print
+ * nothing at all — only failures were logged — so two operations moved real money and left no
+ * trace but a smaller balance.
+ */
+export interface GrantReceipt {
+  /** The management operation: installs the plugin if needed, and adds the session key. */
+  readonly grant: Hash;
+  /** The float transfer, when one was asked for. A second operation; see `GrantPlan`. */
+  readonly float: Hash | null;
+}
+
+export async function grantMandate(account: ArcAccount, terms: MandateTerms): Promise<GrantReceipt> {
   const plan = buildGrantPlan(account.address, terms, await isPluginInstalled(account.address));
 
   let hash: Hash;
@@ -340,13 +364,16 @@ export async function grantMandate(account: ArcAccount, terms: MandateTerms): Pr
     throw new MandateError(`granting ${terms.limit} to ${terms.agent} failed`, { cause });
   }
 
-  if (plan.float !== null) {
+  if (plan.float === null) return { grant: hash, float: null };
+
+  {
     // Awaited, so the second operation is built against a nonce the first has already consumed.
     await account.bundler.waitForUserOperationReceipt({ hash });
     try {
-      await account.bundler.sendUserOperation({
+      const float = await account.bundler.sendUserOperation({
         account: account.smartAccount, calls: [plan.float], ...(await fees(account)),
       });
+      return { grant: hash, float };
     } catch (cause) {
       // The mandate stands; only the agent's ability to submit for itself is missing, and that is
       // repaired by sending it USDC. Worth saying plainly rather than reading as a failed grant.
@@ -357,7 +384,6 @@ export async function grantMandate(account: ArcAccount, terms: MandateTerms): Pr
       );
     }
   }
-  return hash;
 }
 
 /**
@@ -513,7 +539,7 @@ export async function listMandates(address: Address): Promise<Mandate[]> {
 }
 
 export async function readMandate(address: Address, agent: Address): Promise<Mandate> {
-  const [spend, range] = await Promise.all([
+  const [spend, range, agentBalance] = await Promise.all([
     arcPublicClient.readContract({
       address: SESSION_KEY_PLUGIN, abi: pluginAbi,
       functionName: "getNativeTokenSpendLimitInfo", args: [address, agent],
@@ -522,6 +548,7 @@ export async function readMandate(address: Address, agent: Address): Promise<Man
       address: SESSION_KEY_PLUGIN, abi: pluginAbi,
       functionName: "getKeyTimeRange", args: [address, agent],
     }),
+    arcPublicClient.getBalance({ address: agent }),
   ]);
   const limit = Usdc.fromNativeUnits(spend.limit);
   const spent = Usdc.fromNativeUnits(spend.limitUsed);
@@ -533,5 +560,6 @@ export async function readMandate(address: Address, agent: Address): Promise<Man
     // limit below what is already spent is legitimate and must not read as negative money.
     remaining: spent.compare(limit) >= 0 ? Usdc.ZERO : limit.subtract(spent),
     expiresAt: range[1] === 0 ? undefined : Number(range[1]),
+    agentFloat: Usdc.fromNativeUnits(agentBalance),
   };
 }

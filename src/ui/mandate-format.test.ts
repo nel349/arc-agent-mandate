@@ -12,6 +12,7 @@ const mandate = (limit: string, spent: string, expiresAt?: number): Mandate => {
     limit: l, spent: s,
     remaining: s.compare(l) >= 0 ? Usdc.ZERO : l.subtract(s),
     expiresAt,
+    agentFloat: Usdc.parse("0.5"),
   };
 };
 
