@@ -52,8 +52,8 @@ refused payment never even costs gas.
 ## Why the agent needs a small float, and why that is the right trade
 
 The agent submits its own operations over a plain RPC. It fronts the transaction gas and the
-account reimburses it, so the float drains slowly — **measured at ~0.0014 USDC per payment, about
-700 payments per dollar.** The grant sends this float, so one Face ID both authorises the agent
+account reimburses it, so the float drains steadily — **about 0.028 USDC per payment at Arc
+testnet's present fees, roughly 36 payments per dollar.** The grant sends this float, so one Face ID both authorises the agent
 and funds it.
 
 The alternative was Circle's bundler, and its paymaster **will** sponsor an agent's spend — we

@@ -1,8 +1,12 @@
 import { readFileSync } from "node:fs";
-import { encodeFunctionData, keccak256, toHex } from "/Users/norman/Development/arc-agent-mandate/node_modules/viem/_esm/index.js";
+import { encodeFunctionData, keccak256, toHex } from "viem";
 
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const ENV_PATH = join(dirname(fileURLToPath(import.meta.url)), "..", ".env");
 const env = Object.fromEntries(
-  readFileSync("/Users/norman/Development/arc-agent-mandate/.env", "utf8")
+  readFileSync(ENV_PATH, "utf8")
     .split("\n").filter(l => l.includes("=") && !l.startsWith("#"))
     .map(l => [l.slice(0, l.indexOf("=")).trim(), l.slice(l.indexOf("=") + 1).trim()])
 );
@@ -58,8 +62,10 @@ const supported = await rpc("pm_getPaymasterStubData", [
 ]);
 console.log("\npm_getPaymasterStubData ->", JSON.stringify(supported.body).slice(0, 600));
 
-// The stub is only a gas-estimation placeholder and is handed out freely. Policy is applied when
-// the paymaster is asked to actually sign, so this is the call that answers the question.
+// NOTE: an earlier version of this comment claimed policy is applied here, and that a paymaster
+// signature therefore answers whether installPlugin is sponsored. That was wrong — see the
+// discrimination check at the bottom, which gets the same signature for a dead address sending
+// garbage. Neither call decides anything.
 const final = await rpc("pm_getPaymasterData", [
   {
     sender: MSCA, nonce: "0x0", callData,
@@ -89,3 +95,37 @@ const control = await rpc("pm_getPaymasterData", [
   ENTRY_POINT, "0x4cef52", {},
 ]);
 console.log("\ncontrol (plain execute) ->", JSON.stringify(control.body).slice(0, 400));
+
+/**
+ * Does any of the above mean anything?
+ *
+ * A paymaster that signs everything tells you nothing by signing yours. Before reading a
+ * `paymaster` field as approval, check what it does with input it should obviously refuse.
+ */
+const sponsored = async (label, sender, data) => {
+  const r = await rpc("pm_getPaymasterData", [
+    {
+      sender, nonce: "0x0", callData: data,
+      callGasLimit: "0x30d40", verificationGasLimit: "0x30d40", preVerificationGas: "0xc350",
+      maxFeePerGas: "0x3b9aca00", maxPriorityFeePerGas: "0x3b9aca00",
+      paymasterVerificationGasLimit: "0x186a0", paymasterPostOpGasLimit: "0xbb8", signature: "0x",
+    },
+    ENTRY_POINT, "0x4cef52", {},
+  ]);
+  const verdict = r.body?.result?.paymaster ? "signed" : "refused";
+  console.log(`  ${label.padEnd(34)} ${verdict}`);
+  return verdict === "signed";
+};
+
+console.log("\ndiscrimination check — input the paymaster ought to refuse:");
+const nonsense = [
+  await sponsored("garbage calldata, dead address", "0x000000000000000000000000000000000000dEaD", "0xdeadbeef"),
+  await sponsored("empty calldata, random address", "0x1111111111111111111111111111111111111111", "0x"),
+];
+
+console.log(
+  nonsense.every(Boolean)
+    ? "\nCONCLUSION: the paymaster signs anything at this stage, so nothing above is evidence\n" +
+      "that installPlugin is sponsored. Only submitting a real userOp settles it."
+    : "\nCONCLUSION: the paymaster does discriminate here, so the installPlugin result is meaningful.",
+);

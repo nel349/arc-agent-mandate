@@ -8,8 +8,11 @@ import { ARC_RPC, encodeSpend, publicClient } from "./chain.mjs";
  * **Settled 2026-09-04, by measurement rather than preference.**
  *
  * The agent submits `handleOps` itself, from its own key, over a plain RPC. It fronts the
- * transaction gas and the account reimburses it as beneficiary, so a small float depletes slowly —
- * measured at ~0.0014 USDC per payment, roughly 700 payments per dollar.
+ * transaction gas and the account reimburses it as beneficiary.
+ *
+ * Cost per payment tracks the chain: roughly 1.1M gas, so about **0.028 USDC at Arc testnet's
+ * present ~25 gwei**, or ~36 payments per dollar. An earlier figure of 0.0014 USDC came from a
+ * hardcoded 1 gwei fee that the chain never charged, and is wrong by the same factor of twenty.
  *
  * The alternative was Circle's bundler, whose paymaster *will* sponsor an agent's spend — checked
  * directly: `pm_getPaymasterData` signs for an `executeWithSessionKey` operation. It was rejected
@@ -41,11 +44,26 @@ export async function submitSpend({ agent, account, to, value }) {
     args: [account, BigInt(agent.address)],
   });
 
+  /**
+   * Fees come from the chain, not from a constant.
+   *
+   * These were pinned at 1 gwei, which is roughly twenty times below what Arc testnet actually
+   * charges — its base fee sits around 20 gwei. An operation offering less than the base fee is
+   * simply not included, so every payment would have failed on the real chain. It passed in
+   * testing because a forked anvil does not hold an operation to the live base fee, which is the
+   * precise shape of bug a fork cannot show you.
+   *
+   * `estimateFeesPerGas` already applies a headroom multiplier over the current base fee, so a
+   * block that gets busier between estimating and submitting does not strand the operation.
+   */
+  const { maxFeePerGas, maxPriorityFeePerGas } = await publicClient.estimateFeesPerGas();
+
   const userOp = {
     sender: account, nonce, initCode: "0x", callData,
     accountGasLimits: pack(500_000n, 500_000n),
     preVerificationGas: 100_000n,
-    gasFees: pack(1_000_000_000n, 1_000_000_000n),
+    // v0.7 packs the priority fee first, then the max fee.
+    gasFees: pack(maxPriorityFeePerGas, maxFeePerGas),
     paymasterAndData: "0x", signature: "0x",
   };
   const hash = await publicClient.readContract({
@@ -53,9 +71,8 @@ export async function submitSpend({ agent, account, to, value }) {
   });
   userOp.signature = await agent.signMessage({ message: { raw: hash } });
 
-  // The agent submits its own operation by default. It fronts the transaction gas and the
-  // account reimburses it as beneficiary, so the float depletes at roughly 0.0014 USDC per
-  // payment -- about 700 payments per dollar. See mcp/README.md on why this beats a bundler.
+  // The agent submits its own operation by default. It fronts the transaction gas and the account
+  // reimburses it as beneficiary. See mcp/README.md on why this beats a bundler.
   const submitter = createWalletClient({
     account: process.env.ARC_SUBMITTER_KEY
       ? privateKeyToAccount(process.env.ARC_SUBMITTER_KEY)

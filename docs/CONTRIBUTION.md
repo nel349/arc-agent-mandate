@@ -63,7 +63,7 @@ that address from your phone. It then finds the granting account **by itself**, 
 makes a single scan enough with no second round trip and no config file.
 
 It submits its own operations over a plain RPC, fronting gas and being reimbursed by the account:
-about 0.0014 USDC per payment, roughly 700 payments per dollar. Circle's bundler would sponsor it
+about 0.028 USDC per payment at Arc testnet's present fees, roughly 36 payments per dollar. Circle's bundler would sponsor it
 outright — we checked — but reaching it needs the app's client key and a domain-bound header, and
 an agent should not need the wallet vendor's credential to spend an allowance it already has.
 
