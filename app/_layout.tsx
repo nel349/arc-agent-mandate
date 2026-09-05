@@ -1,38 +1,8 @@
-import { Link, Stack } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Pressable, StyleSheet } from "react-native";
+import { Stack, useRouter } from "expo-router";
+import { Platform, Pressable } from "react-native";
 import { ThemeProvider, useTheme } from "../src/ui/theme-context.tsx";
 import { tokens } from "../src/ui/tokens.ts";
-
-/**
- * The glyph fills the same fraction of its control as every other round control in the app, so a
- * header button and a field `?` look like the same family. Sized independently, an icon ends up
- * looking lost in its own box — which is what a 22pt glyph in a 32pt container was doing.
- */
-const HEADER_ICON = Math.round(tokens.size.control.header * tokens.size.glyphScale);
-
-const styles = StyleSheet.create({
-  /** A box to centre in. No background, so it cannot become a second ring inside the one the
-   *  navigator already draws for header buttons. */
-  headerButton: {
-    width: tokens.size.control.header,
-    height: tokens.size.control.header,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  /**
-   * Both halves, and leaving either out is what kept this off-centre.
-   *
-   * The box above does the centring. `lineHeight` equal to the glyph size collapses the font's
-   * line box onto the glyph — an icon font's default box is roughly 1.2x its size and the extra
-   * sits below the baseline, so centring that box leaves the glyph visibly high.
-   * `includeFontPadding` removes Android's equivalent.
-   */
-  headerIcon: {
-    lineHeight: HEADER_ICON,
-    includeFontPadding: false,
-  },
-});
 
 /**
  * The provider wraps the navigator so a palette change reaches every screen at once, including the
@@ -49,6 +19,7 @@ export default function RootLayout() {
 
 function Navigator() {
   const c = useTheme().color;
+  const router = useRouter();
   return (
     <Stack
       screenOptions={{
@@ -64,24 +35,44 @@ function Navigator() {
           title: "Allowances",
           // Settings is occasional, so it belongs in the chrome rather than in the content. A tab
           // bar would spend a permanent third of the screen on something opened once a month.
-          // A bare glyph, with no container of our own.
-          //
-          // The navigator already draws a pressable background for header buttons, so wrapping
-          // ours in a glass circle produced two concentric rings — and the gear was centred in
-          // ours while sitting off-centre in theirs. iOS nav bar buttons are plain glyphs; the
-          // chrome is the navigator's job, and the touch target comes from hitSlop.
-          headerRight: () => (
-            <Link href="/settings" asChild>
+          /**
+           * A real UIBarButtonItem, not a React view in a header slot.
+           *
+           * Every earlier attempt put a custom view there and then tried to make it look native:
+           * a glass circle that turned out to duplicate the one iOS 26 already draws around
+           * header items, then a plain glyph whose icon-font line box left it sitting high, then
+           * a sized box that still would not line up with the OS capsule around it. Each fix
+           * moved the problem because the problem was the approach.
+           *
+           * `unstable_headerRightItems` hands iOS a bar button item with an SF Symbol instead.
+           * The system owns the shape, the padding, the tint, the pressed state and the
+           * alignment — none of which we can match by hand, and none of which we should be
+           * trying to.
+           *
+           * iOS only — which is why `headerRight` is still supplied below. On iOS the native
+           * items override it; on Android a view is the right answer, because there is no bar
+           * button item to hand the work to.
+           */
+          unstable_headerRightItems: () => [
+            {
+              type: "button",
+              label: "Settings",
+              icon: { type: "sfSymbol", name: "gearshape" },
+              tintColor: c.paper,
+              onPress: () => router.push("/settings"),
+            },
+          ],
+          headerRight: () =>
+            Platform.OS === "ios" ? null : (
               <Pressable
-                style={styles.headerButton}
-                hitSlop={Math.round((tokens.size.tapTarget - tokens.size.control.header) / 2)}
+                onPress={() => router.push("/settings")}
+                hitSlop={tokens.space.md}
                 accessibilityRole="button"
                 accessibilityLabel="Settings"
               >
-                <Ionicons name="settings-outline" size={HEADER_ICON} color={c.paper} style={styles.headerIcon} />
+                <Ionicons name="settings-outline" size={tokens.font.title} color={c.paper} />
               </Pressable>
-            </Link>
-          ),
+            ),
         }}
       />
       <Stack.Screen name="settings" options={{ title: "Settings" }} />
