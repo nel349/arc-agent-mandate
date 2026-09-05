@@ -1,4 +1,3 @@
-import Ionicons from "@expo/vector-icons/Ionicons";
 import { Link, Stack } from "expo-router";
 import { IconButton } from "../src/ui/IconButton.tsx";
 import { ThemeProvider, useTheme } from "../src/ui/theme-context.tsx";
@@ -35,9 +34,12 @@ function Navigator() {
           // bar would spend a permanent third of the screen on something opened once a month.
           headerRight: () => (
             <Link href="/settings" asChild>
-              <IconButton onPress={() => {}} label="Settings" style={{ marginRight: 4 }}>
-                <Ionicons name="settings-outline" size={18} color={c.paper} />
-              </IconButton>
+              <IconButton
+                icon="settings-outline"
+                onPress={() => {}}
+                label="Settings"
+                style={{ marginRight: 4 }}
+              />
             </Link>
           ),
         }}

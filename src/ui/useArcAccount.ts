@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { connectArcAccount, WebAuthnMode, type ArcAccount } from "../arc/account.ts";
 import { balanceOf } from "../arc/send.ts";
 import { Usdc } from "../arc/usdc.ts";
@@ -16,6 +16,9 @@ export const CIRCLE_CONFIG = {
   clientUrl: process.env.EXPO_PUBLIC_CIRCLE_CLIENT_URL ?? "",
   passkeyDomain: process.env.EXPO_PUBLIC_CIRCLE_PASSKEY_DOMAIN ?? "",
 } as const;
+
+/** Arc settles in under a second, so ten is unhurried. Matches the mandate poll deliberately. */
+const BALANCE_POLL_MS = 10_000;
 
 export interface ArcWallet {
   readonly account: ArcAccount | null;
@@ -85,6 +88,21 @@ export function useArcAccount(): ArcWallet {
     if (!account) throw new Error("no wallet yet");
     setBalance(await balanceOf(account.address));
   }), [account, run]);
+
+  /**
+   * The balance goes stale on its own, because an agent spends from outside this app. Polling
+   * lives here rather than in the mandate hook: whoever owns a number is responsible for it being
+   * true, and having two hooks read the same figure is how they end up disagreeing on screen.
+   */
+  useEffect(() => {
+    if (!account || busy) return;
+    const timer = setInterval(() => {
+      void balanceOf(account.address).then(setBalance).catch(() => {
+        // A missed poll is not worth a message; the next one will say the same thing or better.
+      });
+    }, BALANCE_POLL_MS);
+    return () => clearInterval(timer);
+  }, [account, busy]);
 
   return { account, balance, busy, error, create, signIn, refresh };
 }

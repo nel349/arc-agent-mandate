@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { StyleSheet, View } from "react-native";
+import { ScrollView, StyleSheet, View } from "react-native";
 import { useTheme } from "./theme-context.tsx";
 import { tokens } from "./tokens.ts";
 
@@ -35,7 +35,17 @@ const Gradient: null | ((props: Record<string, unknown>) => ReactNode) = (() => 
 
 export function Screen({ children }: { readonly children: ReactNode }) {
   const c = useTheme().color;
-  const content = <View style={styles.content}>{children}</View>;
+  const content = (
+    <ScrollView
+      contentContainerStyle={styles.content}
+      // Lets iOS apply safe-area insets natively rather than a SafeAreaView wrapper or padding
+      // guessed per device.
+      contentInsetAdjustmentBehavior="automatic"
+      keyboardShouldPersistTaps="handled"
+    >
+      {children}
+    </ScrollView>
+  );
 
   if (Gradient === null) {
     return <View style={[styles.fill, { backgroundColor: c.groundMid }]}>{content}</View>;
@@ -55,5 +65,7 @@ export function Screen({ children }: { readonly children: ReactNode }) {
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
-  content: { flex: 1, padding: tokens.space.lg, gap: tokens.space.md },
+  // `flexGrow`, not `flex`: a content container with `flex: 1` cannot exceed the viewport, which
+  // is the same as not scrolling.
+  content: { flexGrow: 1, padding: tokens.space.lg, gap: tokens.space.md },
 });

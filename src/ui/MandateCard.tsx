@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import type { Mandate } from "../arc/mandate.ts";
 import { expiryLabel, fractionUsed, shortAddress } from "./mandate-format.ts";
@@ -16,7 +17,7 @@ const SEGMENTS = 20;
  * being a readout, it aligns with the monospace around it, and it stays legible at a glance from
  * across a desk.
  */
-export function MandateCard({
+function MandateCardView({
   mandate, onRevoke, busy,
 }: {
   readonly mandate: Mandate;
@@ -49,6 +50,22 @@ export function MandateCard({
     </View>
   );
 }
+
+/**
+ * Compared by value, not by reference.
+ *
+ * The screen re-reads the chain every ten seconds and builds fresh `Mandate` objects each time, so
+ * a default memo would never match and every card would re-render on every poll — for figures that
+ * mostly have not changed. These four are everything the card draws.
+ */
+export const MandateCard = memo(MandateCardView, (a, b) =>
+  a.busy === b.busy &&
+  a.onRevoke === b.onRevoke &&
+  a.mandate.agent === b.mandate.agent &&
+  a.mandate.limit.toNativeUnits() === b.mandate.limit.toNativeUnits() &&
+  a.mandate.spent.toNativeUnits() === b.mandate.spent.toNativeUnits() &&
+  a.mandate.expiresAt === b.mandate.expiresAt,
+);
 
 const styles = StyleSheet.create({
   card: { gap: tokens.space.xs },

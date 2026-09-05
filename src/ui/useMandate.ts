@@ -6,7 +6,6 @@ import {
   type Mandate, type MandateTerms,
 } from "../arc/mandate.ts";
 import { Usdc } from "../arc/usdc.ts";
-import { balanceOf } from "../arc/send.ts";
 
 /**
  * Granting, watching and revoking mandates, kept out of the view.
@@ -22,7 +21,6 @@ const POLL_INTERVAL_MS = 10_000;
 
 export interface MandateScreen {
   readonly mandates: readonly Mandate[];
-  readonly balance: Usdc | null;
   readonly busy: boolean;
   /** Set when the last action failed. Cleared when the next one starts. */
   readonly error: string | null;
@@ -41,7 +39,6 @@ export interface MandateScreen {
 
 export function useMandate(account: ArcAccount | null): MandateScreen {
   const [mandates, setMandates] = useState<readonly Mandate[]>([]);
-  const [balance, setBalance] = useState<Usdc | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState<boolean | null>(null);
@@ -50,14 +47,12 @@ export function useMandate(account: ArcAccount | null): MandateScreen {
     if (!account) return;
     void (async () => {
       try {
-        const [deployed, live, funds] = await Promise.all([
+        const [deployed, live] = await Promise.all([
           isPluginDeployed(),
           listMandates(account.address),
-          balanceOf(account.address),
         ]);
         setReady(deployed);
         setMandates(live);
-        setBalance(funds);
       } catch (cause) {
         setError(describe(cause));
       }
@@ -134,7 +129,7 @@ export function useMandate(account: ArcAccount | null): MandateScreen {
     [mandates, perform],
   );
 
-  return { mandates, balance, busy, error, ready, grant, revoke, changeLimit, refresh };
+  return { mandates, busy, error, ready, grant, revoke, changeLimit, refresh };
 }
 
 /**
