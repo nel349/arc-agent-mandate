@@ -1,7 +1,31 @@
 import { Link, Stack } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Pressable } from "react-native";
+import { Pressable, StyleSheet } from "react-native";
 import { ThemeProvider, useTheme } from "../src/ui/theme-context.tsx";
+
+const ICON = 22;
+
+const styles = StyleSheet.create({
+  /** A box to centre in. No background, so it does not become a second ring inside the one the
+   *  navigator already draws for header buttons. */
+  headerButton: {
+    width: 32,
+    height: 32,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  /**
+   * Both halves of the fix, and leaving either out is what kept this off-centre.
+   *
+   * `lineHeight` equal to the size collapses the font's line box onto the glyph — an icon font's
+   * default line box is roughly 1.2x its size, and the extra sits below the baseline, so centring
+   * that box leaves the glyph visibly high. `includeFontPadding` removes Android's equivalent.
+   */
+  headerIcon: {
+    lineHeight: ICON,
+    includeFontPadding: false,
+  },
+});
 
 /**
  * The provider wraps the navigator so a palette change reaches every screen at once, including the
@@ -41,8 +65,13 @@ function Navigator() {
           // chrome is the navigator's job, and the touch target comes from hitSlop.
           headerRight: () => (
             <Link href="/settings" asChild>
-              <Pressable hitSlop={12} accessibilityRole="button" accessibilityLabel="Settings">
-                <Ionicons name="settings-outline" size={22} color={c.paper} />
+              <Pressable
+                style={styles.headerButton}
+                hitSlop={10}
+                accessibilityRole="button"
+                accessibilityLabel="Settings"
+              >
+                <Ionicons name="settings-outline" size={ICON} color={c.paper} style={styles.headerIcon} />
               </Pressable>
             </Link>
           ),
