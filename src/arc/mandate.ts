@@ -131,6 +131,30 @@ function permissionUpdates(terms: MandateTerms): Hex[] {
   return updates;
 }
 
+/** Only the updates a change actually asks for. */
+function changeUpdates(change: MandateChange): Hex[] {
+  const updates: Hex[] = (change.addPayees ?? []).map((payee) =>
+    encodeFunctionData({
+      abi: updatesAbi, functionName: "updateAccessListAddressEntry", args: [payee, true, false],
+    }),
+  );
+  if (change.limit !== undefined) {
+    updates.push(encodeFunctionData({
+      abi: updatesAbi, functionName: "setNativeTokenSpendLimit",
+      args: [change.limit.toNativeUnits(), 0],
+    }));
+  }
+  if (change.expiresAt !== undefined) {
+    updates.push(encodeFunctionData({
+      abi: updatesAbi, functionName: "updateTimeRange", args: [0, change.expiresAt],
+    }));
+  }
+  if (updates.length === 0) {
+    throw new MandateError("a change that changes nothing — pass a limit, payees or an expiry");
+  }
+  return updates;
+}
+
 async function fees(account: ArcAccount) {
   const price = await getUserOperationGasPrice(account.bundler);
   return {
@@ -202,8 +226,23 @@ function encodeInstallData(keys: readonly Address[], tags: readonly Hex[], updat
   ]);
 }
 
+/**
+ * A change to a live mandate. Only the fields given are touched.
+ *
+ * Deliberately not `MandateTerms`: permission updates are applied, not replaced, so passing an
+ * empty `payees` there would read as "remove every payee" while actually meaning "leave them
+ * alone". Naming the fields optional says what the call really does.
+ */
+export interface MandateChange {
+  readonly agent: Address;
+  readonly limit?: Usdc;
+  /** Payees to **add**. There is no removal here; revoke and re-grant to narrow a list. */
+  readonly addPayees?: readonly Address[];
+  readonly expiresAt?: number;
+}
+
 /** Changes a live mandate's terms. Same passkey gesture as granting one. */
-export async function updateMandate(account: ArcAccount, terms: MandateTerms): Promise<Hash> {
+export async function updateMandate(account: ArcAccount, change: MandateChange): Promise<Hash> {
   try {
     return await account.bundler.sendUserOperation({
       account: account.smartAccount,
@@ -211,13 +250,13 @@ export async function updateMandate(account: ArcAccount, terms: MandateTerms): P
         to: account.address,
         data: encodeFunctionData({
           abi: pluginAbi, functionName: "updateKeyPermissions",
-          args: [terms.agent, permissionUpdates(terms)],
+          args: [change.agent, changeUpdates(change)],
         }),
       }],
       ...(await fees(account)),
     });
   } catch (cause) {
-    throw new MandateError(`updating the mandate for ${terms.agent} failed`, { cause });
+    throw new MandateError(`updating the mandate for ${change.agent} failed`, { cause });
   }
 }
 
