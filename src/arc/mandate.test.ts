@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { decodeAbiParameters, parseAbiParameters } from "viem";
 import {
-  buildChangeCalls, buildGrantCalls, SESSION_KEY_PLUGIN, SESSION_KEY_PLUGIN_MANIFEST_HASH,
+  buildChangeCallData, buildGrantPlan, SESSION_KEY_PLUGIN, SESSION_KEY_PLUGIN_MANIFEST_HASH,
   type MandateTerms,
 } from "./mandate.ts";
 import { Usdc } from "./usdc.ts";
@@ -64,51 +64,60 @@ const terms = (extra: Partial<MandateTerms> = {}): MandateTerms => ({
 
 test("the first grant installs the plugin; later ones only add a key", async () => {
   const { decodeFunctionData, parseAbi } = await import("viem");
-  const first = buildGrantCalls(ACCOUNT, terms(), false);
-  const later = buildGrantCalls(ACCOUNT, terms(), true);
+  const first = buildGrantPlan(ACCOUNT, terms(), false);
+  const later = buildGrantPlan(ACCOUNT, terms(), true);
 
   const nameOf = (data: `0x${string}`, sig: string) =>
     decodeFunctionData({ abi: parseAbi([sig]), data }).functionName;
 
   assert.equal(
-    nameOf(first[0]!.data!, "function installPlugin(address plugin, bytes32 manifestHash, bytes pluginInstallData, (address plugin, uint8 functionId)[] dependencies)"),
+    nameOf(first.management, "function installPlugin(address plugin, bytes32 manifestHash, bytes pluginInstallData, (address plugin, uint8 functionId)[] dependencies)"),
     "installPlugin",
   );
   assert.equal(
-    nameOf(later[0]!.data!, "function addSessionKey(address sessionKey, bytes32 tag, bytes[] permissionUpdates)"),
+    nameOf(later.management, "function addSessionKey(address sessionKey, bytes32 tag, bytes[] permissionUpdates)"),
     "addSessionKey",
   );
 });
 
-test("management calls target the granting account, never the zero address", () => {
-  // The account routes these to the plugin. Sending them anywhere else silently does nothing,
-  // and sending them to 0x0 burns the operation.
+/**
+ * The management half is calldata, not a call to somewhere.
+ *
+ * It goes in as the user operation's own `callData`, so its target is the sender by construction.
+ * Expressing it as a call to the account is what produced the bug this shape replaced: viem
+ * encoded the "call" into `executeBatch`, the account called itself, and a self-call is
+ * runtime-validated — which the multisig does not implement. Measured on live Arc:
+ * `executeBatch(install + float)` and `execute(install)` both revert with
+ * `RuntimeValidationFailed`; the same install as top-level `callData` estimates cleanly.
+ */
+test("the management half is bare calldata, with nowhere to nest it", () => {
   for (const installed of [true, false]) {
-    assert.equal(buildGrantCalls(ACCOUNT, terms(), installed)[0]!.to, ACCOUNT);
+    const plan = buildGrantPlan(ACCOUNT, terms(), installed);
+    assert.match(plan.management, /^0x[0-9a-f]+$/i);
+    assert.ok(!("to" in plan), "a target would invite wrapping it in execute, which the account refuses");
   }
 });
 
-test("a gas float rides along in the same operation", () => {
-  const calls = buildGrantCalls(ACCOUNT, terms({ gasFloat: Usdc.parse("0.5") }), true);
-  assert.equal(calls.length, 2, "one confirmation, not two");
-  assert.equal(calls[1]!.to, AGENT, "the float goes to the agent, not the account");
-  assert.equal(calls[1]!.value, 500_000_000_000_000_000n);
-  assert.equal(calls[1]!.data, undefined, "a plain transfer carries no calldata");
+test("a gas float is a separate operation, because it cannot be batched with the grant", () => {
+  const plan = buildGrantPlan(ACCOUNT, terms({ gasFloat: Usdc.parse("0.5") }), true);
+  assert.notEqual(plan.float, null);
+  assert.equal(plan.float!.to, AGENT, "the float goes to the agent, not the account");
+  assert.equal(plan.float!.value, 500_000_000_000_000_000n);
 });
 
-test("no gas float means one call, not a zero-value transfer", () => {
-  assert.equal(buildGrantCalls(ACCOUNT, terms(), true).length, 1);
-  assert.equal(buildGrantCalls(ACCOUNT, terms({ gasFloat: Usdc.ZERO }), true).length, 1);
+test("no gas float means no second operation, not a zero-value transfer", () => {
+  assert.equal(buildGrantPlan(ACCOUNT, terms(), true).float, null);
+  assert.equal(buildGrantPlan(ACCOUNT, terms({ gasFloat: Usdc.ZERO }), true).float, null);
 });
 
 test("a grant that allows nothing is refused", () => {
-  assert.throws(() => buildGrantCalls(ACCOUNT, terms({ limit: Usdc.ZERO }), true), /allow something/);
-  assert.throws(() => buildGrantCalls(ACCOUNT, terms({ limit: Usdc.parse("-5") }), true), /allow something/);
+  assert.throws(() => buildGrantPlan(ACCOUNT, terms({ limit: Usdc.ZERO }), true), /allow something/);
+  assert.throws(() => buildGrantPlan(ACCOUNT, terms({ limit: Usdc.parse("-5") }), true), /allow something/);
 });
 
 test("a negative gas float is refused rather than silently encoded", () => {
   assert.throws(
-    () => buildGrantCalls(ACCOUNT, terms({ gasFloat: Usdc.parse("-1") }), true),
+    () => buildGrantPlan(ACCOUNT, terms({ gasFloat: Usdc.parse("-1") }), true),
     /cannot be negative/,
   );
 });
@@ -125,14 +134,12 @@ const DENYLIST_CALL = "0x8f2920d8" + "1".padStart(64, "0");
 const ALLOWLIST_CALL = "0x8f2920d8" + "0".padStart(64, "0");
 
 test("an unscoped allowance inverts the access list, or it could not pay anyone", () => {
-  const calls = buildGrantCalls(ACCOUNT, terms({ payees: [] }), true);
-  const data = calls.map((c) => c.data ?? "0x").join("").toLowerCase();
+  const data = buildGrantPlan(ACCOUNT, terms({ payees: [] }), true).management.toLowerCase();
   assert.ok(data.includes(DENYLIST_CALL.slice(2)), "the access list was not inverted to a denylist");
 });
 
 test("an unscoped allowance shuts the ERC-20 view by name", () => {
-  const calls = buildGrantCalls(ACCOUNT, terms({ payees: [] }), true);
-  const data = calls.map((c) => c.data ?? "0x").join("").toLowerCase();
+  const data = buildGrantPlan(ACCOUNT, terms({ payees: [] }), true).management.toLowerCase();
   assert.ok(
     data.includes("3600000000000000000000000000000000000000"),
     "the ERC-20 view is not on the denylist, so the mandate bounds one rail and leaves the other open",
@@ -141,8 +148,7 @@ test("an unscoped allowance shuts the ERC-20 view by name", () => {
 
 test("a scoped allowance keeps the allowlist, where unnamed targets are already shut", () => {
   const payee = "0x2222222222222222222222222222222222222222" as const;
-  const calls = buildGrantCalls(ACCOUNT, terms({ payees: [payee] }), true);
-  const data = calls.map((c) => c.data ?? "0x").join("").toLowerCase();
+  const data = buildGrantPlan(ACCOUNT, terms({ payees: [payee] }), true).management.toLowerCase();
   assert.ok(data.includes(ALLOWLIST_CALL.slice(2)), "a scoped mandate must stay on an allowlist");
   assert.ok(data.includes(payee.slice(2)), "the named payee is not on the list");
   assert.ok(
@@ -154,7 +160,7 @@ test("a scoped allowance keeps the allowlist, where unnamed targets are already 
 test("an allowance with no payees is allowed, and bounds money and time instead", () => {
   // Requiring payees up front cannot work: an agent does not know who it will pay until it finds
   // a service. See agent-mandate/UX_FLOW.md.
-  assert.doesNotThrow(() => buildGrantCalls(ACCOUNT, terms({ payees: [] }), true));
+  assert.doesNotThrow(() => buildGrantPlan(ACCOUNT, terms({ payees: [] }), true));
 });
 
 /**
@@ -164,8 +170,7 @@ test("an allowance with no payees is allowed, and bounds money and time instead"
  */
 test("naming payees in a change scopes the mandate rather than blocking them", () => {
   const payee = "0x3333333333333333333333333333333333333333" as const;
-  const calls = buildChangeCalls(ACCOUNT, AGENT, { addPayees: [payee] });
-  const data = calls.map((c) => c.data ?? "0x").join("").toLowerCase();
+  const data = buildChangeCallData(AGENT, { addPayees: [payee] }).toLowerCase();
   assert.ok(
     data.includes(ALLOWLIST_CALL.slice(2)),
     "a change naming payees left the list inverted, so the payee would have been denied",
@@ -174,7 +179,6 @@ test("naming payees in a change scopes the mandate rather than blocking them", (
 });
 
 test("a change that names no payees does not touch the access list type", () => {
-  const calls = buildChangeCalls(ACCOUNT, AGENT, { limit: Usdc.parse("5") });
-  const data = calls.map((c) => c.data ?? "0x").join("").toLowerCase();
+  const data = buildChangeCallData(AGENT, { limit: Usdc.parse("5") }).toLowerCase();
   assert.ok(!data.includes("8f2920d8"), "an unrelated change silently re-scoped the mandate");
 });

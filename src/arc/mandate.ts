@@ -314,15 +314,76 @@ export async function isPluginInstalled(address: Address): Promise<boolean> {
  * Both paths are a **single user operation**, so the person approves once with their passkey
  * rather than twice — and a half-granted mandate cannot exist.
  */
+/**
+ * Sending a management operation the only way the account accepts one.
+ *
+ * `callData` rather than `calls`: viem's `calls` are encoded into `execute`/`executeBatch`, which
+ * turns a management call into the account calling itself, and a self-call is runtime-validated.
+ * The multisig implements no runtime validation, so the account refuses its own administration.
+ * See `GrantPlan`.
+ */
+async function sendManagement(account: ArcAccount, callData: Hex): Promise<Hash> {
+  return account.bundler.sendUserOperation({
+    account: account.smartAccount,
+    callData,
+    ...(await fees(account)),
+  });
+}
+
 export async function grantMandate(account: ArcAccount, terms: MandateTerms): Promise<Hash> {
-  const calls = buildGrantCalls(account.address, terms, await isPluginInstalled(account.address));
+  const plan = buildGrantPlan(account.address, terms, await isPluginInstalled(account.address));
+
+  let hash: Hash;
   try {
-    return await account.bundler.sendUserOperation({
-      account: account.smartAccount, calls, ...(await fees(account)),
-    });
+    hash = await sendManagement(account, plan.management);
   } catch (cause) {
     throw new MandateError(`granting ${terms.limit} to ${terms.agent} failed`, { cause });
   }
+
+  if (plan.float !== null) {
+    // Awaited, so the second operation is built against a nonce the first has already consumed.
+    await account.bundler.waitForUserOperationReceipt({ hash });
+    try {
+      await account.bundler.sendUserOperation({
+        account: account.smartAccount, calls: [plan.float], ...(await fees(account)),
+      });
+    } catch (cause) {
+      // The mandate stands; only the agent's ability to submit for itself is missing, and that is
+      // repaired by sending it USDC. Worth saying plainly rather than reading as a failed grant.
+      throw new MandateError(
+        `the mandate for ${terms.agent} was granted, but sending its ${terms.gasFloat} submission ` +
+        "float failed — the agent cannot pay to submit until it holds some USDC",
+        { cause },
+      );
+    }
+  }
+  return hash;
+}
+
+/**
+ * What a grant becomes on the wire, in the shape the account will actually accept.
+ *
+ * **The management call cannot be batched.** On a Circle passkey MSCA the four management
+ * selectors have no runtime validation function — `PORTING.md` explains why, and it is not an
+ * oversight: `WeightedWebauthnMultisigPlugin` implements none, so there is no direct-call
+ * administrative path for anyone. Wrapping the call in `execute` or `executeBatch` makes the
+ * account call *itself*, which is a runtime call, and the account rejects it with
+ * `RuntimeValidationFailed(multisig, 0, NotImplemented(...))`.
+ *
+ * That was the bug this type exists to prevent a repeat of: the previous shape was an array of
+ * calls, which reads as "batch these", and viem duly batched them. Measured against the live
+ * chain: `executeBatch(install + float)` reverts, `execute(install)` reverts, and the same
+ * install as the operation's own `callData` estimates cleanly.
+ *
+ * So the two halves are two user operations, and the float is second. If the float fails the
+ * mandate still stands and the agent merely needs funding; the other order risks giving away the
+ * float for a grant that never lands.
+ */
+export interface GrantPlan {
+  /** The management operation. Goes in as the user operation's own `callData`, never nested. */
+  readonly management: Hex;
+  /** The agent's submission float, as an ordinary transfer in a second operation. */
+  readonly float: { readonly to: Address; readonly value: bigint } | null;
 }
 
 export interface GrantCall {
@@ -338,12 +399,12 @@ export interface GrantCall {
  * consequential thing the app does — get the shape wrong and someone authorises more than they
  * meant to — and it was previously only reachable through a network call.
  */
-export function buildGrantCalls(
+export function buildGrantPlan(
   /** The granting account. Management calls target it, because that is where the plugin lives. */
   accountAddress: Address,
   terms: MandateTerms,
   pluginInstalled: boolean,
-): GrantCall[] {
+): GrantPlan {
   if (terms.limit.isNegative() || terms.limit.isZero()) {
     throw new MandateError("a mandate must allow something; use revokeMandate to take one away");
   }
@@ -351,35 +412,27 @@ export function buildGrantCalls(
   const updates = permissionUpdates(terms);
   const tag = keccak256(toHex(terms.label ?? "mandate"));
 
-  const grantCall: GrantCall = pluginInstalled
-    ? {
-        to: accountAddress,
-        data: encodeFunctionData({
-          abi: pluginAbi, functionName: "addSessionKey", args: [terms.agent, tag, updates],
-        }),
-      }
-    : {
-        to: accountAddress,
-        data: encodeFunctionData({
-          abi: accountAbi,
-          functionName: "installPlugin",
-          args: [
-            SESSION_KEY_PLUGIN,
-            SESSION_KEY_PLUGIN_MANIFEST_HASH,
-            // The plugin's own install payload: keys, tags, and their initial permissions.
-            encodeInstallData([terms.agent], [tag], [updates]),
-            [{ plugin: OWNER_PLUGIN, functionId: USER_OP_VALIDATION_OWNER }],
-          ],
-        }),
-      };
+  const management: Hex = pluginInstalled
+    ? encodeFunctionData({
+        abi: pluginAbi, functionName: "addSessionKey", args: [terms.agent, tag, updates],
+      })
+    : encodeFunctionData({
+        abi: accountAbi,
+        functionName: "installPlugin",
+        args: [
+          SESSION_KEY_PLUGIN,
+          SESSION_KEY_PLUGIN_MANIFEST_HASH,
+          // The plugin's own install payload: keys, tags, and their initial permissions.
+          encodeInstallData([terms.agent], [tag], [updates]),
+          [{ plugin: OWNER_PLUGIN, functionId: USER_OP_VALIDATION_OWNER }],
+        ],
+      });
 
-  // Authorising the agent and funding it are one user operation, so the person confirms once and
-  // an agent can never end up authorised but unable to act.
   if (terms.gasFloat !== undefined && !terms.gasFloat.isZero()) {
     if (terms.gasFloat.isNegative()) throw new MandateError("a gas float cannot be negative");
-    return [grantCall, { to: terms.agent, value: terms.gasFloat.toNativeUnits() }];
+    return { management, float: { to: terms.agent, value: terms.gasFloat.toNativeUnits() } };
   }
-  return [grantCall];
+  return { management, float: null };
 }
 
 /** `abi.encode(address[], bytes32[], bytes[][])`, the plugin's `onInstall` payload. */
@@ -408,28 +461,21 @@ export interface MandateChange {
 /**
  * The calls a change becomes, without sending them.
  *
- * Pure and exported for the same reason `buildGrantCalls` is: what these calls *say* is the whole
+ * Pure and exported for the same reason `buildGrantPlan` is: what these calls *say* is the whole
  * security decision, and a function that needs an account and a bundler to run is a function
  * nobody tests. The change path had no such seam, which is precisely why an inversion in
  * `changeUpdates` — payees being denied instead of allowed — sat there uncovered.
  */
-export function buildChangeCalls(accountAddress: Address, agent: Address, change: Omit<MandateChange, "agent">): GrantCall[] {
-  return [{
-    to: accountAddress,
-    data: encodeFunctionData({
-      abi: pluginAbi, functionName: "updateKeyPermissions",
-      args: [agent, changeUpdates({ ...change, agent })],
-    }),
-  }];
+export function buildChangeCallData(agent: Address, change: Omit<MandateChange, "agent">): Hex {
+  return encodeFunctionData({
+    abi: pluginAbi, functionName: "updateKeyPermissions",
+    args: [agent, changeUpdates({ ...change, agent })],
+  });
 }
 
 export async function updateMandate(account: ArcAccount, change: MandateChange): Promise<Hash> {
   try {
-    return await account.bundler.sendUserOperation({
-      account: account.smartAccount,
-      calls: buildChangeCalls(account.address, change.agent, change),
-      ...(await fees(account)),
-    });
+    return await sendManagement(account, buildChangeCallData(change.agent, change));
   } catch (cause) {
     throw new MandateError(`updating the mandate for ${change.agent} failed`, { cause });
   }
@@ -445,16 +491,9 @@ export async function revokeMandate(account: ArcAccount, agent: Address): Promis
     args: [account.address, agent],
   });
   try {
-    return await account.bundler.sendUserOperation({
-      account: account.smartAccount,
-      calls: [{
-        to: account.address,
-        data: encodeFunctionData({
-          abi: pluginAbi, functionName: "removeSessionKey", args: [agent, predecessor],
-        }),
-      }],
-      ...(await fees(account)),
-    });
+    return await sendManagement(account, encodeFunctionData({
+      abi: pluginAbi, functionName: "removeSessionKey", args: [agent, predecessor],
+    }));
   } catch (cause) {
     throw new MandateError(`revoking the mandate for ${agent} failed`, { cause });
   }
