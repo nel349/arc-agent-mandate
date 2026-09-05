@@ -1,5 +1,6 @@
 import { Link, Stack } from "expo-router";
-import { IconButton } from "../src/ui/IconButton.tsx";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import { Pressable } from "react-native";
 import { ThemeProvider, useTheme } from "../src/ui/theme-context.tsx";
 
 /**
@@ -32,14 +33,17 @@ function Navigator() {
           title: "Allowances",
           // Settings is occasional, so it belongs in the chrome rather than in the content. A tab
           // bar would spend a permanent third of the screen on something opened once a month.
+          // A bare glyph, with no container of our own.
+          //
+          // The navigator already draws a pressable background for header buttons, so wrapping
+          // ours in a glass circle produced two concentric rings — and the gear was centred in
+          // ours while sitting off-centre in theirs. iOS nav bar buttons are plain glyphs; the
+          // chrome is the navigator's job, and the touch target comes from hitSlop.
           headerRight: () => (
             <Link href="/settings" asChild>
-              <IconButton
-                icon="settings-outline"
-                onPress={() => {}}
-                label="Settings"
-                style={{ marginRight: 4 }}
-              />
+              <Pressable hitSlop={12} accessibilityRole="button" accessibilityLabel="Settings">
+                <Ionicons name="settings-outline" size={22} color={c.paper} />
+              </Pressable>
             </Link>
           ),
         }}

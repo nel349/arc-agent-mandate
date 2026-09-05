@@ -75,7 +75,13 @@ export function IconButton({
         <Text
           style={[
             styles.glyph,
-            { color: active ? c.signal : c.dim, lineHeight: Math.round(size * 0.62) },
+            {
+              color: active ? c.signal : c.dim,
+              // Both scale with the button, so the glyph is correct at any size rather than only
+              // at the one it was eyeballed against.
+              fontSize: Math.round(size * 0.55),
+              lineHeight: Math.round(size * 0.55),
+            },
           ]}
         >
           {glyph}
@@ -94,7 +100,6 @@ const styles = StyleSheet.create({
   },
   glyph: {
     fontFamily: tokens.font.mono,
-    fontSize: tokens.font.small,
     fontWeight: "700",
     textAlign: "center",
     // `lineHeight` is set per instance from `size`. It is not the centring — the flex box does
