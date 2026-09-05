@@ -80,6 +80,40 @@ Circle's `installPlugin` is `installPlugin(address,bytes32,bytes,(address,uint8)
 `0xf85730f4`. Alchemy's ecosystem passes `FunctionReference` as a packed `bytes21`. Client-side
 helpers written against the Alchemy shape encode the wrong calldata.
 
+## 6. Reading payment history is harder than the EIP-7708 story suggests
+
+Arc emits `Transfer` logs for native value, which sounds like an activity feed for free. Three
+things get in the way.
+
+**Two emitters, and they double-count.** In a 300-block sample, 1,707 transactions emitted
+`Transfer` from *both* the system emitter `0xffff…fffe` (18 decimals) and the USDC ERC-20 view
+`0x3600…` (6 decimals) — same sender, same recipient, same amount at two scales:
+
+```
+sys    from 0x8338c8f0… to 0x49f9636f… value 9748229000000000000
+erc20  from 0x8338c8f0… to 0x49f9636f… value 9748229
+```
+
+Reading both counts every payment twice.
+
+**The RPC caps on two axes at once.** `eth_getLogs` is limited to 10,000 blocks *and* 20,000
+results. Arc runs around 46 logs per block, so an unfiltered 10,000-block query would ask for
+roughly 460,000 — it fails rather than truncating. Any history read has to filter by an indexed
+topic, not by range alone.
+
+**A local fork emits none of it.** Anvil forking Arc reproduces the accounts and the contracts,
+but not the chain's native-transfer logs — a payment through the EntryPoint produces only the
+EntryPoint's own events. So a feed built on `Transfer` cannot be developed or tested against a
+fork.
+
+The way through is `UserOperationEvent`, which the EntryPoint emits on both the fork and the real
+chain. It is indexed by `sender`, so the query stays small; and its `nonce` identifies the agent,
+because the session key plugin requires the key to own the nonce key:
+
+```
+nonce >> 64  ==  the session key's address
+```
+
 ---
 
 Every claim above is exercised by tests in this repository. `npm run gate`.
