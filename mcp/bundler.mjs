@@ -26,13 +26,24 @@
  * Sponsored, there is nothing to bill.
  */
 
+import { http } from "viem";
+
 const CLIENT_URL = process.env.CIRCLE_CLIENT_URL ?? process.env.EXPO_PUBLIC_CIRCLE_CLIENT_URL;
 const CLIENT_KEY = process.env.CIRCLE_CLIENT_KEY ?? process.env.EXPO_PUBLIC_CIRCLE_CLIENT_KEY;
 const PASSKEY_DOMAIN =
   process.env.CIRCLE_PASSKEY_DOMAIN ?? process.env.EXPO_PUBLIC_CIRCLE_PASSKEY_DOMAIN;
 const CHAIN_PATH = process.env.ARC_CIRCLE_CHAIN_PATH ?? "arcTestnet";
 
-export const ENTRY_POINT = "0x0000000071727De22E5E9d8BAf0edAc6f37da032";
+
+/**
+ * The bundler as a viem transport, so viem assembles the operation rather than us.
+ *
+ * Circle validates the domain-bound client key against the `uri` in `X-AppInfo`; without that
+ * header every call is "Invalid credentials", naming neither the key nor the domain.
+ */
+export function circleTransport() {
+  return http(endpoint(), { fetchOptions: { headers: headers() } });
+}
 
 export function bundlerConfigured() {
   return Boolean(CLIENT_URL && CLIENT_KEY && PASSKEY_DOMAIN);
@@ -58,18 +69,3 @@ const headers = () => ({
   "X-AppInfo": `platform=web;version=1.0.0;uri=${PASSKEY_DOMAIN}`,
 });
 
-let nextId = 0;
-
-export async function bundlerRpc(method, params) {
-  const response = await fetch(endpoint(), {
-    method: "POST",
-    headers: headers(),
-    body: JSON.stringify({ jsonrpc: "2.0", id: ++nextId, method, params }),
-  });
-  const body = await response.json();
-  if (body.error) {
-    const detail = body.error.data?.revertData ?? body.error.data ?? "";
-    throw new Error(`${method}: ${body.error.message}${detail ? ` (${detail})` : ""}`);
-  }
-  return body.result;
-}

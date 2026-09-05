@@ -1,6 +1,5 @@
-import { parseAbi } from "viem";
-import { encodeSpend, publicClient } from "./chain.mjs";
-import { bundlerConfigured, bundlerRpc, missingBundlerConfig, ENTRY_POINT } from "./bundler.mjs";
+import { publicClient } from "./chain.mjs";
+import { bundlerConfigured, missingBundlerConfig } from "./bundler.mjs";
 
 /**
  * Getting the agent's payment onto the chain, without the agent ever holding money.
@@ -29,20 +28,9 @@ import { bundlerConfigured, bundlerRpc, missingBundlerConfig, ENTRY_POINT } from
  * itself — a spend still needs a session-key signature the mandate permits. See `bundler.mjs`.
  */
 
-const entryPointAbi = parseAbi([
-  "function getNonce(address sender, uint192 key) view returns (uint256)",
-  "function getUserOpHash((address sender,uint256 nonce,bytes initCode,bytes callData,bytes32 accountGasLimits,uint256 preVerificationGas,bytes32 gasFees,bytes paymasterAndData,bytes signature) userOp) view returns (bytes32)",
-]);
-
-const pack = (hi, lo) => "0x" + ((BigInt(hi) << 128n) | BigInt(lo)).toString(16).padStart(64, "0");
-const hex = (value) => "0x" + BigInt(value).toString(16);
-
-/** Room for the account's validation plus the plugin's permission checks. */
-const VERIFICATION_GAS = 500_000n;
-const CALL_GAS = 500_000n;
-const PRE_VERIFICATION_GAS = 100_000n;
-const PAYMASTER_VERIFICATION_GAS = 100_000n;
-const PAYMASTER_POST_OP_GAS = 3_000n;
+import { createBundlerClient } from "viem/account-abstraction";
+import { toSessionKeyAccount } from "./session-account.mjs";
+import { circleTransport } from "./bundler.mjs";
 
 export async function submitSpend({ agent, account, to, value }) {
   if (!bundlerConfigured()) {
@@ -54,94 +42,89 @@ export async function submitSpend({ agent, account, to, value }) {
     };
   }
 
-  const callData = encodeSpend({ to, value, agentAddress: agent.address });
-
-  // The plugin requires the session key to own the nonce key, so an agent's operations stay
-  // sequential and one bundle cannot invalidate its own later entries.
-  const nonce = await publicClient.readContract({
-    address: ENTRY_POINT, abi: entryPointAbi, functionName: "getNonce",
-    args: [account, BigInt(agent.address)],
-  });
-
-  // From the chain, never a constant: Arc's base fee has been seen at 20 and at 45 gwei, and an
-  // operation offering less than the base fee is simply never included.
-  const fees = await publicClient.estimateFeesPerGas();
-
-  const draft = {
-    sender: account,
-    nonce: hex(nonce),
-    callData,
-    callGasLimit: hex(CALL_GAS),
-    verificationGasLimit: hex(VERIFICATION_GAS),
-    preVerificationGas: hex(PRE_VERIFICATION_GAS),
-    maxFeePerGas: hex(fees.maxFeePerGas),
-    maxPriorityFeePerGas: hex(fees.maxPriorityFeePerGas),
-    paymasterVerificationGasLimit: hex(PAYMASTER_VERIFICATION_GAS),
-    paymasterPostOpGasLimit: hex(PAYMASTER_POST_OP_GAS),
-  };
-
   try {
-    // The paymaster signs over the operation, so its data has to be settled before the hash the
-    // session key signs is computed. Sign first and the sponsorship would invalidate the signature.
-    const sponsorship = await bundlerRpc("pm_getPaymasterData", [
-      { ...draft, signature: "0x" }, ENTRY_POINT, hex(await publicClient.getChainId()), {},
-    ]);
-    const paymasterAndData = sponsorship?.paymaster
-      ? concatPaymaster(sponsorship, draft)
-      : "0x";
-
-    const hash = await publicClient.readContract({
-      address: ENTRY_POINT, abi: entryPointAbi, functionName: "getUserOpHash",
-      args: [{
-        sender: account, nonce, initCode: "0x", callData,
-        accountGasLimits: pack(VERIFICATION_GAS, CALL_GAS),
-        preVerificationGas: PRE_VERIFICATION_GAS,
-        gasFees: pack(fees.maxPriorityFeePerGas, fees.maxFeePerGas),
-        paymasterAndData, signature: "0x",
-      }],
+    const smartAccount = await toSessionKeyAccount({ address: account, agent, client: publicClient });
+    const bundler = createBundlerClient({
+      account: smartAccount,
+      client: publicClient,
+      transport: circleTransport(),
+      // Sponsorship. The account pays no gas, and neither does the agent — which is the whole
+      // reason nothing has to be transferred to an agent in the first place.
+      paymaster: true,
     });
 
-    const signature = await agent.signMessage({ message: { raw: hash } });
-    const sent = await bundlerRpc("eth_sendUserOperation", [
-      { ...draft, ...(sponsorship?.paymaster ? sponsorship : {}), signature }, ENTRY_POINT,
-    ]);
-    const receipt = await waitForReceipt(sent);
-    if (!receipt?.success) return { ok: false, reason: "refused during validation" };
-    return { ok: true, hash: receipt.receipt?.transactionHash ?? sent, userOpHash: sent };
+    const userOpHash = await sendWithFeeBump(bundler, { to, value });
+    const receipt = await bundler.waitForUserOperationReceipt({ hash: userOpHash });
+    if (!receipt.success) return { ok: false, reason: "refused during validation" };
+    return { ok: true, hash: receipt.receipt.transactionHash, userOpHash };
   } catch (cause) {
     return { ok: false, reason: shortReason(cause) };
   }
 }
 
 /**
- * `paymasterAndData`, as the EntryPoint hashes it in v0.7: the paymaster address, then its two gas
- * limits as 16 bytes each, then its data. The bundler takes these as separate fields on the
- * operation; only the hash wants them packed, which is an easy place to disagree with yourself.
+ * Gas limits, fixed rather than estimated.
+ *
+ * `eth_estimateUserOperationGas` cannot be used here. Estimation runs validation with a *stub*
+ * signature, and the plugin recovers the signer from that signature to check it is a session key
+ * of this account — a stub recovers to a random address, so validation reverts with `AA23` and
+ * estimation always fails. Nothing about the operation is wrong; the method simply cannot ask this
+ * question. So the limits are generous constants, and the paymaster pays for the headroom.
  */
-function concatPaymaster(sponsorship, draft) {
-  const limit = (value) => BigInt(value ?? 0).toString(16).padStart(32, "0");
-  const body = (value) => (value ?? "0x").replace(/^0x/, "");
-  return (
-    "0x" +
-    body(sponsorship.paymaster) +
-    limit(sponsorship.paymasterVerificationGasLimit ?? draft.paymasterVerificationGasLimit) +
-    limit(sponsorship.paymasterPostOpGasLimit ?? draft.paymasterPostOpGasLimit) +
-    body(sponsorship.paymasterData)
-  );
+const GAS = {
+  callGasLimit: 500_000n,
+  verificationGasLimit: 500_000n,
+  preVerificationGas: 100_000n,
+  paymasterVerificationGasLimit: 150_000n,
+  paymasterPostOpGasLimit: 20_000n,
+};
+
+/** Bundlers require a meaningfully higher bid to replace an operation already at this nonce. */
+const REPLACEMENT_MULTIPLIER = 3n;
+
+/**
+ * Send, and outbid an operation stuck at the same nonce rather than wedging behind it.
+ *
+ * An agent's nonce only advances when an operation is *included*. One that the bundler accepted
+ * but never included therefore blocks every later payment: an identical retry is rejected as
+ * "already known", and a different one as "replacement underpriced". Left alone the agent stops
+ * working permanently, for a reason nothing on the machine explains.
+ */
+async function sendWithFeeBump(bundler, { to, value }) {
+  // From the chain, never a constant: Arc's base fee has been seen at 20, 25 and 45 gwei, and an
+  // operation offering less than the base fee is never included.
+  const fees = await publicClient.estimateFeesPerGas();
+  const calls = [{ to, value, data: "0x" }];
+
+  try {
+    return await bundler.sendUserOperation({ calls, ...GAS, ...fees });
+  } catch (cause) {
+    if (!isStuckAtThisNonce(cause)) throw cause;
+    return bundler.sendUserOperation({
+      calls,
+      ...GAS,
+      maxFeePerGas: fees.maxFeePerGas * REPLACEMENT_MULTIPLIER,
+      maxPriorityFeePerGas: fees.maxPriorityFeePerGas * REPLACEMENT_MULTIPLIER,
+    });
+  }
 }
 
-/** The bundler includes operations on its own schedule, so the receipt is polled for. */
-async function waitForReceipt(userOpHash, attempts = 40, everyMs = 1500) {
-  for (let i = 0; i < attempts; i++) {
-    const receipt = await bundlerRpc("eth_getUserOperationReceipt", [userOpHash]);
-    if (receipt) return receipt;
-    await new Promise((resolve) => setTimeout(resolve, everyMs));
+function isStuckAtThisNonce(cause) {
+  for (let error = cause, depth = 0; error && depth < 6; error = error.cause, depth++) {
+    const text = `${error.shortMessage ?? ""} ${error.details ?? ""} ${error.message ?? ""}`;
+    if (/already known|replacement underpriced/i.test(text)) return true;
   }
-  throw new Error("the bundler did not report a receipt in time");
+  return false;
 }
 
 function shortReason(cause) {
-  const message = String(cause?.shortMessage ?? cause?.message ?? cause);
-  if (/AA2[0-9]|PermissionsCheckFailed/i.test(message)) return "refused by the allowance";
-  return message.split("\n")[0].slice(0, 200);
+  const parts = [];
+  for (let e = cause, depth = 0; e && depth < 6; e = e.cause, depth++) {
+    for (const field of [e.shortMessage, e.details, e.message]) {
+      if (typeof field === "string" && field && !parts.includes(field)) parts.push(field);
+    }
+  }
+  const all = parts.join(" | ");
+  if (/AA2[0-9]|PermissionsCheckFailed/i.test(all)) return "refused by the allowance";
+  return all.split("\n")[0].slice(0, 220);
 }

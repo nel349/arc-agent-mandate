@@ -1,4 +1,4 @@
-import { createPublicClient, encodeFunctionData, formatEther, http, parseAbi } from "viem";
+import { createPublicClient, defineChain, encodeFunctionData, formatEther, http, parseAbi } from "viem";
 
 /**
  * Everything the agent needs to know about the chain, discovered rather than configured.
@@ -12,7 +12,22 @@ export const ARC_RPC = process.env.ARC_RPC_URL ?? "https://rpc.testnet.arc.netwo
 export const SESSION_KEY_PLUGIN =
   process.env.ARC_SESSION_KEY_PLUGIN ?? "0x669Dd1eDb85ABD00f74186d88124614EE81E6670";
 
-export const publicClient = createPublicClient({ transport: http(ARC_RPC) });
+/**
+ * Arc, described rather than just dialled.
+ *
+ * viem needs a chain id on the client for anything account-abstraction shaped — a user operation
+ * hash is bound to the chain, so an unnamed client fails with `Cannot read properties of
+ * undefined (reading 'id')` at the moment it tries to sign.
+ */
+export const arc = defineChain({
+  id: Number(process.env.ARC_CHAIN_ID ?? 5042002),
+  name: "Arc testnet",
+  // Arc's native token is USDC, at 18 decimals natively and 6 through the ERC-20 view.
+  nativeCurrency: { name: "USDC", symbol: "USDC", decimals: 18 },
+  rpcUrls: { default: { http: [ARC_RPC] } },
+});
+
+export const publicClient = createPublicClient({ chain: arc, transport: http(ARC_RPC) });
 
 export const pluginAbi = parseAbi([
   "event SessionKeyAdded(address indexed account, address indexed sessionKey, bytes32 indexed tag)",
@@ -102,9 +117,3 @@ export async function readAllowance(account, agentAddress) {
   };
 }
 
-export function encodeSpend({ to, value, agentAddress }) {
-  return encodeFunctionData({
-    abi: pluginAbi, functionName: "executeWithSessionKey",
-    args: [[{ target: to, value, data: "0x" }], agentAddress],
-  });
-}
