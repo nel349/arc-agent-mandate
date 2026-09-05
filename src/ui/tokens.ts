@@ -37,11 +37,33 @@ export const tokens = {
      * flat colour — there is nothing behind a card to blur, so it would add a native dependency
      * to produce the same pixels.
      */
-    glass: "rgba(255, 255, 255, 0.06)",
-    glassRaised: "rgba(255, 255, 255, 0.10)",
-    glassBorder: "rgba(255, 255, 255, 0.12)",
+    glass: "rgba(255, 255, 255, 0.055)",
+    glassRaised: "rgba(255, 255, 255, 0.09)",
+    glassBorder: "rgba(255, 255, 255, 0.10)",
+    /**
+     * The top edge, brighter than the rest.
+     *
+     * Real glass catches light on the surface facing it, and a panel with a uniform border reads
+     * as a flat rectangle with a stroke. One brighter edge is most of the difference between
+     * "translucent box" and "pane of glass", and costs a single extra border colour.
+     */
+    glassEdgeLight: "rgba(255, 255, 255, 0.22)",
   },
-  space: { xs: 6, md: 12, base: 16, lg: 20 },
+  space: { xs: 6, sm: 10, md: 12, base: 16, lg: 20, xl: 28 },
+
+  /**
+   * Depth, cast downward. Glass sits above its background rather than being painted onto it, and
+   * without a shadow the translucency reads as a lighter patch of the same plane.
+   */
+  shadow: {
+    panel: {
+      shadowColor: "#000000",
+      shadowOpacity: 0.35,
+      shadowRadius: 18,
+      shadowOffset: { width: 0, height: 8 },
+      elevation: 6,
+    },
+  },
   radius: {
     md: 10,
     lg: 16,
@@ -57,6 +79,15 @@ export const tokens = {
     label: 12,
     labelTracking: 1,
     body: 13,
-    display: 28,
+    title: 17,
+    display: 32,
+    /**
+     * Figures that change while you watch them.
+     *
+     * The allowance re-reads the chain every ten seconds. With proportional digits each update
+     * changes the number's width and the whole row twitches; tabular figures are all one width,
+     * so only the glyphs change.
+     */
+    tabular: ["tabular-nums"],
   },
 } as const;

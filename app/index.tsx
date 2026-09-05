@@ -1,12 +1,14 @@
 import { useCallback, useState } from "react";
 import { FlashList } from "@shopify/flash-list";
-import { StyleSheet, Text, TextInput, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import { Link } from "expo-router";
 import { isAddress, type Address } from "viem";
 import { useArcAccount } from "../src/ui/useArcAccount.ts";
 import { useMandate } from "../src/ui/useMandate.ts";
 import { MandateCard } from "../src/ui/MandateCard.tsx";
 import { Button } from "../src/ui/Button.tsx";
+import { Field } from "../src/ui/Field.tsx";
+import { Surface } from "../src/ui/Surface.tsx";
 import { Usdc } from "../src/arc/usdc.ts";
 import { tokens } from "../src/ui/tokens.ts";
 import type { Mandate } from "../src/arc/mandate.ts";
@@ -68,61 +70,60 @@ export default function AllowancesScreen() {
   const header = (
     <View style={styles.header}>
       {wallet.account ? (
-        <View style={styles.card}>
-          <Text style={styles.label}>your wallet</Text>
+        <Surface raised>
+          <Text style={styles.label}>Your Wallet</Text>
           <Text style={styles.balance}>{wallet.balance?.format(2) ?? "—"}</Text>
           <Text style={styles.mono}>{wallet.account.address}</Text>
-        </View>
+        </Surface>
       ) : (
-        <View style={styles.card}>
-          <Text style={styles.label}>no wallet yet</Text>
-          <Button tier="solid" title="Create one with Face ID" onPress={wallet.create} busy={busy} />
-          <Button title="Use an existing passkey" onPress={wallet.signIn} busy={busy} />
-        </View>
+        <Surface raised>
+          <Text style={styles.label}>No Wallet Yet</Text>
+          <Button tier="solid" title="Create a Wallet" onPress={wallet.create} busy={busy} />
+          <Button title="Use an Existing Passkey" onPress={wallet.signIn} busy={busy} />
+        </Surface>
       )}
 
       {wallet.error !== null && <Text style={styles.error}>{wallet.error}</Text>}
       {mandate.error !== null && <Text style={styles.error}>{mandate.error}</Text>}
 
       {wallet.account !== null && (
-        <View style={styles.card}>
-          <Text style={styles.label}>give an agent an allowance</Text>
-          <TextInput
-            style={styles.input}
+        <Surface>
+          <Text style={styles.label}>Give an Agent an Allowance</Text>
+          <Field
+            label="Agent address"
             value={agent}
             onChangeText={setAgent}
-            placeholder="agent address (0x…)"
-            placeholderTextColor={tokens.color.textMuted}
-            autoCapitalize="none"
-            autoCorrect={false}
+            placeholder="0x…"
+            hint="Ask your agent for its address — it prints one on first run."
+            mono
           />
-          <TextInput
-            style={styles.input}
+          <Field
+            label="Amount"
             value={amount}
             onChangeText={setAmount}
-            placeholder="amount in USDC"
-            placeholderTextColor={tokens.color.textMuted}
+            placeholder="10"
+            hint="USDC. The agent can never spend more than this."
             keyboardType="decimal-pad"
           />
-          <TextInput
-            style={styles.input}
+          <Field
+            label="Expires after"
             value={days}
             onChangeText={setDays}
-            placeholder="days until it expires"
-            placeholderTextColor={tokens.color.textMuted}
+            placeholder="7"
+            hint="Days. The allowance stops working on its own."
             keyboardType="decimal-pad"
           />
           <Button
             tier="solid"
-            title={`Grant ${amount} USDC for ${days} days`}
+            title="Grant Allowance"
             onPress={grant}
             busy={busy}
             disabled={!canGrant}
           />
-        </View>
+        </Surface>
       )}
 
-      {mandate.mandates.length > 0 && <Text style={styles.label}>active allowances</Text>}
+      {mandate.mandates.length > 0 && <Text style={styles.label}>Active Allowances</Text>}
     </View>
   );
 
@@ -166,27 +167,30 @@ function EmptyState() {
 }
 
 function Footer() {
-  return <Link href="/dev" style={styles.devLink}>Developer harness</Link>;
+  return (
+    <View style={styles.footer}>
+      <Link href="/settings" style={styles.footLink}>Settings</Link>
+      <Link href="/dev" style={styles.footLink}>Developer harness</Link>
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
-  content: { padding: tokens.space.lg },
-  header: { gap: tokens.space.md, paddingBottom: tokens.space.md },
-  card: {
-    backgroundColor: tokens.color.glass,
-    borderWidth: tokens.border.hairline,
-    borderColor: tokens.color.glassBorder,
-    borderRadius: tokens.radius.lg,
-    padding: tokens.space.base,
-    gap: tokens.space.xs,
-  },
+  content: { padding: tokens.space.lg, gap: tokens.space.md },
+  header: { gap: tokens.space.md, paddingBottom: tokens.space.xs },
   label: {
     color: tokens.color.textMuted,
     fontSize: tokens.font.label,
     textTransform: "uppercase",
     letterSpacing: tokens.font.labelTracking,
   },
-  balance: { color: tokens.color.text, fontSize: tokens.font.display, fontWeight: "600" },
+  balance: {
+    color: tokens.color.text,
+    fontSize: tokens.font.display,
+    fontWeight: "600",
+    // Re-read every ten seconds; proportional digits would change width on every update.
+    fontVariant: [...tokens.font.tabular],
+  },
   mono: { color: tokens.color.textDim, fontFamily: tokens.font.mono, fontSize: tokens.font.small },
   input: {
     backgroundColor: tokens.color.background,
@@ -198,5 +202,6 @@ const styles = StyleSheet.create({
   },
   error: { color: tokens.color.danger, fontSize: tokens.font.small },
   empty: { color: tokens.color.textMuted, fontSize: tokens.font.body, lineHeight: 20 },
-  devLink: { color: tokens.color.textMuted, fontSize: tokens.font.small, marginTop: tokens.space.lg },
+  footer: { flexDirection: "row", gap: tokens.space.lg, marginTop: tokens.space.lg },
+  footLink: { color: tokens.color.textMuted, fontSize: tokens.font.small },
 });
