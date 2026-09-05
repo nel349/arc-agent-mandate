@@ -67,7 +67,7 @@ export default function AllowancesScreen() {
     setAgent("");
   }, [agent, amount, days, mandate]);
 
-  const canGrant = isAddress(agent) && !busy;
+  const canGrant = isAddress(agent) && !busy && mandate.ready === true;
 
   const header = (
     <View style={styles.header}>
@@ -85,8 +85,21 @@ export default function AllowancesScreen() {
         </Surface>
       )}
 
-      {wallet.error !== null && <Text style={[styles.error, { color: c.warn }]}>{wallet.error}</Text>}
-      {mandate.error !== null && <Text style={[styles.error, { color: c.warn }]}>{mandate.error}</Text>}
+      {wallet.error !== null && (
+        <Text style={[styles.error, { color: c.warn }]} numberOfLines={3}>{wallet.error}</Text>
+      )}
+      {mandate.error !== null && (
+        <Text style={[styles.error, { color: c.warn }]} numberOfLines={3}>{mandate.error}</Text>
+      )}
+      {mandate.ready === false && (
+        <Surface>
+          <Text style={[styles.label, { color: c.warn }]}>Not available yet</Text>
+          <Text style={[styles.empty, { color: c.muted }]}>
+            The allowance contract has not been deployed to Arc testnet. Granting will work as soon
+            as it is — everything else on this screen already does.
+          </Text>
+        </Surface>
+      )}
 
       {wallet.account !== null && (
         <Surface>
@@ -159,8 +172,12 @@ const GAS_FLOAT = Usdc.parse("0.5");
 // Components rather than elements: an element built at module scope would evaluate `styles`
 // before the StyleSheet below it exists.
 function EmptyState() {
+  // Reads the theme like everything else. Defined at module scope it cannot close over the
+  // screen's colours, and without them it renders in the default black — which on this ground is
+  // invisible rather than merely wrong.
+  const c = useTheme().color;
   return (
-    <Text style={styles.empty}>
+    <Text style={[styles.empty, { color: c.muted }]}>
       No agent has an allowance yet. Run the connector, ask your agent for its address, and paste
       it above.
     </Text>
@@ -168,10 +185,11 @@ function EmptyState() {
 }
 
 function Footer() {
+  const c = useTheme().color;
   return (
     <View style={styles.footer}>
-      <Link href="/settings" style={styles.footLink}>Settings</Link>
-      <Link href="/dev" style={styles.footLink}>Developer harness</Link>
+      <Link href="/settings" style={[styles.footLink, { color: c.signal }]}>Settings</Link>
+      <Link href="/dev" style={[styles.footLink, { color: c.muted }]}>Developer harness</Link>
     </View>
   );
 }

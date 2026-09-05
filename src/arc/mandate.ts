@@ -173,6 +173,19 @@ async function fees(account: ArcAccount) {
   };
 }
 
+/**
+ * Whether the mandate plugin exists on this network at all.
+ *
+ * It is deployed deterministically, so its address is known before anything is deployed to it —
+ * which means every read below will come back empty on a network where that has not happened yet.
+ * Checking for code once is the difference between "no allowances" and a decoding failure the
+ * person is asked to interpret.
+ */
+export async function isPluginDeployed(): Promise<boolean> {
+  const code = await arcPublicClient.getCode({ address: SESSION_KEY_PLUGIN });
+  return code !== undefined && code !== "0x";
+}
+
 /** Whether this account already carries the mandate plugin. */
 export async function isPluginInstalled(address: Address): Promise<boolean> {
   const installed = await arcPublicClient.readContract({
@@ -323,6 +336,11 @@ export async function revokeMandate(account: ArcAccount, agent: Address): Promis
 
 /** Every mandate this account has granted, read from the chain rather than remembered locally. */
 export async function listMandates(address: Address): Promise<Mandate[]> {
+  // An account that has never granted anything has no plugin data to read, and a network without
+  // the plugin has no contract at all. Both are ordinary states, not failures, and both would
+  // otherwise surface as a decoding error about missing return data.
+  if (!(await isPluginDeployed())) return [];
+
   const agents = await arcPublicClient.readContract({
     address: SESSION_KEY_PLUGIN, abi: pluginAbi, functionName: "sessionKeysOf", args: [address],
   });

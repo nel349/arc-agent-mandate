@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { Address } from "viem";
 import type { ArcAccount } from "../arc/account.ts";
 import {
-  grantMandate, listMandates, revokeMandate, updateMandate,
+  grantMandate, isPluginDeployed, listMandates, revokeMandate, updateMandate,
   type Mandate, type MandateTerms,
 } from "../arc/mandate.ts";
 import { Usdc } from "../arc/usdc.ts";
@@ -26,6 +26,13 @@ export interface MandateScreen {
   readonly busy: boolean;
   /** Set when the last action failed. Cleared when the next one starts. */
   readonly error: string | null;
+  /**
+   * Whether the allowance contract exists on this network. `null` until the first read finishes.
+   *
+   * Nothing can be granted without it, so the screen says so plainly rather than letting someone
+   * fill in a form that cannot work.
+   */
+  readonly ready: boolean | null;
   grant(terms: MandateTerms): void;
   revoke(agent: Address): void;
   changeLimit(agent: Address, limit: Usdc): void;
@@ -37,15 +44,18 @@ export function useMandate(account: ArcAccount | null): MandateScreen {
   const [balance, setBalance] = useState<Usdc | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [ready, setReady] = useState<boolean | null>(null);
 
   const refresh = useCallback(() => {
     if (!account) return;
     void (async () => {
       try {
-        const [live, funds] = await Promise.all([
+        const [deployed, live, funds] = await Promise.all([
+          isPluginDeployed(),
           listMandates(account.address),
           balanceOf(account.address),
         ]);
+        setReady(deployed);
         setMandates(live);
         setBalance(funds);
       } catch (cause) {
@@ -124,15 +134,36 @@ export function useMandate(account: ArcAccount | null): MandateScreen {
     [mandates, perform],
   );
 
-  return { mandates, balance, busy, error, grant, revoke, changeLimit, refresh };
+  return { mandates, balance, busy, error, ready, grant, revoke, changeLimit, refresh };
 }
 
-/** Surfaces the message a person can act on, not the stack. */
+/**
+ * One sentence a person can act on.
+ *
+ * Library errors are written for whoever is debugging the library. Viem's read failure is nine
+ * lines of prose about three possible causes, none of which mean anything to someone holding a
+ * phone — so the known shapes get named, and anything unrecognised is trimmed to its first line
+ * with the detail left in the console for whoever is debugging.
+ */
 function describe(cause: unknown): string {
-  if (cause instanceof Error) {
-    const inner = cause.cause;
-    const detail = inner instanceof Error ? inner.message : undefined;
-    return detail ? `${cause.message} — ${detail}` : cause.message;
+  const raw = cause instanceof Error ? cause.message : String(cause);
+  console.error("[mandate]", cause);
+
+  if (/returned no data|is not a contract/i.test(raw)) {
+    return "The allowance contract is not deployed on this network yet.";
   }
-  return String(cause);
+  if (/insufficient|exceeds balance/i.test(raw)) {
+    return "Not enough USDC in the wallet to cover this.";
+  }
+  if (/user rejected|cancell?ed|NotAllowedError/i.test(raw)) {
+    return "Cancelled.";
+  }
+  if (/network|fetch failed|timeout|ECONN/i.test(raw)) {
+    return "Could not reach Arc. Check the connection and try again.";
+  }
+  if (/PermissionsCheckFailed|AA2[0-9]/i.test(raw)) {
+    return "The account refused this. The allowance may have been used up or revoked.";
+  }
+  // Unknown: the first line only. The whole thing is already in the console above.
+  return raw.split("\n")[0]!.slice(0, 140);
 }

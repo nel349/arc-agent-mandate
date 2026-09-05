@@ -49,10 +49,17 @@ export function useArcAccount(): ArcWallet {
       try {
         await work();
       } catch (cause) {
-        setError(cause instanceof Error ? cause.message : String(cause));
         // The screen flattens structure away; the console is where a bundler or paymaster
-        // rejection stays readable.
+        // rejection stays readable, so the full object goes there and one line goes on screen.
         console.error(`[wallet] ${what} failed`, cause);
+        const raw = cause instanceof Error ? cause.message : String(cause);
+        setError(
+          /user rejected|cancell?ed|NotAllowedError/i.test(raw)
+            ? "Cancelled."
+            : /network|fetch failed|timeout|ECONN/i.test(raw)
+              ? "Could not reach Arc. Check the connection and try again."
+              : raw.split("\n")[0]!.slice(0, 140),
+        );
       } finally {
         setBusy(false);
       }
