@@ -16,7 +16,14 @@ export interface Palette {
   readonly groundHigh: string;
   readonly groundMid: string;
   readonly groundLow: string;
-  /** Text, brightest first. */
+  /**
+   * Text, brightest first.
+   *
+   * Both `muted` and `dim` are chosen against the **lightest** ground stop, which is where light
+   * text has least contrast — measuring against the average would pass on paper and fail at the
+   * top of the screen. `muted` clears 7:1 and `dim` clears 5:1 there, so both are above the 4.5:1
+   * that small text needs everywhere on the gradient, not just at the bottom of it.
+   */
   readonly paper: string;
   readonly muted: string;
   readonly dim: string;
@@ -58,8 +65,8 @@ const machine: Theme = {
     groundMid: "#141417",
     groundLow: "#0A0A0C",
     paper: "#E9E6DF",
-    muted: "#8C877D",
-    dim: "#6B675F",
+    muted: "#B6AFA2",
+    dim: "#999389",
     glass: "rgba(236, 232, 224, 0.045)",
     specular: "rgba(255, 252, 244, 0.30)",
     hairline: "rgba(236, 232, 224, 0.10)",
@@ -82,8 +89,8 @@ const arc: Theme = {
     groundMid: "#0F1E33",
     groundLow: "#060C16",
     paper: "#E6EEF9",
-    muted: "#7D91AC",
-    dim: "#6A7E99",
+    muted: "#A8C3E7",
+    dim: "#8DA4C2",
     glass: "rgba(198, 222, 255, 0.055)",
     specular: "rgba(232, 244, 255, 0.30)",
     hairline: "rgba(198, 222, 255, 0.12)",
