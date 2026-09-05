@@ -86,7 +86,7 @@ export default function SettingsScreen() {
                 Step through the ceremony, read the raw log
               </Text>
             </View>
-            <Ionicons name="chevron-forward" size={16} color={c.dim} />
+            <Ionicons name="chevron-forward" size={tokens.size.chevron} color={c.dim} />
           </Pressable>
         </Link>
       </Surface>
@@ -106,16 +106,17 @@ const styles = StyleSheet.create({
     minHeight: tokens.size.tapTarget,
   },
   swatch: { flexDirection: "row", gap: 3 },
-  chip: { width: 9, height: 22, borderRadius: 3 },
+  chip: { ...tokens.size.swatch, borderRadius: tokens.radius.sm },
   labels: { flex: 1, gap: 2 },
   name: { fontSize: tokens.font.body, fontWeight: "600" },
   note: { fontSize: tokens.font.small },
   value: { fontFamily: tokens.font.mono, fontSize: tokens.font.small },
   mark: {
-    width: 18, height: 18, borderRadius: 99, borderWidth: 1,
+    width: tokens.size.mark, height: tokens.size.mark,
+    borderRadius: tokens.radius.pill, borderWidth: tokens.border.hairline,
     alignItems: "center", justifyContent: "center",
   },
-  markOn: { width: 8, height: 8, borderRadius: 99 },
+  markOn: { width: tokens.size.markDot, height: tokens.size.markDot, borderRadius: tokens.radius.pill },
   plain: {
     flexDirection: "row", justifyContent: "space-between", alignItems: "center",
     paddingTop: tokens.space.xs,

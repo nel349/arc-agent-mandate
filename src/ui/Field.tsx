@@ -39,7 +39,7 @@ export function Field({
         {hint !== undefined && (
           <IconButton
             glyph="?"
-            size={20}
+            size={tokens.size.control.hint}
             active={open}
             onPress={toggle}
             label={`About ${label}`}

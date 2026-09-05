@@ -169,7 +169,7 @@ const styles = StyleSheet.create({
     fontFamily: tokens.font.mono,
     fontSize: tokens.font.display,
     fontWeight: "700",
-    letterSpacing: -1,
+    letterSpacing: tokens.font.displayTracking,
     // Re-read every ten seconds; proportional digits would change width on every update.
     fontVariant: [...tokens.font.tabular],
   },

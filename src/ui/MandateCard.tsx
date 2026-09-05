@@ -79,14 +79,14 @@ const styles = StyleSheet.create({
     fontFamily: tokens.font.mono,
     fontSize: tokens.font.title,
     fontWeight: "700",
-    letterSpacing: -0.4,
+    letterSpacing: tokens.font.titleTracking,
     fontVariant: [...tokens.font.tabular],
   },
   of: { fontSize: tokens.font.small, fontWeight: "400", letterSpacing: 0 },
   meter: {
     fontFamily: tokens.font.mono,
     fontSize: tokens.font.body,
-    letterSpacing: -1,
+    letterSpacing: tokens.font.displayTracking,
     marginTop: tokens.space.xs,
   },
 });

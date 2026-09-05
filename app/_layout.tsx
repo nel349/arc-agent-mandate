@@ -2,27 +2,34 @@ import { Link, Stack } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Pressable, StyleSheet } from "react-native";
 import { ThemeProvider, useTheme } from "../src/ui/theme-context.tsx";
+import { tokens } from "../src/ui/tokens.ts";
 
-const ICON = 22;
+/**
+ * The glyph fills the same fraction of its control as every other round control in the app, so a
+ * header button and a field `?` look like the same family. Sized independently, an icon ends up
+ * looking lost in its own box — which is what a 22pt glyph in a 32pt container was doing.
+ */
+const HEADER_ICON = Math.round(tokens.size.control.header * tokens.size.glyphScale);
 
 const styles = StyleSheet.create({
-  /** A box to centre in. No background, so it does not become a second ring inside the one the
+  /** A box to centre in. No background, so it cannot become a second ring inside the one the
    *  navigator already draws for header buttons. */
   headerButton: {
-    width: 32,
-    height: 32,
+    width: tokens.size.control.header,
+    height: tokens.size.control.header,
     alignItems: "center",
     justifyContent: "center",
   },
   /**
-   * Both halves of the fix, and leaving either out is what kept this off-centre.
+   * Both halves, and leaving either out is what kept this off-centre.
    *
-   * `lineHeight` equal to the size collapses the font's line box onto the glyph — an icon font's
-   * default line box is roughly 1.2x its size, and the extra sits below the baseline, so centring
-   * that box leaves the glyph visibly high. `includeFontPadding` removes Android's equivalent.
+   * The box above does the centring. `lineHeight` equal to the glyph size collapses the font's
+   * line box onto the glyph — an icon font's default box is roughly 1.2x its size and the extra
+   * sits below the baseline, so centring that box leaves the glyph visibly high.
+   * `includeFontPadding` removes Android's equivalent.
    */
   headerIcon: {
-    lineHeight: ICON,
+    lineHeight: HEADER_ICON,
     includeFontPadding: false,
   },
 });
@@ -67,11 +74,11 @@ function Navigator() {
             <Link href="/settings" asChild>
               <Pressable
                 style={styles.headerButton}
-                hitSlop={10}
+                hitSlop={Math.round((tokens.size.tapTarget - tokens.size.control.header) / 2)}
                 accessibilityRole="button"
                 accessibilityLabel="Settings"
               >
-                <Ionicons name="settings-outline" size={ICON} color={c.paper} style={styles.headerIcon} />
+                <Ionicons name="settings-outline" size={HEADER_ICON} color={c.paper} style={styles.headerIcon} />
               </Pressable>
             </Link>
           ),

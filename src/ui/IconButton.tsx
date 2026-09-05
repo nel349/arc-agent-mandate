@@ -16,8 +16,11 @@ import { tokens } from "./tokens.ts";
  * glyph visibly high. The second is not centring; it removes the phantom space the first would
  * otherwise centre around.
  */
+/** The glyph fills the same fraction of every round control, so they read as one family. */
+const glyphSize = (control: number) => Math.round(control * tokens.size.glyphScale);
+
 export function IconButton({
-  onPress, icon, glyph, label, hint, active = false, size = 34, style,
+  onPress, icon, glyph, label, hint, active = false, size = tokens.size.control.header, style,
 }: {
   readonly onPress: () => void;
   /**
@@ -64,11 +67,11 @@ export function IconButton({
       {icon !== undefined && (
         <Ionicons
           name={icon}
-          size={Math.round(size * 0.52)}
+          size={glyphSize(size)}
           color={active ? c.signal : c.paper}
           // Collapse the font's line box onto the glyph so the flex centring above has something
           // square to centre. Without it the glyph rides high by the font's descender.
-          style={{ lineHeight: Math.round(size * 0.52) }}
+          style={{ lineHeight: glyphSize(size), includeFontPadding: false }}
         />
       )}
       {glyph !== undefined && (
@@ -77,10 +80,8 @@ export function IconButton({
             styles.glyph,
             {
               color: active ? c.signal : c.dim,
-              // Both scale with the button, so the glyph is correct at any size rather than only
-              // at the one it was eyeballed against.
-              fontSize: Math.round(size * 0.55),
-              lineHeight: Math.round(size * 0.55),
+              fontSize: glyphSize(size),
+              lineHeight: glyphSize(size),
             },
           ]}
         >
@@ -93,7 +94,7 @@ export function IconButton({
 
 const styles = StyleSheet.create({
   box: {
-    borderRadius: 99,
+    borderRadius: tokens.radius.pill,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
