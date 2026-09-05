@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
 import { useTheme } from "./theme-context.tsx";
 import { tokens } from "./tokens.ts";
 
@@ -9,25 +8,48 @@ import { tokens } from "./tokens.ts";
  *
  * Light, not colour: three neutral stops of the theme's own temperature, falling from the top
  * right to the bottom left. It exists so the glass above it has real value variation to refract —
- * a panel over a flat fill is just a lighter rectangle, which is the mistake the first five
- * attempts at this design made.
+ * a panel over a flat fill is just a lighter rectangle, which is the mistake several earlier
+ * versions of this design made.
  *
  * The mockup used radial falloffs; React Native has no radial gradient, so this is the diagonal
- * approximation. At phone size the difference is not visible, and a native dependency for a
- * rounder falloff would not be worth it.
+ * approximation. At phone size the difference does not show.
  */
+
+/**
+ * `expo-linear-gradient` is native, so a build that predates it has no module to load. Required
+ * behind a guard rather than imported, because a static import fails at module scope where nothing
+ * can catch it — and this component is the root of every screen, so that failure is the whole app.
+ *
+ * Without it the ground is a flat fill: the light is gone and the glass reads flatter, but every
+ * screen still works.
+ */
+const Gradient: null | ((props: Record<string, unknown>) => ReactNode) = (() => {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require("expo-linear-gradient").LinearGradient;
+  } catch {
+    console.warn("[ui] expo-linear-gradient unavailable — flat ground. Rebuild the dev client.");
+    return null;
+  }
+})();
+
 export function Screen({ children }: { readonly children: ReactNode }) {
   const c = useTheme().color;
+  const content = <View style={styles.content}>{children}</View>;
+
+  if (Gradient === null) {
+    return <View style={[styles.fill, { backgroundColor: c.groundMid }]}>{content}</View>;
+  }
   return (
-    <LinearGradient
+    <Gradient
       colors={[c.groundHigh, c.groundMid, c.groundLow]}
       locations={[0, 0.42, 1]}
       start={{ x: 0.9, y: 0 }}
       end={{ x: 0.1, y: 1 }}
       style={styles.fill}
     >
-      <View style={styles.content}>{children}</View>
-    </LinearGradient>
+      {content}
+    </Gradient>
   );
 }
 

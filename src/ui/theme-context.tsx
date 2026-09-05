@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { readPreference, writePreference } from "./preference-store.ts";
 import { DEFAULT_THEME_ID, themeById, type Theme, type ThemeId } from "./themes.ts";
 
 /**
@@ -20,7 +20,7 @@ export function ThemeProvider({ children }: { readonly children: ReactNode }) {
   const [id, setId] = useState<ThemeId>(DEFAULT_THEME_ID);
 
   useEffect(() => {
-    void AsyncStorage.getItem(KEY).then((stored) => {
+    void readPreference(KEY).then((stored) => {
       if (stored !== null) setId(themeById(stored).id);
     });
   }, []);
@@ -29,7 +29,7 @@ export function ThemeProvider({ children }: { readonly children: ReactNode }) {
     setId(next);
     // Fire and forget: the screen has already changed, and a failed write costs a preference, not
     // money. Surfacing it would be noise at the exact moment someone is looking at something else.
-    void AsyncStorage.setItem(KEY, next);
+    void writePreference(KEY, next);
   }, []);
 
   const value = useMemo(() => ({ theme: themeById(id), setTheme }), [id, setTheme]);
