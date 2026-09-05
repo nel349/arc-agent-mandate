@@ -3,7 +3,7 @@ import {
   type Address, type Hash, type Hex,
 } from "viem";
 import { getUserOperationGasPrice } from "@circle-fin/modular-wallets-core";
-import { arcPublicClient } from "./client.ts";
+import { arcPublicClient, isDeployed } from "./client.ts";
 // Type-only: erased at runtime, so this file never loads the passkey shim.
 import type { ArcAccount } from "./account.ts";
 import { Usdc } from "./usdc.ts";
@@ -282,8 +282,26 @@ export async function isPluginDeployed(): Promise<boolean> {
   return code !== undefined && code !== "0x";
 }
 
-/** Whether this account already carries the mandate plugin. */
+/**
+ * Whether this account already carries the mandate plugin.
+ *
+ * **An account that has never sent a user operation has no code.** A Circle smart account is
+ * counterfactual: it has an address the moment the passkey exists, funds arrive at it happily, and
+ * the contract itself is only created by the first operation. `account.ts` says so; this function
+ * used to forget it, and asked an address with no code for its plugin list.
+ *
+ * The read then returned `0x`, viem raised a decoding error, and the screen's error mapper matched
+ * "returned no data" and told the person *the allowance contract is not deployed on this network* —
+ * blaming the plugin, which was deployed and fine, for the account being new. The first grant from
+ * a fresh wallet was unreachable, and the message pointed away from the cause.
+ *
+ * No code means no plugins. That is an ordinary state, not a failure, and it is exactly the state
+ * `buildGrantCalls` wants: with `pluginInstalled` false it takes the `installPlugin` path, which is
+ * what a first grant is supposed to do.
+ */
 export async function isPluginInstalled(address: Address): Promise<boolean> {
+  if (!(await isDeployed(address))) return false;
+
   const installed = await arcPublicClient.readContract({
     address, abi: accountAbi, functionName: "getInstalledPlugins",
   });
