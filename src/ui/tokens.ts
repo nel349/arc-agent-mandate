@@ -14,6 +14,7 @@ export const tokens = {
     textMuted: "#8a8a8f",
     textDim: "#a0a0a6",
     accent: "#1f6feb",
+    danger: "#e5534b",
     onAccent: "#ffffff",
   },
   space: { xs: 6, md: 12, base: 16, lg: 20 },
@@ -26,5 +27,6 @@ export const tokens = {
     label: 12,
     labelTracking: 1,
     body: 13,
+    display: 28,
   },
 } as const;
