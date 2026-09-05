@@ -62,10 +62,14 @@ that address from your phone. It then finds the granting account **by itself**, 
 `SessionKeyAdded` naming its own address — that argument is indexed in the event, which is what
 makes a single scan enough with no second round trip and no config file.
 
-It submits its own operations over a plain RPC, fronting gas and being reimbursed by the account:
-about 0.028 USDC per payment at Arc testnet's present fees, roughly 36 payments per dollar. Circle's bundler would sponsor it
-outright — we checked — but reaching it needs the app's client key and a domain-bound header, and
-an agent should not need the wallet vendor's credential to spend an allowance it already has.
+**Nothing is ever transferred to it.** It hands its operations to a bundler — Circle's is the only
+one on Arc, which we checked rather than assumed — and the paymaster covers them, so neither the
+agent nor the account pays gas. The agent is configured with the app's client key, which already
+ships in the mobile bundle, is bound to a passkey domain, and grants no authority on its own.
+
+An earlier design had the agent submit for itself, which meant funding it first and leaving dust
+in its pocket afterwards that nothing could return. It also left the account paying, unbounded,
+for gas the mandate never counted.
 
 ## 4. Five things the docs don't warn about
 

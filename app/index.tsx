@@ -12,7 +12,6 @@ import { Note } from "../src/ui/Note.tsx";
 import { Surface } from "../src/ui/Surface.tsx";
 import { grantSummary } from "../src/ui/grant-format.ts";
 import { readGrantTerms } from "../src/ui/grant-terms.ts";
-import { Usdc } from "../src/arc/usdc.ts";
 import { tokens } from "../src/ui/tokens.ts";
 import { useTheme } from "../src/ui/theme-context.tsx";
 import type { Mandate } from "../src/arc/mandate.ts";
@@ -58,7 +57,7 @@ export default function AllowancesScreen() {
    * display. The sentence directly above the button is the one place that must not lie.
    */
   const summary = useMemo(
-    () => (terms === null ? null : grantSummary({ limit: terms.limit, days: terms.days, gasFloat: GAS_FLOAT })),
+    () => (terms === null ? null : grantSummary({ limit: terms.limit, days: terms.days })),
     [terms],
   );
 
@@ -81,9 +80,6 @@ export default function AllowancesScreen() {
       agent: terms.agent,
       limit: terms.limit,
       payees: [],
-      // Authorising an agent that cannot pay to submit is authorising nothing. This goes in the
-      // same user operation, so it is one confirmation and the two can never come apart.
-      gasFloat: GAS_FLOAT,
       expiresAt: Math.floor(Date.now() / 1000) + Math.round(terms.days * 86_400),
       label: "agent",
     });
@@ -237,17 +233,6 @@ const ERROR_LINES = 3;
 
 const NO_PROBLEMS = { agent: null, amount: null, days: null } as const;
 
-/**
- * The float that lets the agent submit its own operations.
- *
- * At Arc testnet's current fees — around 25 gwei over roughly 1.1M gas — a payment costs about
- * 0.028 USDC, so this covers on the order of **18 payments**. An earlier note here claimed 350,
- * from a per-payment cost measured against a hardcoded 1 gwei fee the chain never charged.
- *
- * Deliberately left at 0.5 for now: it is the user's money, set aside on every grant, and raising
- * it is a product decision rather than a correction.
- */
-const GAS_FLOAT = Usdc.parse("0.5");
 
 const styles = StyleSheet.create({
   content: { padding: tokens.space.lg, gap: tokens.space.md },

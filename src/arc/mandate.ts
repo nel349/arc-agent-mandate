@@ -130,16 +130,6 @@ export interface MandateTerms {
   readonly expiresAt?: number;
   /** Optional label, surfaced by `readMandate`. */
   readonly label?: string;
-  /**
-   * A small amount of USDC sent to the agent so it can submit its own operations.
-   *
-   * Without this a granted agent is authorised and still cannot spend: submitting a user
-   * operation is an ordinary transaction, and someone has to pay for it. The account reimburses
-   * most of it, so the float drains at roughly 0.028 USDC per payment at Arc testnet's present
-   * fees — about 36 payments per dollar. It is the agent's own money, so losing the agent's key
-   * loses the float and nothing more.
-   */
-  readonly gasFloat?: Usdc;
 }
 
 export interface Mandate {
@@ -340,49 +330,23 @@ async function sendManagement(account: ArcAccount, callData: Hex): Promise<Hash>
 }
 
 /**
- * What a grant actually did, because one grant is two operations.
+ * What a grant actually did.
  *
  * Returned rather than logged from in here: the SDK should not decide what reaches a console, and
- * a hash the caller never sees is a transfer nobody can look up. A successful grant used to print
- * nothing at all — only failures were logged — so two operations moved real money and left no
- * trace but a smaller balance.
+ * a hash the caller never sees is an operation nobody can look up. A successful grant used to
+ * print nothing at all — only failures were logged.
  */
 export interface GrantReceipt {
   /** The management operation: installs the plugin if needed, and adds the session key. */
   readonly grant: Hash;
-  /** The float transfer, when one was asked for. A second operation; see `GrantPlan`. */
-  readonly float: Hash | null;
 }
 
 export async function grantMandate(account: ArcAccount, terms: MandateTerms): Promise<GrantReceipt> {
   const plan = buildGrantPlan(account.address, terms, await isPluginInstalled(account.address));
-
-  let hash: Hash;
   try {
-    hash = await sendManagement(account, plan.management);
+    return { grant: await sendManagement(account, plan.management) };
   } catch (cause) {
     throw new MandateError(`granting ${terms.limit} to ${terms.agent} failed`, { cause });
-  }
-
-  if (plan.float === null) return { grant: hash, float: null };
-
-  {
-    // Awaited, so the second operation is built against a nonce the first has already consumed.
-    await account.bundler.waitForUserOperationReceipt({ hash });
-    try {
-      const float = await account.bundler.sendUserOperation({
-        account: account.smartAccount, calls: [plan.float], ...(await fees(account)),
-      });
-      return { grant: hash, float };
-    } catch (cause) {
-      // The mandate stands; only the agent's ability to submit for itself is missing, and that is
-      // repaired by sending it USDC. Worth saying plainly rather than reading as a failed grant.
-      throw new MandateError(
-        `the mandate for ${terms.agent} was granted, but sending its ${terms.gasFloat} submission ` +
-        "float failed — the agent cannot pay to submit until it holds some USDC",
-        { cause },
-      );
-    }
   }
 }
 
@@ -401,15 +365,14 @@ export async function grantMandate(account: ArcAccount, terms: MandateTerms): Pr
  * chain: `executeBatch(install + float)` reverts, `execute(install)` reverts, and the same
  * install as the operation's own `callData` estimates cleanly.
  *
- * So the two halves are two user operations, and the float is second. If the float fails the
- * mandate still stands and the agent merely needs funding; the other order risks giving away the
- * float for a grant that never lands.
+ * A grant is therefore exactly one operation. It used to be two, the second sending the agent a
+ * float so it could submit for itself — which left money in the agent's pocket that nothing ever
+ * returned. The agent hands its operations to a bundler now and holds nothing; see
+ * `mcp/bundler.mjs`.
  */
 export interface GrantPlan {
   /** The management operation. Goes in as the user operation's own `callData`, never nested. */
   readonly management: Hex;
-  /** The agent's submission float, as an ordinary transfer in a second operation. */
-  readonly float: { readonly to: Address; readonly value: bigint } | null;
 }
 
 export interface GrantCall {
@@ -454,11 +417,7 @@ export function buildGrantPlan(
         ],
       });
 
-  if (terms.gasFloat !== undefined && !terms.gasFloat.isZero()) {
-    if (terms.gasFloat.isNegative()) throw new MandateError("a gas float cannot be negative");
-    return { management, float: { to: terms.agent, value: terms.gasFloat.toNativeUnits() } };
-  }
-  return { management, float: null };
+  return { management };
 }
 
 /** `abi.encode(address[], bytes32[], bytes[][])`, the plugin's `onInstall` payload. */

@@ -61,9 +61,21 @@ function MandateCardView({
         <Text style={[styles.meta, { color: c.dim }]}>
           {mandate.spent.isZero() ? "nothing spent yet" : `${mandate.spent.format(2)} spent`}
         </Text>
-        <Text style={[styles.meta, { color: c.dim }]}>
-          {mandate.agentFloat.format(2)} held for fees
-        </Text>
+        {/*
+          Shown only when it is not zero, which should be always.
+
+          Nothing is transferred to an agent: it hands its operations to a bundler and holds no
+          balance, so an allowance is authority and never a pot of money. An agent that does hold
+          something is either left over from when grants sent a submission float, or someone sent
+          it money directly — and either way the person should be able to see it rather than find
+          out by noticing their wallet is smaller. The account cannot take it back; only the
+          agent's own key can return it.
+        */}
+        {!mandate.agentFloat.isZero() && (
+          <Text style={[styles.meta, { color: c.warn }]}>
+            agent holds {mandate.agentFloat.format(2)}
+          </Text>
+        )}
       </View>
 
       {/* Right-aligned and sized to itself. Taking an allowance back is the one thing you can do

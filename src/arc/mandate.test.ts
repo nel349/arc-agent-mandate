@@ -98,28 +98,9 @@ test("the management half is bare calldata, with nowhere to nest it", () => {
   }
 });
 
-test("a gas float is a separate operation, because it cannot be batched with the grant", () => {
-  const plan = buildGrantPlan(ACCOUNT, terms({ gasFloat: Usdc.parse("0.5") }), true);
-  assert.notEqual(plan.float, null);
-  assert.equal(plan.float!.to, AGENT, "the float goes to the agent, not the account");
-  assert.equal(plan.float!.value, 500_000_000_000_000_000n);
-});
-
-test("no gas float means no second operation, not a zero-value transfer", () => {
-  assert.equal(buildGrantPlan(ACCOUNT, terms(), true).float, null);
-  assert.equal(buildGrantPlan(ACCOUNT, terms({ gasFloat: Usdc.ZERO }), true).float, null);
-});
-
 test("a grant that allows nothing is refused", () => {
   assert.throws(() => buildGrantPlan(ACCOUNT, terms({ limit: Usdc.ZERO }), true), /allow something/);
   assert.throws(() => buildGrantPlan(ACCOUNT, terms({ limit: Usdc.parse("-5") }), true), /allow something/);
-});
-
-test("a negative gas float is refused rather than silently encoded", () => {
-  assert.throws(
-    () => buildGrantPlan(ACCOUNT, terms({ gasFloat: Usdc.parse("-1") }), true),
-    /cannot be negative/,
-  );
 });
 
 /**

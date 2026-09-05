@@ -22,19 +22,17 @@ test("the summary names the limit, the date and the fee float", () => {
   const text = grantSummary({
     limit: Usdc.parse("20"),
     days: 7,
-    gasFloat: Usdc.parse("0.5"),
     now: NOW,
   });
   assert.match(text, /up to 20\.00 USDC/);
   assert.match(text, /until Sep 11/);
-  assert.match(text, /further 0\.50 USDC/);
+  assert.match(text, /Nothing is transferred to the agent/);
 });
 
 test("an open-ended allowance says so instead of naming a date", () => {
   const text = grantSummary({
     limit: Usdc.parse("5"),
     days: null,
-    gasFloat: Usdc.parse("0.5"),
     now: NOW,
   });
   assert.match(text, /no expiry date/);
@@ -45,7 +43,6 @@ test("a window running into next year names the year, so the date cannot be misr
   const text = grantSummary({
     limit: Usdc.parse("20"),
     days: 365,
-    gasFloat: Usdc.parse("0.5"),
     now: NOW,
   });
   assert.match(text, /until Sep 4, 2027/);
@@ -55,7 +52,6 @@ test("a window inside this year leaves the year off", () => {
   const text = grantSummary({
     limit: Usdc.parse("20"),
     days: 7,
-    gasFloat: Usdc.parse("0.5"),
     now: NOW,
   });
   assert.doesNotMatch(text, /202\d/);

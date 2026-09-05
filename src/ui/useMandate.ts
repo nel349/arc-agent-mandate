@@ -125,10 +125,7 @@ export function useMandate(account: ArcAccount | null): MandateScreen {
 
   const grant = useCallback(
     (terms: MandateTerms) =>
-      perform("granted an allowance", async (a) => {
-        const receipt = await grantMandate(a, terms);
-        return receipt.float === null ? [receipt.grant] : [receipt.grant, receipt.float];
-      }),
+      perform("granted an allowance", async (a) => [(await grantMandate(a, terms)).grant]),
     [perform],
   );
 

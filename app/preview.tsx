@@ -98,8 +98,8 @@ export default function PreviewScreen() {
 
       <Label>Note</Label>
       <Surface>
-        <Note>{grantSummary({ limit: Usdc.parse("20"), days: 7, gasFloat: Usdc.parse("0.5"), now: FIXED_NOW })}</Note>
-        <Note>{grantSummary({ limit: Usdc.parse("5"), days: null, gasFloat: Usdc.parse("0.5"), now: FIXED_NOW })}</Note>
+        <Note>{grantSummary({ limit: Usdc.parse("20"), days: 7, now: FIXED_NOW })}</Note>
+        <Note>{grantSummary({ limit: Usdc.parse("5"), days: null, now: FIXED_NOW })}</Note>
         <Note tone="warn">Not deployed to Arc testnet yet</Note>
       </Surface>
 
@@ -116,6 +116,7 @@ export default function PreviewScreen() {
         <MandateCard mandate={FRESH} onRevoke={NOOP} busy={false} />
         <MandateCard mandate={HALF_SPENT} onRevoke={NOOP} busy={false} />
         <MandateCard mandate={EXPIRED} onRevoke={NOOP} busy={false} />
+        <MandateCard mandate={WITH_DUST} onRevoke={NOOP} busy={false} />
       </View>
     </ScrollView>
   );
@@ -144,7 +145,7 @@ const AMOUNTS = [
   { label: "100", value: "100" },
 ] as const;
 
-const sample = (limit: string, spent: string, expiresAt?: number): Mandate => {
+const sample = (limit: string, spent: string, expiresAt?: number, agentFloat = Usdc.ZERO): Mandate => {
   const l = Usdc.parse(limit);
   const s = Usdc.parse(spent);
   return {
@@ -153,13 +154,15 @@ const sample = (limit: string, spent: string, expiresAt?: number): Mandate => {
     spent: s,
     remaining: s.compare(l) >= 0 ? Usdc.ZERO : l.subtract(s),
     expiresAt,
-    agentFloat: Usdc.parse("0.5"),
+    agentFloat,
   };
 };
 
 const FRESH = sample("50", "0", NOW_SECONDS() + 7 * 86_400);
 const HALF_SPENT = sample("50", "25", NOW_SECONDS() + 86_400);
 const EXPIRED = sample("50", "50", NOW_SECONDS() - 86_400);
+/** Left over from when a grant sent the agent a float. Should not happen to a new mandate. */
+const WITH_DUST = sample("50", "10", NOW_SECONDS() + 3 * 86_400, Usdc.parse("0.5"));
 
 const styles = StyleSheet.create({
   page: { flex: 1 },

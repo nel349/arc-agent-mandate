@@ -46,22 +46,34 @@ refused payment never even costs gas.
 | `ARC_RPC_URL` | defaults to Arc testnet |
 | `ARC_SESSION_KEY_PLUGIN` | the mandate plugin |
 | `ARC_PLUGIN_FROM_BLOCK` | the plugin's deployment block. **Set this** — without it the agent only searches recent history, because `eth_getLogs` is capped at 10,000 blocks and scanning past the floor gets the whole lookup rate-limited |
-| `ARC_SUBMITTER_KEY` | overrides who submits; by default the agent submits its own |
+| `CIRCLE_CLIENT_URL`, `CIRCLE_CLIENT_KEY`, `CIRCLE_PASSKEY_DOMAIN` | the bundler the agent submits through. Arc has no public bundler, so without these a payment cannot be sent |
 | `ARC_MANDATE_KEY_PATH` | where the agent's key lives (default `~/.arc-mandate/agent.key`) |
 
-## Why the agent needs a small float, and why that is the right trade
+## Why the agent holds nothing
 
-The agent submits its own operations over a plain RPC. It fronts the transaction gas and the
-account reimburses it, so the float drains steadily — **about 0.028 USDC per payment at Arc
-testnet's present fees, roughly 36 payments per dollar.** The grant sends this float, so one Face ID both authorises the agent
-and funds it.
+An allowance is authority, not a balance. An agent that keeps even a fraction of a dollar has
+broken that promise, and a person who sees money trickle out to agents will not trust the
+mechanism however small the trickle is.
 
-The alternative was Circle's bundler, and its paymaster **will** sponsor an agent's spend — we
-checked. It was rejected on developer experience rather than capability: reaching it needs the
-app's `CIRCLE_CLIENT_KEY` plus an `X-AppInfo` header matching the registered passkey domain. That
-is the wallet vendor's credential, and an agent should not need it to spend an allowance it was
-already granted. Arc's own RPC does not bundle, so there was no third door.
+That rules out having the agent submit for itself. A user operation travels inside an ordinary
+transaction, and a transaction's sender must hold a balance before it can send one — so a
+self-submitting agent has to be funded first and is left with dust afterwards, which nothing ever
+returns. The account has no claim on it; only the agent's own key can send it back.
 
-The float is also the right security shape. It is the agent's own money: if the agent is
-compromised, the attacker gets a dollar of gas and whatever the mandate still allows — never the
-wallet.
+So the agent hands its operations to a bundler. On Arc there is exactly one — Circle's — and that
+is checked rather than assumed: Arc's public RPC answers `eth_supportedEntryPoints` with "method
+not supported", while Circle's returns EntryPoint v0.7.
+
+**The credential that needs is not a secret.** It is the same client key the mobile app already
+ships inside its bundle, bound to a passkey domain, and it authorises nothing by itself: a spend
+still requires a session-key signature the mandate permits. Handing it to the agent gives away no
+authority, which is what makes this a better trade than leaving money behind.
+
+The paymaster then covers the operation, so the **account** pays no gas either. That closes a
+second problem which is easy to miss: submitting directly, the account was billed for everything
+the agent did and the mandate never counted it, because the spend limit bounds `call.value` and
+gas is not `call.value`. An agent could send a trivial amount inside an expensive operation and
+cost the account far more than its allowance. Sponsored, there is nothing to bill.
+
+The security shape is unchanged and simpler to state: a compromised agent gets whatever the
+mandate still allows, and nothing else — no float, no wallet.

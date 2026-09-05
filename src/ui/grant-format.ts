@@ -4,11 +4,11 @@ import type { Usdc } from "../arc/usdc.ts";
  * Saying, in one sentence, what is about to be authorised.
  *
  * The form used to ask for three values and then hand them straight to a signature, so the last
- * thing a person read before granting an agent money was a number pad. Two of the terms were not
- * even on the screen: the expiry was a count of days rather than a date, and the gas float was a
- * constant in the source that the UI never mentioned at all. Granting spending power while
- * quietly adding an amount nobody was shown is the kind of detail that decides whether this looks
- * trustworthy.
+ * thing a person read before granting an agent money was a number pad. The expiry was a count of
+ * days rather than a date, and for a while the grant also sent the agent half a dollar that the
+ * screen never mentioned. Both are gone: the date is spelled out, and nothing is transferred to
+ * the agent at all — which the sentence now says, because "an allowance is authority, not a
+ * balance" is the claim the whole product rests on.
  *
  * Pure and separate from the screen so the wording can be tested without a renderer, and so the
  * SDK never decides how something reads to a person.
@@ -39,18 +39,17 @@ export function expiryDate(days: number | null, now: number = Date.now()): Date 
 }
 
 export function grantSummary({
-  limit, days, gasFloat, now = Date.now(),
+  limit, days, now = Date.now(),
 }: {
   readonly limit: Usdc;
   readonly days: number | null;
-  readonly gasFloat: Usdc;
   readonly now?: number;
 }): string {
   const until = expiryDate(days, now);
   const window = until === null ? "with no expiry date" : `until ${formatExpiry(until, now)}`;
   return (
-    `This agent can spend up to ${limit.format(2)} USDC ${window}. ` +
-    `A further ${gasFloat.format(2)} USDC is set aside to pay the network fees on its payments. ` +
-    `You can take it back at any time.`
+    `This agent can spend up to ${limit.format(2)} USDC ${window}, and nothing beyond it. ` +
+    `Nothing is transferred to the agent — it can only draw on this allowance, and you can take ` +
+    `it back at any time.`
   );
 }

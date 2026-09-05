@@ -1,40 +1,59 @@
-import { createWalletClient, http, parseAbi } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
-import { ARC_RPC, encodeSpend, publicClient } from "./chain.mjs";
+import { parseAbi } from "viem";
+import { encodeSpend, publicClient } from "./chain.mjs";
+import { bundlerConfigured, bundlerRpc, missingBundlerConfig, ENTRY_POINT } from "./bundler.mjs";
 
 /**
- * Getting the agent's payment onto the chain.
+ * Getting the agent's payment onto the chain, without the agent ever holding money.
  *
- * **Settled 2026-09-04, by measurement rather than preference.**
+ * **Revised 2026-09-05, after the first real grant showed what the old design cost.**
  *
- * The agent submits `handleOps` itself, from its own key, over a plain RPC. It fronts the
- * transaction gas and the account reimburses it as beneficiary.
+ * The agent used to submit `handleOps` itself over Arc's public RPC. That required funding it
+ * first — a transaction's sender must hold a balance before it can send one — so every grant
+ * transferred it half a dollar, and whatever remained stayed with the agent afterwards. Dust left
+ * behind in an agent's pocket is not a rounding detail: the product's whole claim is that an
+ * allowance is authority rather than a balance, and a wallet that visibly leaks money to agents
+ * contradicts it no matter how little leaks.
  *
- * Cost per payment tracks the chain: roughly 1.1M gas, so about **0.028 USDC at Arc testnet's
- * present ~25 gwei**, or ~36 payments per dollar. An earlier figure of 0.0014 USDC came from a
- * hardcoded 1 gwei fee that the chain never charged, and is wrong by the same factor of twenty.
+ * So the operation goes to a bundler instead, and the agent holds nothing at any point. Circle's
+ * is the only bundler on Arc — checked, not assumed: Arc's own RPC answers
+ * `eth_supportedEntryPoints` with "method not supported".
  *
- * The alternative was Circle's bundler, whose paymaster *will* sponsor an agent's spend — checked
- * directly: `pm_getPaymasterData` signs for an `executeWithSessionKey` operation. It was rejected
- * on developer experience rather than capability. Reaching it needs the app's `CIRCLE_CLIENT_KEY`
- * plus an `X-AppInfo` header matching the registered passkey domain, and an agent should not need
- * the wallet vendor's credential to spend an allowance it was already granted. Arc's own RPC does
- * not bundle — `eth_sendUserOperation` is not supported — so there was no third door.
+ * Two things fall out of the change, both good. The paymaster sponsors the operation, so the
+ * **account** pays no gas either — and it previously paid for everything the agent did, unbounded,
+ * because the mandate counts `call.value` and gas is not `call.value`. And because these now go
+ * through Circle, an agent's payments appear in the same console as the grants that authorised
+ * them, instead of being invisible there.
  *
- * Whichever key submits, the agent's authority is identical: the account validates against the
- * mandate before anything moves. Submission is only about who pays to ask.
+ * What it costs: the agent is configured with the Circle client key. That is the key the mobile
+ * app already ships in its bundle, bound to a passkey domain, and it grants no authority by
+ * itself — a spend still needs a session-key signature the mandate permits. See `bundler.mjs`.
  */
-const ENTRY_POINT = "0x0000000071727De22E5E9d8BAf0edAc6f37da032";
 
 const entryPointAbi = parseAbi([
   "function getNonce(address sender, uint192 key) view returns (uint256)",
   "function getUserOpHash((address sender,uint256 nonce,bytes initCode,bytes callData,bytes32 accountGasLimits,uint256 preVerificationGas,bytes32 gasFees,bytes paymasterAndData,bytes signature) userOp) view returns (bytes32)",
-  "function handleOps((address sender,uint256 nonce,bytes initCode,bytes callData,bytes32 accountGasLimits,uint256 preVerificationGas,bytes32 gasFees,bytes paymasterAndData,bytes signature)[] ops, address beneficiary)",
 ]);
 
 const pack = (hi, lo) => "0x" + ((BigInt(hi) << 128n) | BigInt(lo)).toString(16).padStart(64, "0");
+const hex = (value) => "0x" + BigInt(value).toString(16);
+
+/** Room for the account's validation plus the plugin's permission checks. */
+const VERIFICATION_GAS = 500_000n;
+const CALL_GAS = 500_000n;
+const PRE_VERIFICATION_GAS = 100_000n;
+const PAYMASTER_VERIFICATION_GAS = 100_000n;
+const PAYMASTER_POST_OP_GAS = 3_000n;
 
 export async function submitSpend({ agent, account, to, value }) {
+  if (!bundlerConfigured()) {
+    return {
+      ok: false,
+      reason:
+        `the agent has no bundler configured (missing ${missingBundlerConfig().join(", ")}). ` +
+        "Arc has no public bundler, so a payment cannot be submitted without one.",
+    };
+  }
+
   const callData = encodeSpend({ to, value, agentAddress: agent.address });
 
   // The plugin requires the session key to own the nonce key, so an agent's operations stay
@@ -44,66 +63,85 @@ export async function submitSpend({ agent, account, to, value }) {
     args: [account, BigInt(agent.address)],
   });
 
-  /**
-   * Fees come from the chain, not from a constant.
-   *
-   * These were pinned at 1 gwei, which is roughly twenty times below what Arc testnet actually
-   * charges — its base fee sits around 20 gwei. An operation offering less than the base fee is
-   * simply not included, so every payment would have failed on the real chain. It passed in
-   * testing because a forked anvil does not hold an operation to the live base fee, which is the
-   * precise shape of bug a fork cannot show you.
-   *
-   * `estimateFeesPerGas` already applies a headroom multiplier over the current base fee, so a
-   * block that gets busier between estimating and submitting does not strand the operation.
-   */
-  const { maxFeePerGas, maxPriorityFeePerGas } = await publicClient.estimateFeesPerGas();
+  // From the chain, never a constant: Arc's base fee has been seen at 20 and at 45 gwei, and an
+  // operation offering less than the base fee is simply never included.
+  const fees = await publicClient.estimateFeesPerGas();
 
-  const userOp = {
-    sender: account, nonce, initCode: "0x", callData,
-    accountGasLimits: pack(500_000n, 500_000n),
-    preVerificationGas: 100_000n,
-    // v0.7 packs the priority fee first, then the max fee.
-    gasFees: pack(maxPriorityFeePerGas, maxFeePerGas),
-    paymasterAndData: "0x", signature: "0x",
+  const draft = {
+    sender: account,
+    nonce: hex(nonce),
+    callData,
+    callGasLimit: hex(CALL_GAS),
+    verificationGasLimit: hex(VERIFICATION_GAS),
+    preVerificationGas: hex(PRE_VERIFICATION_GAS),
+    maxFeePerGas: hex(fees.maxFeePerGas),
+    maxPriorityFeePerGas: hex(fees.maxPriorityFeePerGas),
+    paymasterVerificationGasLimit: hex(PAYMASTER_VERIFICATION_GAS),
+    paymasterPostOpGasLimit: hex(PAYMASTER_POST_OP_GAS),
   };
-  const hash = await publicClient.readContract({
-    address: ENTRY_POINT, abi: entryPointAbi, functionName: "getUserOpHash", args: [userOp],
-  });
-  userOp.signature = await agent.signMessage({ message: { raw: hash } });
 
-  // The agent submits its own operation by default. It fronts the transaction gas and the account
-  // reimburses it as beneficiary. See mcp/README.md on why this beats a bundler.
-  const submitter = createWalletClient({
-    account: process.env.ARC_SUBMITTER_KEY
-      ? privateKeyToAccount(process.env.ARC_SUBMITTER_KEY)
-      : agent,
-    transport: http(ARC_RPC),
-  });
-
-  let txHash;
   try {
-    txHash = await submitter.writeContract({
-      address: ENTRY_POINT, abi: entryPointAbi, functionName: "handleOps",
-      // Beneficiary is the submitter, so the account's prefund comes back to whoever paid.
-      args: [[userOp], submitter.account.address], chain: null, gas: 3_000_000n,
+    // The paymaster signs over the operation, so its data has to be settled before the hash the
+    // session key signs is computed. Sign first and the sponsorship would invalidate the signature.
+    const sponsorship = await bundlerRpc("pm_getPaymasterData", [
+      { ...draft, signature: "0x" }, ENTRY_POINT, hex(await publicClient.getChainId()), {},
+    ]);
+    const paymasterAndData = sponsorship?.paymaster
+      ? concatPaymaster(sponsorship, draft)
+      : "0x";
+
+    const hash = await publicClient.readContract({
+      address: ENTRY_POINT, abi: entryPointAbi, functionName: "getUserOpHash",
+      args: [{
+        sender: account, nonce, initCode: "0x", callData,
+        accountGasLimits: pack(VERIFICATION_GAS, CALL_GAS),
+        preVerificationGas: PRE_VERIFICATION_GAS,
+        gasFees: pack(fees.maxPriorityFeePerGas, fees.maxFeePerGas),
+        paymasterAndData, signature: "0x",
+      }],
     });
+
+    const signature = await agent.signMessage({ message: { raw: hash } });
+    const sent = await bundlerRpc("eth_sendUserOperation", [
+      { ...draft, ...(sponsorship?.paymaster ? sponsorship : {}), signature }, ENTRY_POINT,
+    ]);
+    const receipt = await waitForReceipt(sent);
+    if (!receipt?.success) return { ok: false, reason: "refused during validation" };
+    return { ok: true, hash: receipt.receipt?.transactionHash ?? sent, userOpHash: sent };
   } catch (cause) {
-    // A mandate refusal fails validation, so the EntryPoint rejects the whole operation rather
-    // than letting it land and revert.
     return { ok: false, reason: shortReason(cause) };
   }
+}
 
-  const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
-  // An explicit gas limit means no simulation, so a refusal can also arrive as a reverted
-  // receipt rather than a thrown error. Both mean the same thing: nothing moved.
-  if (receipt.status !== "success") {
-    return { ok: false, reason: "refused during validation" };
+/**
+ * `paymasterAndData`, as the EntryPoint hashes it in v0.7: the paymaster address, then its two gas
+ * limits as 16 bytes each, then its data. The bundler takes these as separate fields on the
+ * operation; only the hash wants them packed, which is an easy place to disagree with yourself.
+ */
+function concatPaymaster(sponsorship, draft) {
+  const limit = (value) => BigInt(value ?? 0).toString(16).padStart(32, "0");
+  const body = (value) => (value ?? "0x").replace(/^0x/, "");
+  return (
+    "0x" +
+    body(sponsorship.paymaster) +
+    limit(sponsorship.paymasterVerificationGasLimit ?? draft.paymasterVerificationGasLimit) +
+    limit(sponsorship.paymasterPostOpGasLimit ?? draft.paymasterPostOpGasLimit) +
+    body(sponsorship.paymasterData)
+  );
+}
+
+/** The bundler includes operations on its own schedule, so the receipt is polled for. */
+async function waitForReceipt(userOpHash, attempts = 40, everyMs = 1500) {
+  for (let i = 0; i < attempts; i++) {
+    const receipt = await bundlerRpc("eth_getUserOperationReceipt", [userOpHash]);
+    if (receipt) return receipt;
+    await new Promise((resolve) => setTimeout(resolve, everyMs));
   }
-  return { ok: true, hash: txHash };
+  throw new Error("the bundler did not report a receipt in time");
 }
 
 function shortReason(cause) {
   const message = String(cause?.shortMessage ?? cause?.message ?? cause);
   if (/AA2[0-9]|PermissionsCheckFailed/i.test(message)) return "refused by the allowance";
-  return message.split("\n")[0].slice(0, 160);
+  return message.split("\n")[0].slice(0, 200);
 }
