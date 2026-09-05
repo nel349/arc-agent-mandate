@@ -62,6 +62,12 @@ export const tokens = {
       hint: 22,
       /** A navigation bar button. */
       header: 40,
+      /**
+       * A selectable pill in a choice row. Below the 44pt target on purpose — a row of pills at
+       * full target height towers over the fields beside it — so every pill carries `hitSlop`
+       * back up to 44.
+       */
+      pill: 34,
     },
 
     /**

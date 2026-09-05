@@ -1,8 +1,36 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Stack, useRouter } from "expo-router";
-import { Platform, Pressable } from "react-native";
+import { Pressable, StyleSheet } from "react-native";
 import { ThemeProvider, useTheme } from "../src/ui/theme-context.tsx";
 import { tokens } from "../src/ui/tokens.ts";
+
+/** Sized from the shared control scale, so it matches the `?` controls in content. */
+const HEADER_ICON = Math.round(tokens.size.control.header * tokens.size.glyphScale);
+
+const styles = StyleSheet.create({
+  /**
+   * Width, deliberately, and no height.
+   *
+   * The two axes are owned by different layers, which is why setting both puts the glyph off
+   * centre. iOS 26 draws its own glass capsule behind a header item at a fixed 44pt and centres it
+   * vertically in the bar. React Navigation, meanwhile, lays our view out **top-aligned** in its
+   * own container, whose top sits 4pt below where the capsule starts. So the moment we give the
+   * view a height, we are centring the glyph inside our box rather than inside the capsule the
+   * eye actually sees, and the two disagree by that 4pt. Left alone, the system centres the glyph
+   * for us and the axis is exact.
+   *
+   * Horizontally the system does not help: the capsule keeps its 44pt minimum while a 24pt glyph
+   * sits at the leading edge of it, 6pt shy of centre. A width — and nothing else — closes that.
+   *
+   * Both figures were measured off the simulator, not reasoned about; an earlier attempt to
+   * explain them with font metrics was wrong, and the giveaway was that the error stayed a
+   * constant 4pt when the glyph grew by a quarter. Typography scales with the type. Layout does
+   * not.
+   */
+  headerButton: { width: tokens.size.tapTarget, alignItems: "center" },
+  /** Android only, and a no-op on iOS: keeps the icon font from adding padding of its own. */
+  headerIcon: { includeFontPadding: false },
+});
 
 /**
  * The provider wraps the navigator so a palette change reaches every screen at once, including the
@@ -36,47 +64,43 @@ function Navigator() {
           // Settings is occasional, so it belongs in the chrome rather than in the content. A tab
           // bar would spend a permanent third of the screen on something opened once a month.
           /**
-           * A real UIBarButtonItem, not a React view in a header slot.
+           * A view, because the native option is not available here.
            *
-           * Every earlier attempt put a custom view there and then tried to make it look native:
-           * a glass circle that turned out to duplicate the one iOS 26 already draws around
-           * header items, then a plain glyph whose icon-font line box left it sitting high, then
-           * a sized box that still would not line up with the OS capsule around it. Each fix
-           * moved the problem because the problem was the approach.
+           * `unstable_headerRightItems` is the right answer — it hands iOS a real
+           * `UIBarButtonItem` and the system owns shape, padding, tint and alignment. React
+           * Navigation 7.18 accepts it, but `react-native-screens` 4.16, which Expo SDK 54 pins,
+           * implements neither the JS nor the native side and drops the prop silently. Passing it
+           * removed the button altogether. Revisit when screens supports it.
            *
-           * `unstable_headerRightItems` hands iOS a bar button item with an SF Symbol instead.
-           * The system owns the shape, the padding, the tint, the pressed state and the
-           * alignment — none of which we can match by hand, and none of which we should be
-           * trying to.
+           * So: a glyph and a width, with no background of our own. iOS 26 already draws a
+           * capsule around header items, and a second one of ours inside it reads as a box within
+           * a box. `IconButton` is not reused here for exactly that reason — it brings its own
+           * ring and its own centring, both of which the system is already providing. See
+           * `headerButton` below for which axis belongs to whom.
            *
-           * iOS only — which is why `headerRight` is still supplied below. On iOS the native
-           * items override it; on Android a view is the right answer, because there is no bar
-           * button item to hand the work to.
+           * `hitSlop` restores the touch target the glyph is too small to fill on its own.
            */
-          unstable_headerRightItems: () => [
-            {
-              type: "button",
-              label: "Settings",
-              icon: { type: "sfSymbol", name: "gearshape" },
-              tintColor: c.paper,
-              onPress: () => router.push("/settings"),
-            },
-          ],
-          headerRight: () =>
-            Platform.OS === "ios" ? null : (
-              <Pressable
-                onPress={() => router.push("/settings")}
-                hitSlop={tokens.space.md}
-                accessibilityRole="button"
-                accessibilityLabel="Settings"
-              >
-                <Ionicons name="settings-outline" size={tokens.font.title} color={c.paper} />
-              </Pressable>
-            ),
+          headerRight: () => (
+            <Pressable
+              onPress={() => router.push("/settings")}
+              style={styles.headerButton}
+              hitSlop={Math.round((tokens.size.tapTarget - HEADER_ICON) / 2)}
+              accessibilityRole="button"
+              accessibilityLabel="Settings"
+            >
+              <Ionicons
+                name="settings-outline"
+                size={HEADER_ICON}
+                color={c.paper}
+                style={styles.headerIcon}
+              />
+            </Pressable>
+          ),
         }}
       />
       <Stack.Screen name="settings" options={{ title: "Settings" }} />
       <Stack.Screen name="dev" options={{ title: "Developer harness" }} />
+      <Stack.Screen name="preview" options={{ title: "Component preview" }} />
     </Stack>
   );
 }

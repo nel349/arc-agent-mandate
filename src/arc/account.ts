@@ -8,8 +8,6 @@ import {
   toModularTransport,
   toPasskeyTransport,
   toWebAuthnCredential,
-  createRpClient,
-  rpActions,
   WebAuthnMode,
 } from "@circle-fin/modular-wallets-core";
 import { toWebAuthnAccount } from "viem/account-abstraction";

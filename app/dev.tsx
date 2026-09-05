@@ -1,6 +1,6 @@
 import { memo, useCallback } from "react";
 import { FlashList } from "@shopify/flash-list";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import type { Address } from "viem";
 import { useW1Ceremony, type LogLine } from "../src/ui/useW1Ceremony.ts";
 import { Button } from "../src/ui/Button.tsx";
@@ -33,9 +33,6 @@ import { useTheme } from "../src/ui/theme-context.tsx";
 const DEMO_RECIPIENT: Address = "0x68c91fb4f4e7f0236fd68c7d2605b5740787b17e";
 
 const NOT_SET = "—";
-
-/** Uniform row height. FlashList v2 measures rows itself, so this is only the text metric. */
-const LOG_ROW_HEIGHT = tokens.font.smallLineHeight;
 
 export default function DevHarnessScreen() {
   const c = useTheme().color;
@@ -100,8 +97,6 @@ const styles = StyleSheet.create({
     gap: tokens.space.xs,
   },
   mono: { fontFamily: tokens.font.mono, fontSize: tokens.font.small },
-  off: { opacity: tokens.opacity.disabled },
-  buttonText: { fontFamily: tokens.font.mono, fontSize: tokens.font.small, fontWeight: "700" },
   logLine: {
     fontFamily: tokens.font.mono,
     fontSize: tokens.font.small,

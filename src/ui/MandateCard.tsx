@@ -4,6 +4,7 @@ import type { Mandate } from "../arc/mandate.ts";
 import { expiryLabel, fractionUsed, shortAddress } from "./mandate-format.ts";
 import { useTheme } from "./theme-context.tsx";
 import { Button } from "./Button.tsx";
+import { Surface } from "./Surface.tsx";
 import { tokens } from "./tokens.ts";
 
 /** Segments in the meter. Twenty reads as a bar and still resolves single steps at 5%. */
@@ -28,7 +29,7 @@ function MandateCardView({
   const filled = Math.round(fractionUsed(mandate) * SEGMENTS);
 
   return (
-    <View style={styles.card}>
+    <Surface>
       <View style={styles.row}>
         <Text style={[styles.meta, { color: c.muted }]}>{shortAddress(mandate.agent)}</Text>
         <Text style={[styles.meta, { color: c.muted }]}>{expiryLabel(mandate)}</Text>
@@ -46,8 +47,13 @@ function MandateCardView({
         <Text style={{ color: c.track }}>{"█".repeat(SEGMENTS - filled)}</Text>
       </Text>
 
-      <Button title="Revoke" onPress={() => onRevoke(mandate.agent)} busy={busy} />
-    </View>
+      {/* Right-aligned and sized to itself. Taking an allowance back is the one thing you can do
+          to a card, but it is not what the screen is for, and a column of full-width Revokes
+          reads as a list of demands rather than a list of allowances. */}
+      <View style={styles.actions}>
+        <Button title="Revoke" onPress={() => onRevoke(mandate.agent)} busy={busy} compact />
+      </View>
+    </Surface>
   );
 }
 
@@ -68,7 +74,7 @@ export const MandateCard = memo(MandateCardView, (a, b) =>
 );
 
 const styles = StyleSheet.create({
-  card: { gap: tokens.space.xs },
+  actions: { alignItems: "flex-end" },
   row: { flexDirection: "row", justifyContent: "space-between", alignItems: "baseline" },
   meta: {
     fontFamily: tokens.font.mono,

@@ -1,10 +1,9 @@
 import { useCallback } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { Link } from "expo-router";
-import Ionicons from "@expo/vector-icons/Ionicons";
 import { useAppearance } from "../src/ui/theme-context.tsx";
 import { THEMES, type ThemeId } from "../src/ui/themes.ts";
 import { Label } from "../src/ui/Label.tsx";
+import { LinkRow } from "../src/ui/LinkRow.tsx";
 import { Surface } from "../src/ui/Surface.tsx";
 import { Screen } from "../src/ui/Screen.tsx";
 import { tokens } from "../src/ui/tokens.ts";
@@ -73,22 +72,18 @@ export default function SettingsScreen() {
           near where someone is trying to give an agent money. */}
       <Surface>
         <Label>Diagnostics</Label>
-        <Link href="/dev" asChild>
-          <Pressable
-            style={[styles.row, { borderColor: c.hairline }]}
-            accessibilityRole="link"
-            accessibilityLabel="Developer harness"
-            accessibilityHint="Step through the passkey ceremony and read the raw log"
-          >
-            <View style={styles.labels}>
-              <Text style={[styles.name, { color: c.paper }]}>Developer harness</Text>
-              <Text style={[styles.note, { color: c.dim }]}>
-                Step through the ceremony, read the raw log
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={tokens.size.chevron} color={c.dim} />
-          </Pressable>
-        </Link>
+        <LinkRow
+          href="/dev"
+          name="Developer harness"
+          note="Step through the ceremony, read the raw log"
+          hint="Step through the passkey ceremony and read the raw log"
+        />
+        <LinkRow
+          href="/preview"
+          name="Component preview"
+          note="Every control, in every state, on one screen"
+          hint="Look at each control without completing a passkey ceremony first"
+        />
       </Surface>
     </Screen>
   );
