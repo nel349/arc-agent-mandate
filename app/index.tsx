@@ -1,11 +1,12 @@
 import { useCallback, useState } from "react";
 import { FlashList } from "@shopify/flash-list";
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { StyleSheet, Text, TextInput, View } from "react-native";
 import { Link } from "expo-router";
 import { isAddress, type Address } from "viem";
 import { useArcAccount } from "../src/ui/useArcAccount.ts";
 import { useMandate } from "../src/ui/useMandate.ts";
 import { MandateCard } from "../src/ui/MandateCard.tsx";
+import { Button } from "../src/ui/Button.tsx";
 import { Usdc } from "../src/arc/usdc.ts";
 import { tokens } from "../src/ui/tokens.ts";
 import type { Mandate } from "../src/arc/mandate.ts";
@@ -21,6 +22,7 @@ export default function AllowancesScreen() {
   const mandate = useMandate(wallet.account);
   const [agent, setAgent] = useState("");
   const [amount, setAmount] = useState("10");
+  const [days, setDays] = useState("7");
 
   const busy = wallet.busy || mandate.busy;
 
@@ -28,6 +30,14 @@ export default function AllowancesScreen() {
    * The agent's address arrives by paste today. It is a public value the agent prints, so a QR
    * scan is a convenience rather than a different flow, and is not worth a camera permission
    * until the rest of this is on a device.
+   */
+  /**
+   * An allowance bounds **how much and for how long**, not who.
+   *
+   * Requiring payees up front cannot work: an agent shopping the open web does not know who it
+   * will pay until it finds a service, and neither does the person granting. Counterparty
+   * scoping stays available in the SDK for when you genuinely do know, and an agent refused for
+   * an unknown payee says so in the conversation — which is where the person already is.
    */
   const grant = useCallback(() => {
     if (!isAddress(agent)) return;
@@ -37,11 +47,18 @@ export default function AllowancesScreen() {
     } catch {
       return;
     }
-    // The payee list is what stops an agent paying itself. For now the agent may pay anyone the
-    // wallet has already paid — replaced by a real payee picker before this ships.
-    mandate.grant({ agent, limit, payees: [agent], label: "mcp-agent" });
+    const window = Number(days);
+    mandate.grant({
+      agent,
+      limit,
+      payees: [],
+      expiresAt: Number.isFinite(window) && window > 0
+        ? Math.floor(Date.now() / 1000) + Math.round(window * 86_400)
+        : undefined,
+      label: "agent",
+    });
     setAgent("");
-  }, [agent, amount, mandate]);
+  }, [agent, amount, days, mandate]);
 
   const canGrant = isAddress(agent) && !busy;
 
@@ -56,8 +73,8 @@ export default function AllowancesScreen() {
       ) : (
         <View style={styles.card}>
           <Text style={styles.label}>no wallet yet</Text>
-          <Button title="Create one with Face ID" onPress={wallet.create} busy={busy} />
-          <Button title="Use an existing passkey" onPress={wallet.signIn} busy={busy} subdued />
+          <Button tier="solid" title="Create one with Face ID" onPress={wallet.create} busy={busy} />
+          <Button title="Use an existing passkey" onPress={wallet.signIn} busy={busy} />
         </View>
       )}
 
@@ -84,7 +101,21 @@ export default function AllowancesScreen() {
             placeholderTextColor={tokens.color.textMuted}
             keyboardType="decimal-pad"
           />
-          <Button title={`Grant ${amount} USDC`} onPress={grant} busy={busy} disabled={!canGrant} />
+          <TextInput
+            style={styles.input}
+            value={days}
+            onChangeText={setDays}
+            placeholder="days until it expires"
+            placeholderTextColor={tokens.color.textMuted}
+            keyboardType="decimal-pad"
+          />
+          <Button
+            tier="solid"
+            title={`Grant ${amount} USDC for ${days} days`}
+            onPress={grant}
+            busy={busy}
+            disabled={!canGrant}
+          />
         </View>
       )}
 
@@ -132,36 +163,13 @@ function Footer() {
   return <Link href="/dev" style={styles.devLink}>Developer harness</Link>;
 }
 
-function Button({
-  title, onPress, busy, disabled, subdued,
-}: {
-  readonly title: string;
-  readonly onPress: () => void;
-  readonly busy: boolean;
-  readonly disabled?: boolean;
-  readonly subdued?: boolean;
-}) {
-  const off = busy || disabled === true;
-  const base = subdued === true ? styles.buttonSubdued : styles.button;
-  return (
-    <Pressable style={off ? styles.buttonOff : base} onPress={onPress} disabled={off}>
-      {busy ? <ActivityIndicator /> : <Text style={styles.buttonText}>{title}</Text>}
-    </Pressable>
-  );
-}
-
-const button = {
-  backgroundColor: tokens.color.accent,
-  borderRadius: tokens.radius.md,
-  padding: tokens.space.base,
-  alignItems: "center",
-} as const;
-
 const styles = StyleSheet.create({
   content: { padding: tokens.space.lg },
   header: { gap: tokens.space.md, paddingBottom: tokens.space.md },
   card: {
-    backgroundColor: tokens.color.surface,
+    backgroundColor: tokens.color.glass,
+    borderWidth: tokens.border.hairline,
+    borderColor: tokens.color.glassBorder,
     borderRadius: tokens.radius.lg,
     padding: tokens.space.base,
     gap: tokens.space.xs,
@@ -176,16 +184,12 @@ const styles = StyleSheet.create({
   mono: { color: tokens.color.textDim, fontFamily: tokens.font.mono, fontSize: tokens.font.small },
   input: {
     backgroundColor: tokens.color.background,
-    borderRadius: tokens.radius.md,
+    borderRadius: tokens.radius.pill,
     padding: tokens.space.base,
     color: tokens.color.text,
     fontFamily: tokens.font.mono,
     fontSize: tokens.font.body,
   },
-  button,
-  buttonSubdued: { ...button, backgroundColor: tokens.color.background },
-  buttonOff: { ...button, opacity: tokens.opacity.disabled },
-  buttonText: { color: tokens.color.onAccent, fontWeight: "600" },
   error: { color: tokens.color.danger, fontSize: tokens.font.small },
   empty: { color: tokens.color.textMuted, fontSize: tokens.font.body, lineHeight: 20 },
   devLink: { color: tokens.color.textMuted, fontSize: tokens.font.small, marginTop: tokens.space.lg },

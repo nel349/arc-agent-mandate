@@ -46,8 +46,8 @@ export const MandateCard = memo(function MandateCard({
 
 const revoke = {
   borderColor: tokens.color.danger,
-  borderWidth: 1,
-  borderRadius: tokens.radius.md,
+  borderWidth: tokens.border.hairline,
+  borderRadius: tokens.radius.pill,
   paddingVertical: tokens.space.xs,
   alignItems: "center",
   marginTop: tokens.space.xs,
@@ -55,7 +55,9 @@ const revoke = {
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: tokens.color.surface,
+    backgroundColor: tokens.color.glass,
+    borderWidth: tokens.border.hairline,
+    borderColor: tokens.color.glassBorder,
     borderRadius: tokens.radius.lg,
     padding: tokens.space.base,
     gap: tokens.space.xs,
@@ -67,12 +69,12 @@ const styles = StyleSheet.create({
   of: { color: tokens.color.textMuted, fontSize: tokens.font.small },
   track: {
     height: tokens.space.xs,
-    backgroundColor: tokens.color.background,
+    backgroundColor: tokens.color.glass,
     borderRadius: tokens.radius.md,
     overflow: "hidden",
     marginTop: tokens.space.xs,
   },
-  fill: { height: "100%", backgroundColor: tokens.color.accent },
+  fill: { height: "100%", backgroundColor: tokens.color.accentBright },
   revoke,
   revokeOff: { ...revoke, opacity: tokens.opacity.disabled },
   revokeText: { color: tokens.color.danger, fontWeight: "600", fontSize: tokens.font.body },
