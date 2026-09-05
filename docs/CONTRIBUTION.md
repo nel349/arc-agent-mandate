@@ -36,7 +36,29 @@ attestation object into the DER public key their SDK expects.
 This is what makes an Arc wallet possible on a phone at all, and it is the part nobody should
 have to build twice.
 
-## 3. Five things the docs don't warn about
+## 3. A way for real agents to use it
+
+An allowance nothing can reach is not worth much. The gap between "the chain enforces a limit"
+and "my agent spends inside one" is where this usually dies, and the honest fix was to stop
+inventing a pairing flow and plug into the agent people already run.
+
+`mcp/` is an MCP server, so Claude Code, Cursor and Codex all work the same way:
+
+```bash
+claude mcp add arc-mandate -- node .../mcp/server.mjs
+```
+
+The agent makes its own key, never sends it anywhere, and shows a public address. You grant to
+that address from your phone. It then finds the granting account **by itself**, by watching for
+`SessionKeyAdded` naming its own address — that argument is indexed in the event, which is what
+makes a single scan enough with no second round trip and no config file.
+
+It submits its own operations over a plain RPC, fronting gas and being reimbursed by the account:
+about 0.0014 USDC per payment, roughly 700 payments per dollar. Circle's bundler would sponsor it
+outright — we checked — but reaching it needs the app's client key and a domain-bound header, and
+an agent should not need the wallet vendor's credential to spend an allowance it already has.
+
+## 4. Five things the docs don't warn about
 
 See [FINDINGS.md](FINDINGS.md). The dual-decimal USDC trap is the one most likely to cost someone
 real money: `balanceOf` can read zero for an account that holds funds, and a budget enforced on
