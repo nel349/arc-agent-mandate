@@ -6,15 +6,22 @@ because the next team will hit them too, and because they are cheap for Arc to d
 ## 1. Session keys on Arc do not work with Circle's Modular Wallets
 
 `docs.arc.io/build` names session keys as priority developer infrastructure. The only ERC-6900
-session-key plugin deployed on Arc is Alchemy's, at `0x0000003E0000a96de4058e1E02a62FaaeCf23d8d`.
+session key plugin deployed on Arc is Alchemy's, at `0x0000003E0000a96de4058e1E02a62FaaeCf23d8d`.
+It cannot serve a Circle Modular Wallet, and the reason is a version gap nobody would find without
+trying to use both together.
 
-It cannot serve a Circle Modular Wallet. Alchemy's `v1.0.x` is **EntryPoint v0.6** and uses the
-unpacked `UserOperation`; Circle's MSCA is **v0.7** and uses `PackedUserOperation`. The
-`userOpValidationFunction` selectors therefore differ, which is also why Circle's multisig does
-not advertise Alchemy's `IPlugin` interface id (`0xf23b1ed7`).
+**ERC-4337 changed shape between v0.6 and v0.7.** Gas figures that had their own fields were packed
+into single words. That changes the signature of the function an account calls to validate a
+payment, and therefore its selector:
 
-The failure mode is the bad one: the plugin **installs cleanly** — the manifest hash matches, the
-dependency check passes — and then reverts the first time an agent tries to spend.
+```solidity
+userOpValidationFunction(uint8, UserOperation,       bytes32)   // v0.6
+userOpValidationFunction(uint8, PackedUserOperation, bytes32)   // v0.7
+```
+
+Circle's accounts run **EntryPoint v0.7**. The deployed plugin is built for **v0.6**. Different
+selector, so different `IPlugin` interface id — which is also why Circle's owner plugin does not
+advertise `0xf23b1ed7`.
 
 ```bash
 cast call 0xa8546Ff7D7Fcd3BBd08C0ef31E74C73DF6BcC447 "getEntryPoint()(address)" \
@@ -22,7 +29,16 @@ cast call 0xa8546Ff7D7Fcd3BBd08C0ef31E74C73DF6BcC447 "getEntryPoint()(address)" 
 # 0x0000000071727De22E5E9d8BAf0edAc6f37da032   <- v0.7
 ```
 
-The fix is in `contracts/src/session`, with every deviation recorded in `PORTING.md`.
+**The failure mode is the dangerous one.** Installed properly, it fails an interface check up
+front — annoying but obvious. The trap is the shortcut most people reach for next: `PluginManager`
+special-cases a dependency pointing at the account itself, so routing around the check makes
+installation **succeed**. `BaseMSCA` has no matching case during validation, so it fails instead
+at the first attempt to spend. Confirmed by pointing a dependency at `0xdeadbeef` and getting the
+identical revert.
+
+The plugin rebuilt against v0.7 is in `contracts/src/session`, with every change recorded in
+`PORTING.md`. The rules it enforces are untouched; only the parts that connect it to the account
+changed.
 
 ## 2. USDC has two decimal scales over one balance, and the ERC-20 view truncates
 

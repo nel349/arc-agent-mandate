@@ -6,20 +6,29 @@ documentation makes visible.
 ## 1. Session keys that actually work with Circle Modular Wallets
 
 `docs.arc.io/build` lists session keys among the account-abstraction primitives Arc wants
-developers using. The only one deployed on Arc is built for **EntryPoint v0.6**, and Circle's
-Modular Wallets are **v0.7** — so today, on Arc, you cannot give a Circle smart account a bounded
-session key. It installs and then reverts at first use.
+developers using. Today, on Arc, you cannot give a Circle smart account one.
 
-`contracts/src/session` is that plugin ported onto Circle's ERC-6900 v0.7 interfaces:
-`PackedUserOperation` throughout, gas accounting rebuilt on v0.7's explicit paymaster limits to
-mirror `EntryPoint._getRequiredPrefund`, and the owner dependency reduced to the one Circle's
-multisig can actually satisfy. GPL-3.0, as the original is. Every deviation is in `PORTING.md`
-with the reasoning, so it can be reviewed rather than trusted.
+A Circle Modular Wallet is an **ERC-6900** account: a contract assembled from swappable pieces,
+where even the passkey check is delegated to one of them. Payments arrive as **ERC-4337 user
+operations**, which the account validates before anything moves. A session key is a piece that
+holds rules — a spend cap, who may be paid, an expiry — and checks each payment against them.
+
+The piece exists. Alchemy wrote a good one and it is deployed on Arc. But **ERC-4337 changed shape
+between v0.6 and v0.7**: gas figures were packed into single words, which changed the signature of
+the validation function and therefore its selector. Circle's accounts run **EntryPoint v0.7**; the
+deployed plugin is **v0.6**. They cannot talk, and the failure is quiet — the obvious way around
+the version check makes installation succeed and moves the break to the first attempted payment.
+
+`contracts/src/session` is that plugin rebuilt against Circle's v0.7 interfaces: `PackedUserOperation`
+throughout, and gas accounting redone against v0.7's explicit paymaster fields rather than v0.6's
+approximation — a change Alchemy's own comment asked for. The permission engine is untouched,
+because it was never the broken part. GPL-3.0, as the original is, with every deviation in
+`PORTING.md` so it can be reviewed rather than trusted.
 
 **Proof, not claims:** 26 contract tests run against a fork of Arc with the plugin installed on a
-real Circle account, its real WebAuthn multisig and the real EntryPoint. 13 integration tests
+real Circle account, its real WebAuthn owner plugin and the real EntryPoint. 13 integration tests
 drive signed user operations through that EntryPoint and assert money moved, refusals cost
-nothing, and revocation takes effect.
+nothing, and revocation took effect.
 
 ## 2. Circle Modular Wallets on React Native
 
