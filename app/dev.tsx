@@ -4,6 +4,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-nati
 import type { Address } from "viem";
 import { useW1Ceremony, type LogLine } from "../src/ui/useW1Ceremony.ts";
 import { tokens } from "../src/ui/tokens.ts";
+import { useTheme } from "../src/ui/theme-context.tsx";
 
 /**
  * The developer harness. One button per step, and a log.
@@ -35,6 +36,7 @@ const NOT_SET = "—";
 const LOG_ROW_HEIGHT = tokens.font.smallLineHeight;
 
 export default function DevHarnessScreen() {
+  const c = useTheme().color;
   const { log, busy, address, balance, connect, signIn, refresh, send } = useW1Ceremony();
 
   // Stable across renders. An inline arrow would hand the memoized header a new prop every time
@@ -43,11 +45,11 @@ export default function DevHarnessScreen() {
 
   const header = (
     <View style={styles.header}>
-      <View style={styles.card}>
-        <Text style={styles.label}>smart account</Text>
-        <Text style={styles.mono}>{address ?? NOT_SET}</Text>
-        <Text style={styles.label}>native balance</Text>
-        <Text style={styles.mono}>{balance ?? NOT_SET}</Text>
+      <View style={[styles.card, { backgroundColor: c.glass, borderColor: c.hairline }]}>
+        <Text style={[styles.label, { color: c.muted }]}>smart account</Text>
+        <Text style={[styles.mono, { color: c.paper }]}>{address ?? NOT_SET}</Text>
+        <Text style={[styles.label, { color: c.muted }]}>native balance</Text>
+        <Text style={[styles.mono, { color: c.paper }]}>{balance ?? NOT_SET}</Text>
       </View>
 
       <Step title="1 · Register NEW passkey + account" onPress={connect} busy={busy} />
@@ -55,7 +57,7 @@ export default function DevHarnessScreen() {
       <Step title="2 · Read balance from Arc" onPress={refresh} busy={busy} disabled={!address} />
       <Step title="3 · Send 0.01 USDC (gasless)" onPress={sendToDemoRecipient} busy={busy} disabled={!address} />
 
-      <Text style={styles.label}>log</Text>
+      <Text style={[styles.label, { color: c.muted }]}>log</Text>
     </View>
   );
 
@@ -65,7 +67,7 @@ export default function DevHarnessScreen() {
       renderItem={renderLogLine}
       keyExtractor={keyOfLogLine}
       ListHeaderComponent={header}
-      style={styles.page}
+      style={StyleSheet.flatten([styles.page, { backgroundColor: c.groundMid }])}
       contentContainerStyle={styles.content}
       // Lets iOS apply safe-area insets natively, rather than a SafeAreaView wrapper or manual
       // padding that has to be re-guessed per device.
@@ -81,7 +83,8 @@ const keyOfLogLine = (item: LogLine) => String(item.id);
 
 /** A single log line. Takes a string rather than the entry object, so its memo compares by value. */
 const LogRow = memo(function LogRow({ text }: { readonly text: string }) {
-  return <Text style={styles.logLine}>{text}</Text>;
+  const c = useTheme().color;
+  return <Text style={[styles.logLine, { color: c.dim }]}>{text}</Text>;
 });
 
 /** Presentational only — no state, no effects, no fetching. */
@@ -93,45 +96,44 @@ const Step = memo(function Step({
   readonly busy: boolean;
   readonly disabled?: boolean;
 }) {
+  const c = useTheme().color;
   const isOff = busy || disabled === true;
   return (
     // Two prebuilt styles rather than an inline `[a, cond && b]` array, which allocates a new
     // array on every render and defeats the memo above it.
-    <Pressable style={isOff ? styles.buttonOff : styles.button} onPress={onPress} disabled={isOff}>
-      {busy ? <ActivityIndicator /> : <Text style={styles.buttonText}>{title}</Text>}
+    <Pressable style={[styles.button, { backgroundColor: c.actionFill }, isOff && styles.off]} onPress={onPress} disabled={isOff}>
+      {busy ? <ActivityIndicator color={c.actionText} /> : <Text style={[styles.buttonText, { color: c.actionText }]}>{title}</Text>}
     </Pressable>
   );
 });
 
-const button = {
-  backgroundColor: tokens.color.accent,
-  borderRadius: tokens.radius.md,
-  padding: tokens.space.base,
-  alignItems: "center",
-} as const;
-
 const styles = StyleSheet.create({
-  page: { flex: 1, backgroundColor: tokens.color.background },
+  page: { flex: 1 },
   content: { padding: tokens.space.lg },
   header: { gap: tokens.space.md, paddingBottom: tokens.space.md },
   card: {
-    backgroundColor: tokens.color.surface,
+    borderWidth: 1,
     borderRadius: tokens.radius.lg,
     padding: tokens.space.base,
     gap: tokens.space.xs,
   },
   label: {
-    color: tokens.color.textMuted,
+    fontFamily: tokens.font.mono,
     fontSize: tokens.font.label,
     textTransform: "uppercase",
     letterSpacing: tokens.font.labelTracking,
   },
-  mono: { color: tokens.color.text, fontFamily: tokens.font.mono, fontSize: tokens.font.body },
-  button,
-  buttonOff: { ...button, opacity: tokens.opacity.disabled },
-  buttonText: { color: tokens.color.onAccent, fontWeight: "600" },
+  mono: { fontFamily: tokens.font.mono, fontSize: tokens.font.small },
+  button: {
+    borderRadius: tokens.radius.lg,
+    padding: tokens.space.base,
+    alignItems: "center",
+    minHeight: 46,
+    justifyContent: "center",
+  },
+  off: { opacity: tokens.opacity.disabled },
+  buttonText: { fontFamily: tokens.font.mono, fontSize: tokens.font.small, fontWeight: "700" },
   logLine: {
-    color: tokens.color.textDim,
     fontFamily: tokens.font.mono,
     fontSize: tokens.font.small,
     lineHeight: LOG_ROW_HEIGHT,

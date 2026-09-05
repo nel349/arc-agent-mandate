@@ -1,62 +1,66 @@
-import { memo } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text } from "react-native";
+import { useTheme } from "./theme-context.tsx";
 import { tokens } from "./tokens.ts";
 
 /**
  * Two tiers, and only two.
  *
- * **Solid** is the one thing this screen wants you to do. **Glass** is everything else. Netflix's
- * mobile chrome makes the same split — one filled pill, the rest translucent — and it works
- * because a screen with two solid buttons has told you nothing about which matters.
+ * **Solid** is the one thing a screen wants you to do. **Glass** is everything else. A screen with
+ * two solid buttons has told you nothing about which matters.
  */
-export const Button = memo(function Button({
+export function Button({
   title, onPress, busy = false, disabled = false, tier = "glass",
 }: {
   readonly title: string;
   readonly onPress: () => void;
   readonly busy?: boolean;
   readonly disabled?: boolean;
-  readonly tier?: "solid" | "glass" | "quiet";
+  readonly tier?: "solid" | "glass";
 }) {
+  const c = useTheme().color;
   const off = busy || disabled;
-  const style = off ? styles[`${tier}Off`] : styles[tier];
+  const solid = tier === "solid";
+
   return (
-    <Pressable style={style} onPress={onPress} disabled={off}>
+    <Pressable
+      onPress={onPress}
+      disabled={off}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: off, busy }}
+      accessibilityLabel={title}
+      style={[
+        styles.base,
+        solid
+          ? { backgroundColor: c.actionFill }
+          : { backgroundColor: c.glass, borderWidth: 1, borderColor: c.hairline, borderTopColor: c.specular },
+        off && styles.off,
+      ]}
+    >
       {busy ? (
-        <ActivityIndicator color={tier === "solid" ? tokens.color.background : tokens.color.text} />
+        <ActivityIndicator color={solid ? c.actionText : c.paper} />
       ) : (
-        <Text style={tier === "solid" ? styles.solidText : styles.glassText}>{title}</Text>
+        <Text style={[styles.label, { color: solid ? c.actionText : c.paper }]}>{title}</Text>
       )}
     </Pressable>
   );
-});
-
-const base = {
-  borderRadius: tokens.radius.pill,
-  paddingVertical: tokens.space.base,
-  paddingHorizontal: tokens.space.lg,
-  alignItems: "center",
-  justifyContent: "center",
-} as const;
-
-const solid = { ...base, backgroundColor: tokens.color.accentBright };
-const glass = {
-  ...base,
-  backgroundColor: tokens.color.glass,
-  borderWidth: tokens.border.hairline,
-  borderColor: tokens.color.glassBorder,
-};
-/** No fill and no edge — for an action that should be available without being offered. */
-const quiet = { ...base, paddingVertical: tokens.space.xs };
+}
 
 const styles = StyleSheet.create({
-  solid,
-  glass,
-  quiet,
-  solidOff: { ...solid, opacity: tokens.opacity.disabled },
-  glassOff: { ...glass, opacity: tokens.opacity.disabled },
-  quietOff: { ...quiet, opacity: tokens.opacity.disabled },
-  /** Dark text on the bright fill: the only place on these screens that inverts. */
-  solidText: { color: tokens.color.background, fontWeight: "700", fontSize: tokens.font.body },
-  glassText: { color: tokens.color.text, fontWeight: "600", fontSize: tokens.font.body },
+  base: {
+    borderRadius: tokens.radius.lg,
+    paddingVertical: tokens.space.base,
+    paddingHorizontal: tokens.space.lg,
+    alignItems: "center",
+    justifyContent: "center",
+    // 44pt is the smallest comfortable target; a control shorter than that is a miss.
+    minHeight: 46,
+  },
+  off: { opacity: tokens.opacity.disabled },
+  label: {
+    fontFamily: tokens.font.mono,
+    fontSize: tokens.font.small,
+    fontWeight: "700",
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+  },
 });

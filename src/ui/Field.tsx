@@ -1,68 +1,61 @@
-import { memo } from "react";
 import { StyleSheet, Text, TextInput, View, type KeyboardTypeOptions } from "react-native";
+import { useTheme } from "./theme-context.tsx";
 import { tokens } from "./tokens.ts";
 
 /**
  * A labelled input.
  *
  * The label stays visible while typing. A placeholder alone disappears the moment the field is
- * focused, so the person loses the one piece of context they need exactly when they are acting on
- * it — and a screen reader has nothing to announce. The placeholder is an example here, not the
- * label doing double duty.
+ * focused, so a person loses the one piece of context they need exactly when they are acting on
+ * it — and a screen reader has nothing to announce.
  */
-export const Field = memo(function Field({
-  label, value, onChangeText, placeholder, hint, keyboardType, mono = false,
+export function Field({
+  label, value, onChangeText, placeholder, hint, keyboardType,
 }: {
   readonly label: string;
   readonly value: string;
   readonly onChangeText: (next: string) => void;
   readonly placeholder?: string;
-  /** Shown under the field. Say what a good value looks like, not what went wrong. */
+  /** Say what a good value looks like, not what went wrong. */
   readonly hint?: string;
   readonly keyboardType?: KeyboardTypeOptions;
-  readonly mono?: boolean;
 }) {
+  const c = useTheme().color;
   return (
     <View style={styles.group}>
-      <Text style={styles.label}>{label}</Text>
+      <Text style={[styles.label, { color: c.muted }]}>{label}</Text>
       <TextInput
-        style={mono ? styles.inputMono : styles.input}
+        style={[styles.input, { backgroundColor: c.groundLow, borderColor: c.hairline, color: c.paper }]}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor={tokens.color.textMuted}
+        placeholderTextColor={c.dim}
         keyboardType={keyboardType}
         autoCapitalize="none"
         autoCorrect={false}
         accessibilityLabel={label}
         accessibilityHint={hint}
       />
-      {hint !== undefined && <Text style={styles.hint}>{hint}</Text>}
+      {hint !== undefined && <Text style={[styles.hint, { color: c.dim }]}>{hint}</Text>}
     </View>
   );
-});
-
-const input = {
-  backgroundColor: tokens.color.background,
-  borderWidth: 1,
-  borderColor: tokens.color.glassBorder,
-  borderRadius: tokens.radius.md,
-  paddingHorizontal: tokens.space.base,
-  // 44pt is the smallest comfortable touch target; a text field shorter than that is a miss.
-  minHeight: 46,
-  color: tokens.color.text,
-  fontSize: tokens.font.body,
-} as const;
+}
 
 const styles = StyleSheet.create({
   group: { gap: tokens.space.xs },
   label: {
-    color: tokens.color.textMuted,
+    fontFamily: tokens.font.mono,
     fontSize: tokens.font.label,
-    textTransform: "uppercase",
     letterSpacing: tokens.font.labelTracking,
+    textTransform: "uppercase",
   },
-  input,
-  inputMono: { ...input, fontFamily: tokens.font.mono, fontSize: tokens.font.small },
-  hint: { color: tokens.color.textMuted, fontSize: tokens.font.small },
+  input: {
+    borderWidth: 1,
+    borderRadius: tokens.radius.md,
+    paddingHorizontal: tokens.space.base,
+    minHeight: 46,
+    fontFamily: tokens.font.mono,
+    fontSize: tokens.font.body,
+  },
+  hint: { fontFamily: tokens.font.mono, fontSize: tokens.font.small },
 });

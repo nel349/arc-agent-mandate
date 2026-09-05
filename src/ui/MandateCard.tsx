@@ -1,81 +1,75 @@
-import { memo } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import type { Mandate } from "../arc/mandate.ts";
 import { expiryLabel, fractionUsed, shortAddress } from "./mandate-format.ts";
+import { useTheme } from "./theme-context.tsx";
+import { Button } from "./Button.tsx";
 import { tokens } from "./tokens.ts";
 
+/** Segments in the meter. Twenty reads as a bar and still resolves single steps at 5%. */
+const SEGMENTS = 20;
+
 /**
- * One allowance, as a person reads it.
+ * One allowance.
  *
- * The number that matters is what is **left**, not what was granted — that is the figure someone
- * checks before deciding whether to intervene. Everything else is context.
+ * What is **left** leads, because that is the figure someone checks before deciding whether to
+ * step in. The meter is drawn in block characters rather than as a filled view: it is honest about
+ * being a readout, it aligns with the monospace around it, and it stays legible at a glance from
+ * across a desk.
  */
-export const MandateCard = memo(function MandateCard({
+export function MandateCard({
   mandate, onRevoke, busy,
 }: {
   readonly mandate: Mandate;
   readonly onRevoke: (agent: `0x${string}`) => void;
   readonly busy: boolean;
 }) {
-  const used = fractionUsed(mandate);
+  const c = useTheme().color;
+  const filled = Math.round(fractionUsed(mandate) * SEGMENTS);
+
   return (
     <View style={styles.card}>
       <View style={styles.row}>
-        <Text style={styles.agent}>{shortAddress(mandate.agent)}</Text>
-        <Text style={styles.expiry}>{expiryLabel(mandate)}</Text>
+        <Text style={[styles.meta, { color: c.muted }]}>{shortAddress(mandate.agent)}</Text>
+        <Text style={[styles.meta, { color: c.muted }]}>{expiryLabel(mandate)}</Text>
       </View>
 
-      <Text style={styles.remaining}>{mandate.remaining.format(2)} left</Text>
-      <Text style={styles.of}>of {mandate.limit.format(2)} granted</Text>
+      <Text style={[styles.amount, { color: c.paper }]}>
+        {mandate.remaining.format(2)}
+        <Text style={[styles.of, { color: c.dim }]}>  of {mandate.limit.format(2)}</Text>
+      </Text>
 
-      <View style={styles.track}>
-        {/* Width is the one value that cannot come from the stylesheet, because it is data. */}
-        <View style={[styles.fill, { width: `${Math.round(used * 100)}%` }]} />
-      </View>
+      {/* Two runs of blocks rather than twenty views: one string, one layout pass, and it cannot
+          drift out of alignment with the figures above it. */}
+      <Text style={styles.meter} accessibilityLabel={`${mandate.spent.format(2)} of ${mandate.limit.format(2)} spent`}>
+        <Text style={{ color: c.signal }}>{"█".repeat(filled)}</Text>
+        <Text style={{ color: c.track }}>{"█".repeat(SEGMENTS - filled)}</Text>
+      </Text>
 
-      <Pressable
-        style={busy ? styles.revokeOff : styles.revoke}
-        onPress={() => onRevoke(mandate.agent)}
-        disabled={busy}
-      >
-        <Text style={styles.revokeText}>Revoke</Text>
-      </Pressable>
+      <Button title="Revoke" onPress={() => onRevoke(mandate.agent)} busy={busy} />
     </View>
   );
-});
-
-const revoke = {
-  borderColor: tokens.color.danger,
-  borderWidth: tokens.border.hairline,
-  borderRadius: tokens.radius.pill,
-  paddingVertical: tokens.space.xs,
-  alignItems: "center",
-  marginTop: tokens.space.xs,
-} as const;
+}
 
 const styles = StyleSheet.create({
-  card: {
-    backgroundColor: tokens.color.glass,
-    borderWidth: tokens.border.hairline,
-    borderColor: tokens.color.glassBorder,
-    borderRadius: tokens.radius.lg,
-    padding: tokens.space.base,
-    gap: tokens.space.xs,
+  card: { gap: tokens.space.xs },
+  row: { flexDirection: "row", justifyContent: "space-between", alignItems: "baseline" },
+  meta: {
+    fontFamily: tokens.font.mono,
+    fontSize: tokens.font.small,
+    letterSpacing: tokens.font.labelTracking,
   },
-  row: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  agent: { color: tokens.color.textMuted, fontFamily: tokens.font.mono, fontSize: tokens.font.small },
-  expiry: { color: tokens.color.textMuted, fontSize: tokens.font.small },
-  remaining: { color: tokens.color.text, fontSize: tokens.font.display, fontWeight: "600" },
-  of: { color: tokens.color.textMuted, fontSize: tokens.font.small },
-  track: {
-    height: tokens.space.xs,
-    backgroundColor: tokens.color.glass,
-    borderRadius: tokens.radius.md,
-    overflow: "hidden",
+  amount: {
+    fontFamily: tokens.font.mono,
+    fontSize: tokens.font.title,
+    fontWeight: "700",
+    letterSpacing: -0.4,
+    fontVariant: [...tokens.font.tabular],
+  },
+  of: { fontSize: tokens.font.small, fontWeight: "400", letterSpacing: 0 },
+  meter: {
+    fontFamily: tokens.font.mono,
+    fontSize: tokens.font.body,
+    letterSpacing: -1,
     marginTop: tokens.space.xs,
   },
-  fill: { height: "100%", backgroundColor: tokens.color.accentBright },
-  revoke,
-  revokeOff: { ...revoke, opacity: tokens.opacity.disabled },
-  revokeText: { color: tokens.color.danger, fontWeight: "600", fontSize: tokens.font.body },
 });

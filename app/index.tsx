@@ -11,6 +11,7 @@ import { Field } from "../src/ui/Field.tsx";
 import { Surface } from "../src/ui/Surface.tsx";
 import { Usdc } from "../src/arc/usdc.ts";
 import { tokens } from "../src/ui/tokens.ts";
+import { useTheme } from "../src/ui/theme-context.tsx";
 import type { Mandate } from "../src/arc/mandate.ts";
 
 /**
@@ -27,6 +28,7 @@ export default function AllowancesScreen() {
   const [days, setDays] = useState("7");
 
   const busy = wallet.busy || mandate.busy;
+  const c = useTheme().color;
 
   /**
    * The agent's address arrives by paste today. It is a public value the agent prints, so a QR
@@ -71,31 +73,30 @@ export default function AllowancesScreen() {
     <View style={styles.header}>
       {wallet.account ? (
         <Surface raised>
-          <Text style={styles.label}>Your Wallet</Text>
-          <Text style={styles.balance}>{wallet.balance?.format(2) ?? "—"}</Text>
-          <Text style={styles.mono}>{wallet.account.address}</Text>
+          <Text style={[styles.label, { color: c.muted }]}>Your Wallet</Text>
+          <Text style={[styles.balance, { color: c.paper }]}>{wallet.balance?.format(2) ?? "—"}</Text>
+          <Text style={[styles.mono, { color: c.dim }]}>{wallet.account.address}</Text>
         </Surface>
       ) : (
         <Surface raised>
-          <Text style={styles.label}>No Wallet Yet</Text>
+          <Text style={[styles.label, { color: c.muted }]}>No Wallet Yet</Text>
           <Button tier="solid" title="Create a Wallet" onPress={wallet.create} busy={busy} />
           <Button title="Use an Existing Passkey" onPress={wallet.signIn} busy={busy} />
         </Surface>
       )}
 
-      {wallet.error !== null && <Text style={styles.error}>{wallet.error}</Text>}
-      {mandate.error !== null && <Text style={styles.error}>{mandate.error}</Text>}
+      {wallet.error !== null && <Text style={[styles.error, { color: c.warn }]}>{wallet.error}</Text>}
+      {mandate.error !== null && <Text style={[styles.error, { color: c.warn }]}>{mandate.error}</Text>}
 
       {wallet.account !== null && (
         <Surface>
-          <Text style={styles.label}>Give an Agent an Allowance</Text>
+          <Text style={[styles.label, { color: c.muted }]}>Give an Agent an Allowance</Text>
           <Field
             label="Agent address"
             value={agent}
             onChangeText={setAgent}
             placeholder="0x…"
             hint="Ask your agent for its address — it prints one on first run."
-            mono
           />
           <Field
             label="Amount"
@@ -123,7 +124,7 @@ export default function AllowancesScreen() {
         </Surface>
       )}
 
-      {mandate.mandates.length > 0 && <Text style={styles.label}>Active Allowances</Text>}
+      {mandate.mandates.length > 0 && <Text style={[styles.label, { color: c.muted }]}>Active Allowances</Text>}
     </View>
   );
 
@@ -179,29 +180,22 @@ const styles = StyleSheet.create({
   content: { padding: tokens.space.lg, gap: tokens.space.md },
   header: { gap: tokens.space.md, paddingBottom: tokens.space.xs },
   label: {
-    color: tokens.color.textMuted,
+    fontFamily: tokens.font.mono,
     fontSize: tokens.font.label,
-    textTransform: "uppercase",
     letterSpacing: tokens.font.labelTracking,
+    textTransform: "uppercase",
   },
   balance: {
-    color: tokens.color.text,
+    fontFamily: tokens.font.mono,
     fontSize: tokens.font.display,
-    fontWeight: "600",
+    fontWeight: "700",
+    letterSpacing: -1,
     // Re-read every ten seconds; proportional digits would change width on every update.
     fontVariant: [...tokens.font.tabular],
   },
-  mono: { color: tokens.color.textDim, fontFamily: tokens.font.mono, fontSize: tokens.font.small },
-  input: {
-    backgroundColor: tokens.color.background,
-    borderRadius: tokens.radius.pill,
-    padding: tokens.space.base,
-    color: tokens.color.text,
-    fontFamily: tokens.font.mono,
-    fontSize: tokens.font.body,
-  },
-  error: { color: tokens.color.danger, fontSize: tokens.font.small },
-  empty: { color: tokens.color.textMuted, fontSize: tokens.font.body, lineHeight: 20 },
+  mono: { fontFamily: tokens.font.mono, fontSize: tokens.font.small },
+  error: { fontFamily: tokens.font.mono, fontSize: tokens.font.small },
+  empty: { fontFamily: tokens.font.mono, fontSize: tokens.font.small, lineHeight: 18 },
   footer: { flexDirection: "row", gap: tokens.space.lg, marginTop: tokens.space.lg },
-  footLink: { color: tokens.color.textMuted, fontSize: tokens.font.small },
+  footLink: { fontFamily: tokens.font.mono, fontSize: tokens.font.small },
 });
