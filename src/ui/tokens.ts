@@ -32,6 +32,15 @@ export const tokens = {
     pill: 999,
   },
   border: { hairline: 1 },
+
+  size: {
+    /**
+     * The smallest comfortable touch target, per Apple's guidance. Anything a finger has to hit
+     * gets at least this, including rows that look tall enough already — "tall enough" depends on
+     * the content, and content changes.
+     */
+    tapTarget: 44,
+  },
   opacity: { disabled: 0.4 },
   font: {
     mono: "Menlo",

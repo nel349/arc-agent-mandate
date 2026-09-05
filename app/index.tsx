@@ -1,7 +1,6 @@
 import { useCallback, useState } from "react";
 import { FlashList } from "@shopify/flash-list";
 import { StyleSheet, Text, View } from "react-native";
-import { Link } from "expo-router";
 import { isAddress, type Address } from "viem";
 import { useArcAccount } from "../src/ui/useArcAccount.ts";
 import { useMandate } from "../src/ui/useMandate.ts";
@@ -91,16 +90,6 @@ export default function AllowancesScreen() {
       {mandate.error !== null && (
         <Text style={[styles.error, { color: c.warn }]} numberOfLines={3}>{mandate.error}</Text>
       )}
-      {mandate.ready === false && (
-        <Surface>
-          <Text style={[styles.label, { color: c.warn }]}>Not available yet</Text>
-          <Text style={[styles.empty, { color: c.muted }]}>
-            The allowance contract has not been deployed to Arc testnet. Granting will work as soon
-            as it is — everything else on this screen already does.
-          </Text>
-        </Surface>
-      )}
-
       {wallet.account !== null && (
         <Surface>
           <Text style={[styles.label, { color: c.muted }]}>Give an Agent an Allowance</Text>
@@ -112,19 +101,19 @@ export default function AllowancesScreen() {
             hint="Ask your agent for its address — it prints one on first run."
           />
           <Field
-            label="Amount"
+            label="Amount · USDC"
             value={amount}
             onChangeText={setAmount}
             placeholder="10"
-            hint="USDC. The agent can never spend more than this."
+            hint="The total this agent may ever spend. It cannot exceed this, whatever it is asked to buy."
             keyboardType="decimal-pad"
           />
           <Field
-            label="Expires after"
+            label="Expires after · days"
             value={days}
             onChangeText={setDays}
             placeholder="7"
-            hint="Days. The allowance stops working on its own."
+            hint="After this the allowance stops working on its own, with nothing to remember."
             keyboardType="decimal-pad"
           />
           <Button
@@ -134,6 +123,11 @@ export default function AllowancesScreen() {
             busy={busy}
             disabled={!canGrant}
           />
+          {/* Inside the form it disables, rather than as a paragraph above it. The button is
+              already dimmed; this says why in one line. */}
+          {mandate.ready === false && (
+            <Text style={[styles.notice, { color: c.warn }]}>Not deployed to Arc testnet yet</Text>
+          )}
         </Surface>
       )}
 
@@ -154,8 +148,6 @@ export default function AllowancesScreen() {
       renderItem={renderMandate}
       keyExtractor={keyOfMandate}
       ListHeaderComponent={header}
-      ListEmptyComponent={wallet.account !== null ? EmptyState : null}
-      ListFooterComponent={Footer}
       contentContainerStyle={styles.content}
       contentInsetAdjustmentBehavior="automatic"
     />
@@ -168,31 +160,6 @@ const keyOfMandate = (item: Mandate) => item.agent;
 
 /** Enough for roughly 350 payments at the measured ~0.0014 USDC per submission. */
 const GAS_FLOAT = Usdc.parse("0.5");
-
-// Components rather than elements: an element built at module scope would evaluate `styles`
-// before the StyleSheet below it exists.
-function EmptyState() {
-  // Reads the theme like everything else. Defined at module scope it cannot close over the
-  // screen's colours, and without them it renders in the default black — which on this ground is
-  // invisible rather than merely wrong.
-  const c = useTheme().color;
-  return (
-    <Text style={[styles.empty, { color: c.muted }]}>
-      No agent has an allowance yet. Run the connector, ask your agent for its address, and paste
-      it above.
-    </Text>
-  );
-}
-
-function Footer() {
-  const c = useTheme().color;
-  return (
-    <View style={styles.footer}>
-      <Link href="/settings" style={[styles.footLink, { color: c.signal }]}>Settings</Link>
-      <Link href="/dev" style={[styles.footLink, { color: c.muted }]}>Developer harness</Link>
-    </View>
-  );
-}
 
 const styles = StyleSheet.create({
   content: { padding: tokens.space.lg, gap: tokens.space.md },
@@ -213,7 +180,5 @@ const styles = StyleSheet.create({
   },
   mono: { fontFamily: tokens.font.mono, fontSize: tokens.font.small },
   error: { fontFamily: tokens.font.mono, fontSize: tokens.font.small },
-  empty: { fontFamily: tokens.font.mono, fontSize: tokens.font.small, lineHeight: 18 },
-  footer: { flexDirection: "row", gap: tokens.space.lg, marginTop: tokens.space.lg },
-  footLink: { fontFamily: tokens.font.mono, fontSize: tokens.font.small },
+  notice: { fontFamily: tokens.font.mono, fontSize: tokens.font.small },
 });

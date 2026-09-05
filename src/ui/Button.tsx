@@ -52,8 +52,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: tokens.space.lg,
     alignItems: "center",
     justifyContent: "center",
-    // 44pt is the smallest comfortable target; a control shorter than that is a miss.
-    minHeight: 46,
+    minHeight: tokens.size.tapTarget,
   },
   off: { opacity: tokens.opacity.disabled },
   label: {

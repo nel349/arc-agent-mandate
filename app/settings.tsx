@@ -1,5 +1,7 @@
 import { useCallback } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Link } from "expo-router";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { useAppearance } from "../src/ui/theme-context.tsx";
 import { THEMES, type ThemeId } from "../src/ui/themes.ts";
 import { Surface } from "../src/ui/Surface.tsx";
@@ -64,6 +66,29 @@ export default function SettingsScreen() {
           <Text style={[styles.value, { color: c.dim }]}>Testnet</Text>
         </View>
       </Surface>
+
+      {/* A debug tool, not a destination. It was sitting on the main screen next to Settings as
+          though the two were peers; here it is where someone goes looking for it and nowhere
+          near where someone is trying to give an agent money. */}
+      <Surface>
+        <Text style={[styles.section, { color: c.muted }]}>Diagnostics</Text>
+        <Link href="/dev" asChild>
+          <Pressable
+            style={[styles.row, { borderColor: c.hairline }]}
+            accessibilityRole="link"
+            accessibilityLabel="Developer harness"
+            accessibilityHint="Step through the passkey ceremony and read the raw log"
+          >
+            <View style={styles.labels}>
+              <Text style={[styles.name, { color: c.paper }]}>Developer harness</Text>
+              <Text style={[styles.note, { color: c.dim }]}>
+                Step through the ceremony, read the raw log
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={c.dim} />
+          </Pressable>
+        </Link>
+      </Surface>
     </Screen>
   );
 }
@@ -81,6 +106,9 @@ const styles = StyleSheet.create({
     gap: tokens.space.md,
     paddingVertical: tokens.space.md,
     borderTopWidth: 1,
+    // Apple's minimum comfortable target is 44pt. The content happened to add up to about that,
+    // which is not the same as guaranteeing it — a shorter label would have quietly broken it.
+    minHeight: tokens.size.tapTarget,
   },
   swatch: { flexDirection: "row", gap: 3 },
   chip: { width: 9, height: 22, borderRadius: 3 },

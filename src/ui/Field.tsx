@@ -1,13 +1,19 @@
-import { StyleSheet, Text, TextInput, View, type KeyboardTypeOptions } from "react-native";
+import { useCallback, useState } from "react";
+import { Pressable, StyleSheet, Text, TextInput, View, type KeyboardTypeOptions } from "react-native";
 import { useTheme } from "./theme-context.tsx";
 import { tokens } from "./tokens.ts";
 
 /**
- * A labelled input.
+ * A labelled input, with its explanation available rather than always present.
  *
- * The label stays visible while typing. A placeholder alone disappears the moment the field is
- * focused, so a person loses the one piece of context they need exactly when they are acting on
- * it — and a screen reader has nothing to announce.
+ * The label stays visible while typing — a placeholder alone disappears on focus, taking the one
+ * piece of context a person needs exactly when they are acting on it, and leaving a screen reader
+ * nothing to announce.
+ *
+ * The **hint sits behind a `?`**. Written out under every field it doubled each one's height and
+ * turned a three-field form into a page of prose. Someone filling in a form they already
+ * understand should not have to scroll past the explanation; someone who does not should be one
+ * tap from it.
  */
 export function Field({
   label, value, onChangeText, placeholder, hint, keyboardType,
@@ -16,14 +22,42 @@ export function Field({
   readonly value: string;
   readonly onChangeText: (next: string) => void;
   readonly placeholder?: string;
-  /** Say what a good value looks like, not what went wrong. */
+  /** Revealed by the `?`. Say what a good value looks like, not what went wrong. */
   readonly hint?: string;
   readonly keyboardType?: KeyboardTypeOptions;
 }) {
   const c = useTheme().color;
+  const [open, setOpen] = useState(false);
+  const toggle = useCallback(() => setOpen((shown) => !shown), []);
+
   return (
     <View style={styles.group}>
-      <Text style={[styles.label, { color: c.muted }]}>{label}</Text>
+      <View style={styles.labelRow}>
+        <Text style={[styles.label, { color: c.muted }]}>{label}</Text>
+
+        {hint !== undefined && (
+          <Pressable
+            onPress={toggle}
+            // The glyph is small; the target is not. `hitSlop` grows the touchable area without
+            // padding the row out to 44pt, which would undo the space this pattern exists to save.
+            hitSlop={tokens.space.md}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: open }}
+            accessibilityLabel={`About ${label}`}
+            accessibilityHint={hint}
+          >
+            <Text
+              style={[
+                styles.mark,
+                { color: open ? c.signal : c.dim, borderColor: open ? c.signal : c.hairline },
+              ]}
+            >
+              ?
+            </Text>
+          </Pressable>
+        )}
+      </View>
+
       <TextInput
         style={[styles.input, { backgroundColor: c.groundLow, borderColor: c.hairline, color: c.paper }]}
         value={value}
@@ -34,26 +68,38 @@ export function Field({
         autoCapitalize="none"
         autoCorrect={false}
         accessibilityLabel={label}
-        accessibilityHint={hint}
       />
-      {hint !== undefined && <Text style={[styles.hint, { color: c.dim }]}>{hint}</Text>}
+
+      {open && hint !== undefined && <Text style={[styles.hint, { color: c.dim }]}>{hint}</Text>}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   group: { gap: tokens.space.xs },
+  labelRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   label: {
     fontFamily: tokens.font.mono,
     fontSize: tokens.font.label,
     letterSpacing: tokens.font.labelTracking,
     textTransform: "uppercase",
   },
+  mark: {
+    fontFamily: tokens.font.mono,
+    fontSize: tokens.font.small,
+    lineHeight: 17,
+    width: 18,
+    height: 18,
+    borderRadius: 99,
+    borderWidth: 1,
+    textAlign: "center",
+    overflow: "hidden",
+  },
   input: {
     borderWidth: 1,
     borderRadius: tokens.radius.md,
     paddingHorizontal: tokens.space.base,
-    minHeight: 46,
+    minHeight: tokens.size.tapTarget,
     fontFamily: tokens.font.mono,
     fontSize: tokens.font.body,
   },

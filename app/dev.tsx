@@ -128,7 +128,7 @@ const styles = StyleSheet.create({
     borderRadius: tokens.radius.lg,
     padding: tokens.space.base,
     alignItems: "center",
-    minHeight: 46,
+    minHeight: tokens.size.tapTarget,
     justifyContent: "center",
   },
   off: { opacity: tokens.opacity.disabled },
@@ -136,6 +136,7 @@ const styles = StyleSheet.create({
   logLine: {
     fontFamily: tokens.font.mono,
     fontSize: tokens.font.small,
-    lineHeight: LOG_ROW_HEIGHT,
+    // No fixed lineHeight. React Native scales `fontSize` with the system text setting but leaves
+    // `lineHeight` alone, so a hardcoded one clips the glyphs of anyone using large text.
   },
 });
