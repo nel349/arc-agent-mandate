@@ -1,0 +1,57 @@
+# Give your coding agent an allowance
+
+An MCP server, so the agent you already run — Claude Code, Cursor, Codex — can spend from your
+wallet inside limits you set on your phone and take back with your face.
+
+```bash
+claude mcp add arc-mandate -- node /path/to/arc-agent-mandate/mcp/server.mjs
+```
+
+Then, in the agent:
+
+> **you:** what's your payment address?
+> **agent:** *(calls `get_pairing_address`)* → `0x1f94…F107`
+>
+> — you grant it $10 in the app, with Face ID —
+>
+> **you:** buy me the ACME filings
+> **agent:** *(calls `pay`)* → paid $2. Remaining: $8.
+
+## How pairing works, and why it is one step
+
+The agent generates its own key on first run and **never sends it anywhere**. A mandate is granted
+to an *address*, so only a public value moves, and only from the agent to you.
+
+After you grant, the agent finds the rest by itself: it watches for `SessionKeyAdded` naming its
+own address, which tells it which account authorised it. That argument is indexed in the event,
+which is what makes a single scan enough — there is no second round trip, no config file, and no
+copy-paste back.
+
+## Tools
+
+| | |
+|---|---|
+| `get_pairing_address` | the address to grant to |
+| `check_allowance` | limit, spent, remaining — read from the chain |
+| `pay` | send USDC within the allowance |
+
+The agent cannot exceed the allowance, pay someone it was not granted, or keep spending after you
+revoke. None of that is enforced here — it is enforced by the account, during validation, so a
+refused payment never even costs gas.
+
+## Configuration
+
+| | |
+|---|---|
+| `ARC_RPC_URL` | defaults to Arc testnet |
+| `ARC_SESSION_KEY_PLUGIN` | the mandate plugin |
+| `ARC_PLUGIN_FROM_BLOCK` | the plugin's deployment block. **Set this** — without it the agent only searches recent history, because `eth_getLogs` is capped at 10,000 blocks and scanning past the floor gets the whole lookup rate-limited |
+| `ARC_SUBMITTER_KEY` | who pays gas to submit |
+| `ARC_MANDATE_KEY_PATH` | where the agent's key lives (default `~/.arc-mandate/agent.key`) |
+
+## Not finished
+
+`ARC_SUBMITTER_KEY` is a placeholder for the real answer. The account's paymaster already sponsors
+its owner's operations; whether Circle's bundler will accept one **signed by a session key** rather
+than the passkey is unconfirmed. If it does, an agent needs no funds at all and this variable goes
+away. If it does not, someone has to pay to submit, and that changes the story for a newcomer.
