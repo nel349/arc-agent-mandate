@@ -1,14 +1,17 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { FlashList } from "@shopify/flash-list";
 import { StyleSheet, Text, View } from "react-native";
-import { isAddress, type Address } from "viem";
 import { useArcAccount } from "../src/ui/useArcAccount.ts";
 import { useMandate } from "../src/ui/useMandate.ts";
 import { MandateCard } from "../src/ui/MandateCard.tsx";
 import { Button } from "../src/ui/Button.tsx";
+import { ChoiceRow, type Choice } from "../src/ui/ChoiceRow.tsx";
 import { Field } from "../src/ui/Field.tsx";
 import { Label } from "../src/ui/Label.tsx";
+import { Note } from "../src/ui/Note.tsx";
 import { Surface } from "../src/ui/Surface.tsx";
+import { grantSummary } from "../src/ui/grant-format.ts";
+import { readGrantTerms } from "../src/ui/grant-terms.ts";
 import { Usdc } from "../src/arc/usdc.ts";
 import { tokens } from "../src/ui/tokens.ts";
 import { useTheme } from "../src/ui/theme-context.tsx";
@@ -24,11 +27,40 @@ export default function AllowancesScreen() {
   const wallet = useArcAccount();
   const mandate = useMandate(wallet.account);
   const [agent, setAgent] = useState("");
-  const [amount, setAmount] = useState("10");
-  const [days, setDays] = useState("7");
+  const [amount, setAmount] = useState<string>(DEFAULT_AMOUNT);
+  const [amountCustom, setAmountCustom] = useState(false);
+  const [days, setDays] = useState<string>(DEFAULT_DAYS);
+  const [daysCustom, setDaysCustom] = useState(false);
+  /**
+   * Bumped when a grant clears the form, to remount the address field.
+   *
+   * `Field` shows its problem once touched, so that clearing it says why rather than silently
+   * dimming the button. But a grant clears the field too, and the field cannot tell the app doing
+   * that from the person doing it — so a successful grant left the form announcing that the empty
+   * address is invalid. A new key says "this is a fresh form", which is exactly what happened.
+   */
+  const [formGeneration, setFormGeneration] = useState(0);
 
   const busy = wallet.busy || mandate.busy;
   const c = useTheme().color;
+
+  /**
+   * One read of the form, used by the summary, the field messages, the button's enabled state and
+   * the grant itself. They previously each decided for themselves and disagreed about the expiry
+   * in the dangerous direction — see `readGrantTerms`.
+   */
+  const read = useMemo(() => readGrantTerms({ agent, amount, days }), [agent, amount, days]);
+  const terms = "terms" in read ? read.terms : null;
+  const problems = "problems" in read ? read.problems : NO_PROBLEMS;
+
+  /**
+   * Built from the terms that would actually be granted, never from a parallel set held for
+   * display. The sentence directly above the button is the one place that must not lie.
+   */
+  const summary = useMemo(
+    () => (terms === null ? null : grantSummary({ limit: terms.limit, days: terms.days, gasFloat: GAS_FLOAT })),
+    [terms],
+  );
 
   /**
    * The agent's address arrives by paste today. It is a public value the agent prints, so a QR
@@ -44,30 +76,22 @@ export default function AllowancesScreen() {
    * an unknown payee says so in the conversation — which is where the person already is.
    */
   const grant = useCallback(() => {
-    if (!isAddress(agent)) return;
-    let limit: Usdc;
-    try {
-      limit = Usdc.parse(amount);
-    } catch {
-      return;
-    }
-    const window = Number(days);
+    if (terms === null) return;
     mandate.grant({
-      agent,
-      limit,
+      agent: terms.agent,
+      limit: terms.limit,
       payees: [],
       // Authorising an agent that cannot pay to submit is authorising nothing. This goes in the
       // same user operation, so it is one confirmation and the two can never come apart.
       gasFloat: GAS_FLOAT,
-      expiresAt: Number.isFinite(window) && window > 0
-        ? Math.floor(Date.now() / 1000) + Math.round(window * 86_400)
-        : undefined,
+      expiresAt: Math.floor(Date.now() / 1000) + Math.round(terms.days * 86_400),
       label: "agent",
     });
     setAgent("");
-  }, [agent, amount, days, mandate]);
+    setFormGeneration((n) => n + 1);
+  }, [terms, mandate]);
 
-  const canGrant = isAddress(agent) && !busy && mandate.ready === true;
+  const canGrant = terms !== null && !busy && mandate.ready === true;
 
   const header = (
     <View style={styles.header}>
@@ -85,38 +109,71 @@ export default function AllowancesScreen() {
         </Surface>
       )}
 
-      {wallet.error !== null && (
-        <Text style={[styles.error, { color: c.warn }]} numberOfLines={3}>{wallet.error}</Text>
-      )}
-      {mandate.error !== null && (
-        <Text style={[styles.error, { color: c.warn }]} numberOfLines={3}>{mandate.error}</Text>
-      )}
+      {wallet.error !== null && <Note tone="warn" lines={ERROR_LINES}>{wallet.error}</Note>}
+      {mandate.error !== null && <Note tone="warn" lines={ERROR_LINES}>{mandate.error}</Note>}
+
       {wallet.account !== null && (
         <Surface>
           <Label>Give an Agent an Allowance</Label>
+
           <Field
+            key={formGeneration}
             label="Agent address"
             value={agent}
             onChangeText={setAgent}
             placeholder="0x…"
             hint="Ask your agent for its address — it prints one on first run."
+            problem={problems.agent}
+            confirmed={problems.agent === null && agent.length > 0}
           />
-          <Field
+
+          <ChoiceRow
             label="Amount · USDC"
-            value={amount}
-            onChangeText={setAmount}
-            placeholder="10"
             hint="The total this agent may ever spend. It cannot exceed this, whatever it is asked to buy."
-            keyboardType="decimal-pad"
+            options={AMOUNTS}
+            selected={amount}
+            onSelect={(next) => { setAmount(next); setAmountCustom(false); }}
+            custom={{
+              active: amountCustom,
+              onSelect: () => setAmountCustom(true),
+              children: (
+                <Field
+                  label="Amount"
+                  value={amount}
+                  onChangeText={setAmount}
+                  placeholder="10"
+                  keyboardType="decimal-pad"
+                  problem={problems.amount}
+                />
+              ),
+            }}
           />
-          <Field
-            label="Expires after · days"
-            value={days}
-            onChangeText={setDays}
-            placeholder="7"
+
+          <ChoiceRow
+            label="Expires after"
             hint="After this the allowance stops working on its own, with nothing to remember."
-            keyboardType="decimal-pad"
+            options={WINDOWS}
+            selected={days}
+            onSelect={(next) => { setDays(next); setDaysCustom(false); }}
+            custom={{
+              label: "Custom",
+              active: daysCustom,
+              onSelect: () => setDaysCustom(true),
+              children: (
+                <Field
+                  label="Days"
+                  value={days}
+                  onChangeText={setDays}
+                  placeholder="7"
+                  keyboardType="decimal-pad"
+                  problem={problems.days}
+                />
+              ),
+            }}
           />
+
+          {summary !== null && <Note>{summary}</Note>}
+
           <Button
             tier="solid"
             title="Grant Allowance"
@@ -124,11 +181,7 @@ export default function AllowancesScreen() {
             busy={busy}
             disabled={!canGrant}
           />
-          {/* Inside the form it disables, rather than as a paragraph above it. The button is
-              already dimmed; this says why in one line. */}
-          {mandate.ready === false && (
-            <Text style={[styles.notice, { color: c.warn }]}>Not deployed to Arc testnet yet</Text>
-          )}
+          {mandate.ready === false && <Note tone="warn">Not deployed to Arc testnet yet</Note>}
         </Surface>
       )}
 
@@ -159,7 +212,41 @@ export default function AllowancesScreen() {
 // list would treat every row as changed.
 const keyOfMandate = (item: Mandate) => item.agent;
 
-/** Enough for roughly 350 payments at the measured ~0.0014 USDC per submission. */
+/**
+ * The presets, as strings, because that is what the field beneath them edits.
+ *
+ * Keeping one representation means picking a pill and typing a number are the same state, so the
+ * custom field opens on whatever was last chosen instead of blank.
+ */
+const AMOUNTS: readonly Choice<string>[] = [
+  { label: "5", value: "5" },
+  { label: "20", value: "20" },
+  { label: "100", value: "100" },
+];
+const WINDOWS: readonly Choice<string>[] = [
+  { label: "1 day", value: "1" },
+  { label: "7 days", value: "7" },
+  { label: "30 days", value: "30" },
+];
+const DEFAULT_AMOUNT = "20";
+const DEFAULT_DAYS = "7";
+
+/** Nothing to complain about yet, and the same shape the reader returns. */
+/** Enough of a chain error to recognise it; the harness log has the whole thing. */
+const ERROR_LINES = 3;
+
+const NO_PROBLEMS = { agent: null, amount: null, days: null } as const;
+
+/**
+ * The float that lets the agent submit its own operations.
+ *
+ * At Arc testnet's current fees — around 25 gwei over roughly 1.1M gas — a payment costs about
+ * 0.028 USDC, so this covers on the order of **18 payments**. An earlier note here claimed 350,
+ * from a per-payment cost measured against a hardcoded 1 gwei fee the chain never charged.
+ *
+ * Deliberately left at 0.5 for now: it is the user's money, set aside on every grant, and raising
+ * it is a product decision rather than a correction.
+ */
 const GAS_FLOAT = Usdc.parse("0.5");
 
 const styles = StyleSheet.create({
@@ -174,6 +261,4 @@ const styles = StyleSheet.create({
     fontVariant: [...tokens.font.tabular],
   },
   mono: { fontFamily: tokens.font.mono, fontSize: tokens.font.small },
-  error: { fontFamily: tokens.font.mono, fontSize: tokens.font.small },
-  notice: { fontFamily: tokens.font.mono, fontSize: tokens.font.small },
 });
