@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { decodeAbiParameters, parseAbiParameters } from "viem";
 import {
-  buildGrantCalls, SESSION_KEY_PLUGIN, SESSION_KEY_PLUGIN_MANIFEST_HASH,
+  buildChangeCalls, buildGrantCalls, SESSION_KEY_PLUGIN, SESSION_KEY_PLUGIN_MANIFEST_HASH,
   type MandateTerms,
 } from "./mandate.ts";
 import { Usdc } from "./usdc.ts";
@@ -113,8 +113,68 @@ test("a negative gas float is refused rather than silently encoded", () => {
   );
 });
 
+/**
+ * The plugin's access control defaults to an ALLOWLIST, and an empty allowlist refuses everything
+ * — including a plain transfer to an ordinary address. An unscoped mandate therefore has to
+ * invert the list, and then shut the ERC-20 view by name, because a denylist would otherwise
+ * leave the second rail open. `contracts/test/ArcPayeeScope.t.sol` proves all three halves
+ * against the real plugin.
+ */
+/** `setAccessListType(uint8)`, with DENYLIST = 1 and ALLOWLIST = 0. */
+const DENYLIST_CALL = "0x8f2920d8" + "1".padStart(64, "0");
+const ALLOWLIST_CALL = "0x8f2920d8" + "0".padStart(64, "0");
+
+test("an unscoped allowance inverts the access list, or it could not pay anyone", () => {
+  const calls = buildGrantCalls(ACCOUNT, terms({ payees: [] }), true);
+  const data = calls.map((c) => c.data ?? "0x").join("").toLowerCase();
+  assert.ok(data.includes(DENYLIST_CALL.slice(2)), "the access list was not inverted to a denylist");
+});
+
+test("an unscoped allowance shuts the ERC-20 view by name", () => {
+  const calls = buildGrantCalls(ACCOUNT, terms({ payees: [] }), true);
+  const data = calls.map((c) => c.data ?? "0x").join("").toLowerCase();
+  assert.ok(
+    data.includes("3600000000000000000000000000000000000000"),
+    "the ERC-20 view is not on the denylist, so the mandate bounds one rail and leaves the other open",
+  );
+});
+
+test("a scoped allowance keeps the allowlist, where unnamed targets are already shut", () => {
+  const payee = "0x2222222222222222222222222222222222222222" as const;
+  const calls = buildGrantCalls(ACCOUNT, terms({ payees: [payee] }), true);
+  const data = calls.map((c) => c.data ?? "0x").join("").toLowerCase();
+  assert.ok(data.includes(ALLOWLIST_CALL.slice(2)), "a scoped mandate must stay on an allowlist");
+  assert.ok(data.includes(payee.slice(2)), "the named payee is not on the list");
+  assert.ok(
+    !data.includes("3600000000000000000000000000000000000000"),
+    "an allowlist should not need the ERC-20 view named; unlisted is already refused",
+  );
+});
+
 test("an allowance with no payees is allowed, and bounds money and time instead", () => {
   // Requiring payees up front cannot work: an agent does not know who it will pay until it finds
   // a service. See agent-mandate/UX_FLOW.md.
   assert.doesNotThrow(() => buildGrantCalls(ACCOUNT, terms({ payees: [] }), true));
+});
+
+/**
+ * `updateAccessListAddressEntry` means "allow" on an allowlist and "deny" on a denylist. Since an
+ * unscoped mandate is granted as a denylist, a change that names payees must also flip the list
+ * back, or it blocks precisely the address the caller meant to permit.
+ */
+test("naming payees in a change scopes the mandate rather than blocking them", () => {
+  const payee = "0x3333333333333333333333333333333333333333" as const;
+  const calls = buildChangeCalls(ACCOUNT, AGENT, { addPayees: [payee] });
+  const data = calls.map((c) => c.data ?? "0x").join("").toLowerCase();
+  assert.ok(
+    data.includes(ALLOWLIST_CALL.slice(2)),
+    "a change naming payees left the list inverted, so the payee would have been denied",
+  );
+  assert.ok(data.includes(payee.slice(2)));
+});
+
+test("a change that names no payees does not touch the access list type", () => {
+  const calls = buildChangeCalls(ACCOUNT, AGENT, { limit: Usdc.parse("5") });
+  const data = calls.map((c) => c.data ?? "0x").join("").toLowerCase();
+  assert.ok(!data.includes("8f2920d8"), "an unrelated change silently re-scoped the mandate");
 });

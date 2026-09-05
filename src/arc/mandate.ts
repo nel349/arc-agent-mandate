@@ -69,10 +69,44 @@ const pluginAbi = parseAbi([
 
 const updatesAbi = parseAbi([
   "function updateAccessListAddressEntry(address contractAddress, bool isOnList, bool checkSelectors)",
+  "function setAccessListType(uint8 contractAccessControlType)",
   "function setNativeTokenSpendLimit(uint256 spendLimit, uint48 refreshInterval)",
   "function setGasSpendLimit(uint256 spendLimit, uint48 refreshInterval)",
   "function updateTimeRange(uint48 validAfter, uint48 validUntil)",
 ]);
+
+/**
+ * `ContractAccessControlType`, matching the plugin's enum by position.
+ *
+ * `ALLOWLIST` is zero, which is what a freshly added session key gets — and an *empty* allowlist
+ * denies everything, including a plain transfer to an ordinary address. So the default is not
+ * "unscoped", it is "inert".
+ */
+const ACCESS_LIST = { allowlist: 0, denylist: 1, allowAll: 2 } as const;
+
+/**
+ * Arc's ERC-20 view over the same balance the native rail spends.
+ *
+ * Named here rather than reached through `chain.ts` because this is not the address we send to;
+ * it is the address a session key must never reach. See `denyTheSecondRail`.
+ */
+const USDC_ERC20_VIEW: Address = "0x3600000000000000000000000000000000000000";
+
+/**
+ * Shutting the rail a denylist would otherwise leave open.
+ *
+ * Arc's dollar is the native token *and* an ERC-20 view over the same balance. A mandate bounds
+ * native spending, and an ERC-20 `transfer` carries `value == 0` — so it moves the same dollars
+ * without the native limit ever seeing them. Under an allowlist that call was refused for being
+ * unlisted; under a denylist it has to be refused by name, or the limit on screen is half a bound.
+ */
+function denyTheSecondRail(): Hex {
+  return encodeFunctionData({
+    abi: updatesAbi,
+    functionName: "updateAccessListAddressEntry",
+    args: [USDC_ERC20_VIEW, true, false],
+  });
+}
 
 export interface MandateTerms {
   /** The agent's address. It holds the matching key; we never see it. */
@@ -90,9 +124,9 @@ export interface MandateTerms {
    *
    * Without this a granted agent is authorised and still cannot spend: submitting a user
    * operation is an ordinary transaction, and someone has to pay for it. The account reimburses
-   * most of it, so the float drains at roughly 0.0014 USDC per payment — about 700 payments per
-   * dollar. It is the agent's own money, so losing the agent's key loses the float and nothing
-   * more.
+   * most of it, so the float drains at roughly 0.028 USDC per payment at Arc testnet's present
+   * fees — about 36 payments per dollar. It is the agent's own money, so losing the agent's key
+   * loses the float and nothing more.
    */
   readonly gasFloat?: Usdc;
 }
@@ -105,17 +139,49 @@ export interface Mandate {
   readonly expiresAt?: number;
 }
 
-/** The permission calls that turn a bare session key into a bounded one. */
+/**
+ * The permission calls that turn a bare session key into a bounded one.
+ *
+ * **Who a mandate may pay is decided here, and the default is a trap.** A new session key's
+ * access control is `ALLOWLIST` with nothing on the list, and the plugin's per-call check opens
+ * with `if (!contractData.isOnList) return false` — which covers a plain value transfer to an
+ * ordinary address, not just contract calls. So granting an allowance without naming payees
+ * produced a mandate that could not move a single wei, while reading on screen as a working
+ * allowance with a limit and an expiry.
+ *
+ * Two shapes, then, and the list type has to match the intent:
+ *
+ * - **No payees named** — the product's default, because an agent shopping the open web does not
+ *   know who it will pay. Invert to a `DENYLIST`, so anyone may be paid *except* the addresses
+ *   named on it.
+ * - **Payees named** — a genuinely scoped mandate. Keep the `ALLOWLIST`, where the empty-list
+ *   default works in our favour: everything unnamed, including the second rail, is already shut.
+ *
+ * `ALLOW_ALL_ACCESS` is never used. It disables contract access control outright, and that is the
+ * one setting that cannot close the ERC-20 rail.
+ */
 function permissionUpdates(terms: MandateTerms): Hex[] {
-  const updates: Hex[] = terms.payees.map((payee) =>
+  const scoped = terms.payees.length > 0;
+
+  const updates: Hex[] = [
     encodeFunctionData({
+      abi: updatesAbi,
+      functionName: "setAccessListType",
+      args: [scoped ? ACCESS_LIST.allowlist : ACCESS_LIST.denylist],
+    }),
+  ];
+
+  for (const payee of terms.payees) {
+    updates.push(encodeFunctionData({
       abi: updatesAbi,
       functionName: "updateAccessListAddressEntry",
       // `checkSelectors: false` — these are plain payees receiving value, not contracts whose
       // individual functions need gating.
       args: [payee, true, false],
-    }),
-  );
+    }));
+  }
+
+  if (!scoped) updates.push(denyTheSecondRail());
 
   updates.push(encodeFunctionData({
     abi: updatesAbi,
@@ -141,13 +207,32 @@ function permissionUpdates(terms: MandateTerms): Hex[] {
   return updates;
 }
 
-/** Only the updates a change actually asks for. */
+/**
+ * Only the updates a change actually asks for.
+ *
+ * **Naming payees scopes the mandate, and has to say so on the wire.** `updateAccessListAddressEntry`
+ * puts an address on *the* list, and since `permissionUpdates` now chooses that list's meaning at
+ * grant time, the same call allows or denies depending on which kind of mandate this is. On an
+ * unscoped one — a denylist — adding a payee would have blocked exactly the address the caller
+ * meant to permit, which is the worst possible way for an API to be wrong.
+ *
+ * So a change that names payees also sets the list back to an allowlist. That is the only reading
+ * of "these are the payees" that is not a silent inversion, and it makes the second rail safe for
+ * free: under an allowlist, anything unnamed — the ERC-20 view included — is already refused.
+ */
 function changeUpdates(change: MandateChange): Hex[] {
-  const updates: Hex[] = (change.addPayees ?? []).map((payee) =>
-    encodeFunctionData({
+  const payees = change.addPayees ?? [];
+  const updates: Hex[] = payees.length > 0
+    ? [encodeFunctionData({
+        abi: updatesAbi, functionName: "setAccessListType", args: [ACCESS_LIST.allowlist],
+      })]
+    : [];
+
+  for (const payee of payees) {
+    updates.push(encodeFunctionData({
       abi: updatesAbi, functionName: "updateAccessListAddressEntry", args: [payee, true, false],
-    }),
-  );
+    }));
+  }
   if (change.limit !== undefined) {
     updates.push(encodeFunctionData({
       abi: updatesAbi, functionName: "setNativeTokenSpendLimit",
@@ -291,17 +376,29 @@ export interface MandateChange {
 }
 
 /** Changes a live mandate's terms. Same passkey gesture as granting one. */
+/**
+ * The calls a change becomes, without sending them.
+ *
+ * Pure and exported for the same reason `buildGrantCalls` is: what these calls *say* is the whole
+ * security decision, and a function that needs an account and a bundler to run is a function
+ * nobody tests. The change path had no such seam, which is precisely why an inversion in
+ * `changeUpdates` — payees being denied instead of allowed — sat there uncovered.
+ */
+export function buildChangeCalls(accountAddress: Address, agent: Address, change: Omit<MandateChange, "agent">): GrantCall[] {
+  return [{
+    to: accountAddress,
+    data: encodeFunctionData({
+      abi: pluginAbi, functionName: "updateKeyPermissions",
+      args: [agent, changeUpdates({ ...change, agent })],
+    }),
+  }];
+}
+
 export async function updateMandate(account: ArcAccount, change: MandateChange): Promise<Hash> {
   try {
     return await account.bundler.sendUserOperation({
       account: account.smartAccount,
-      calls: [{
-        to: account.address,
-        data: encodeFunctionData({
-          abi: pluginAbi, functionName: "updateKeyPermissions",
-          args: [change.agent, changeUpdates(change)],
-        }),
-      }],
+      calls: buildChangeCalls(account.address, change.agent, change),
       ...(await fees(account)),
     });
   } catch (cause) {

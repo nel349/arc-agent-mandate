@@ -114,6 +114,84 @@ because the session key plugin requires the key to own the nonce key:
 nonce >> 64  ==  the session key's address
 ```
 
+## 7. A Circle smart account is reachable without Circle
+
+Circle is the WebAuthn relying party for registration and login, and their modular transport is
+the default RPC. That reads like a dependency for getting back to your own account, and for a
+wallet that calls itself non-custodial the difference matters.
+
+It is not one, and their SDK says so if you read the address path. `toCircleSmartAccount` asks
+their API for the address **only** when handed their own transport:
+
+```js
+if (client.transport.key === MODULAR_WALLETS_TRANSPORT_KEY) { /* ask Circle */ }
+...
+getAddress: async () => address ?? walletAddress ?? computeAddress(owner)
+```
+
+`computeAddress` is a CREATE2 computation over published constants — the factory, the proxy
+creation code, the MSCA implementation, the multisig plugin and its manifest hash — with a zero
+salt, mixed with a sender derived from the credential's public key. Hand it any ordinary RPC and
+it never calls them.
+
+Checked against the live API with a throwaway P-256 key: **Circle returned byte-identical the
+address computed offline.**
+
+Signing was never theirs either. Circle issues the registration options, but assertions go
+through ox's `WebAuthnP256` against whatever `rpId` you pin — here our own domain, not Circle's.
+That is also why `rpId` must be passed explicitly: it defaults to `window.location.hostname`,
+which on React Native is the Metro dev server, and iOS then refuses every assertion *after* a
+successful registration.
+
+So the standing dependency is convenience, not custody and not reachability. The obligation it
+creates is on the application: **persist the credential id and public key**, because they are
+the whole input to the derivation. Recovery being possible and recovery being implemented are
+different claims.
+
+The risk worth guarding is silent drift. Those constants live in the SDK, and a version bump
+that moves any of them moves every address ever derived — with no error, just funds at an
+address nobody can reach. `integration/rp-independence.test.mjs` pins a fixed public key to a
+known address so that turns into a failing test.
+
+## 8. An empty allowlist is not "anyone" — it is "no one"
+
+A session key's contract access control defaults to `ALLOWLIST`, which is enum value zero, so it
+is what every freshly added key gets. The natural reading is that an allowlist with nothing on it
+imposes no restriction yet. It is the opposite, and the per-call check says so in its first line:
+
+```solidity
+if (accessControlType == ContractAccessControlType.ALLOWLIST) {
+    if (!contractData.isOnList) return false;
+```
+
+`target` here is the target of **any** call, including a plain value transfer to an ordinary
+address. There is no branch that exempts a call with empty calldata. So a key granted a spend
+limit, a gas limit and an expiry — but no named payees — cannot move a single wei to anybody,
+while every view function reports a healthy mandate with the full limit unspent.
+
+This is easy to miss because the obvious test does not catch it. A suite that grants to a payee
+and then spends to that payee passes; so does one that checks an unnamed payee is refused. Both
+describe an allowlist working correctly. Nothing exercises the empty list unless you write that
+case deliberately.
+
+**The fix is not `ALLOW_ALL_ACCESS`.** That setting disables contract access control entirely,
+and on Arc that is precisely the thing you cannot afford: the dollar is the native token *and* an
+ERC-20 view over the same balance, so a key that may call anything can move the same money
+through `transfer`, where a native spend limit never sees it — an ERC-20 call carries
+`value == 0`. Under an allowlist that call was refused for being unlisted, which means the second
+rail was closed by accident rather than on purpose.
+
+What works is a **denylist with the second rail named on it**: anyone may be paid, except the
+ERC-20 view. `contracts/test/ArcPayeeScope.t.sol` pins all three steps against the real plugin on
+a fork — the empty allowlist spending nothing, the denylist reopening the ERC-20 rail, and naming
+that rail closing it again.
+
+The general lesson is worth more than the specific one: when a permission model defaults to a
+mode whose empty state is total denial, "unconfigured" and "unrestricted" look identical from
+every getter, and only differ when someone tries to spend.
+
 ---
 
-Every claim above is exercised by tests in this repository. `npm run gate`.
+Every claim above is exercised by tests in this repository — `npm run gate` — with one exception,
+stated where it appears: the comparison against Circle's live address API needs their network and
+a browser `window`, so what the gate holds is the offline derivation it was checked against.
