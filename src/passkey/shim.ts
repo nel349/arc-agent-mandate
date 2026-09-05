@@ -2,6 +2,7 @@ import { Platform } from "react-native";
 import { arcPasskey } from "@passkey-native";
 import { anyToBase64url, fromBase64url, toArrayBuffer, toBase64url } from "./base64url.ts";
 import { parseAttestationObject } from "./cose.ts";
+import { captureDeviceVector } from "./vector-capture.ts";
 import { installSubtleShim } from "./subtle.ts";
 import { PasskeyShimError } from "./errors.ts";
 import {
@@ -137,6 +138,10 @@ async function create(
     attestationObjectB64 = native.attestationObject;
     clientDataJSONB64 = native.clientDataJSON;
   }
+
+  // Before parsing, so a vector is still printed when parsing is what fails — which is exactly
+  // the run whose input we most want to keep.
+  captureDeviceVector(attestationObjectB64);
 
   const attestationObject = fromBase64url(attestationObjectB64);
   // The piece a browser would have done for us — parsed once, reused below.
