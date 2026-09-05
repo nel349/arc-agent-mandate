@@ -46,12 +46,22 @@ refused payment never even costs gas.
 | `ARC_RPC_URL` | defaults to Arc testnet |
 | `ARC_SESSION_KEY_PLUGIN` | the mandate plugin |
 | `ARC_PLUGIN_FROM_BLOCK` | the plugin's deployment block. **Set this** — without it the agent only searches recent history, because `eth_getLogs` is capped at 10,000 blocks and scanning past the floor gets the whole lookup rate-limited |
-| `ARC_SUBMITTER_KEY` | who pays gas to submit |
+| `ARC_SUBMITTER_KEY` | overrides who submits; by default the agent submits its own |
 | `ARC_MANDATE_KEY_PATH` | where the agent's key lives (default `~/.arc-mandate/agent.key`) |
 
-## Not finished
+## Why the agent needs a small float, and why that is the right trade
 
-`ARC_SUBMITTER_KEY` is a placeholder for the real answer. The account's paymaster already sponsors
-its owner's operations; whether Circle's bundler will accept one **signed by a session key** rather
-than the passkey is unconfirmed. If it does, an agent needs no funds at all and this variable goes
-away. If it does not, someone has to pay to submit, and that changes the story for a newcomer.
+The agent submits its own operations over a plain RPC. It fronts the transaction gas and the
+account reimburses it, so the float drains slowly — **measured at ~0.0014 USDC per payment, about
+700 payments per dollar.** The grant sends this float, so one Face ID both authorises the agent
+and funds it.
+
+The alternative was Circle's bundler, and its paymaster **will** sponsor an agent's spend — we
+checked. It was rejected on developer experience rather than capability: reaching it needs the
+app's `CIRCLE_CLIENT_KEY` plus an `X-AppInfo` header matching the registered passkey domain. That
+is the wallet vendor's credential, and an agent should not need it to spend an allowance it was
+already granted. Arc's own RPC does not bundle, so there was no third door.
+
+The float is also the right security shape. It is the agent's own money: if the agent is
+compromised, the attacker gets a dollar of gas and whatever the mandate still allows — never the
+wallet.

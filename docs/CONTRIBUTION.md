@@ -44,6 +44,35 @@ one rail is not enforced at all.
 
 ---
 
+## Where this sits among the standards
+
+Worth being precise about, because the idea is not ours and claiming otherwise would be both
+wrong and weaker than the truth.
+
+| | status | us |
+|---|---|---|
+| **ERC-4337 v0.7** | live, deployed on Arc | **We use it, correctly.** Circle's account is v0.7; the port was making a v0.6 plugin speak it. |
+| **ERC-6900** | Draft — and the current draft says *modules* | Circle's Modular Wallets implement the older *plugin* generation. Not our choice; we inherit it by targeting their wallet. |
+| **ERC-7715** | Draft — `wallet_requestExecutionPermissions` | We do **not** implement it. It assumes a JSON-RPC channel from a dapp to a wallet; ours is a phone granting out of band. Its vocabulary still describes what we do. |
+| **ERC-7710** | Draft — on-chain delegation manager | Not used. Circle's account enforces through ERC-6900, so there is no delegation manager to speak to. |
+| **EIP-7702** | live on Arc | Not our path, and correctly so — the account is a passkey smart account, not an EOA. |
+
+**The concept is an emerging standard, and others have shipped it.** MetaMask's Delegation Toolkit
+implements ERC-7715 over ERC-7710, and their own example is an agent spending a capped amount of
+USDC per day. We are not inventing bounded agent spending.
+
+**What is missing is not the idea. It is the wiring on this stack.** Nobody has bounded agent
+spending working against Circle Modular Wallets, and the reason is concrete rather than
+philosophical: the only session-key plugin deployed on Arc is built for a different EntryPoint
+than Circle's accounts use. That is the gap we closed, and connecting it to the agent tooling
+people already run is the rest of it.
+
+If ERC-7715 stabilises and Circle's accounts grow a delegation manager, the right move is to
+speak that shape rather than ours. The permission vocabulary here — a native-token allowance, a
+payee list, an expiry — was chosen to map onto it cleanly for that reason.
+
+---
+
 ## Why this matters for Arc specifically
 
 Arc's argument is that a dollar is the unit of account. That argument is strongest where dollars

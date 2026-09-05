@@ -5,19 +5,21 @@ import { ARC_RPC, encodeSpend, publicClient } from "./chain.mjs";
 /**
  * Getting the agent's payment onto the chain.
  *
- * The agent signs a user operation; something has to submit it and pay the gas. Which is
- * available depends on where this is running, and the difference is worth stating plainly rather
- * than hiding behind a config flag:
+ * **Settled 2026-09-04, by measurement rather than preference.**
  *
- * - **Sponsored (`ARC_BUNDLER_URL`).** The account's paymaster covers gas, so the agent needs no
- *   funds at all. This is the shape a real deployment wants, and it requires a bundler endpoint
- *   that will accept an operation signed by a session key rather than the account's passkey.
- *   That is not yet confirmed against Circle's bundler — see the note in the README.
- * - **Direct (`ARC_SUBMITTER_KEY`).** Whoever holds the submitter key calls `handleOps` and pays
- *   the gas. Used by the local demo, where anvil supplies a funded account.
+ * The agent submits `handleOps` itself, from its own key, over a plain RPC. It fronts the
+ * transaction gas and the account reimburses it as beneficiary, so a small float depletes slowly —
+ * measured at ~0.0014 USDC per payment, roughly 700 payments per dollar.
  *
- * Either way the agent's authority is identical: the account validates against the mandate before
- * anything moves. Submission is only about who pays to ask.
+ * The alternative was Circle's bundler, whose paymaster *will* sponsor an agent's spend — checked
+ * directly: `pm_getPaymasterData` signs for an `executeWithSessionKey` operation. It was rejected
+ * on developer experience rather than capability. Reaching it needs the app's `CIRCLE_CLIENT_KEY`
+ * plus an `X-AppInfo` header matching the registered passkey domain, and an agent should not need
+ * the wallet vendor's credential to spend an allowance it was already granted. Arc's own RPC does
+ * not bundle — `eth_sendUserOperation` is not supported — so there was no third door.
+ *
+ * Whichever key submits, the agent's authority is identical: the account validates against the
+ * mandate before anything moves. Submission is only about who pays to ask.
  */
 const ENTRY_POINT = "0x0000000071727De22E5E9d8BAf0edAc6f37da032";
 
@@ -51,24 +53,21 @@ export async function submitSpend({ agent, account, to, value }) {
   });
   userOp.signature = await agent.signMessage({ message: { raw: hash } });
 
-  const submitterKey = process.env.ARC_SUBMITTER_KEY;
-  if (!submitterKey) {
-    return {
-      ok: false,
-      reason:
-        "no way to submit — set ARC_SUBMITTER_KEY to an account that can pay gas, or " +
-        "ARC_BUNDLER_URL for a sponsored bundler",
-    };
-  }
-
+  // The agent submits its own operation by default. It fronts the transaction gas and the
+  // account reimburses it as beneficiary, so the float depletes at roughly 0.0014 USDC per
+  // payment -- about 700 payments per dollar. See mcp/README.md on why this beats a bundler.
   const submitter = createWalletClient({
-    account: privateKeyToAccount(submitterKey), transport: http(ARC_RPC),
+    account: process.env.ARC_SUBMITTER_KEY
+      ? privateKeyToAccount(process.env.ARC_SUBMITTER_KEY)
+      : agent,
+    transport: http(ARC_RPC),
   });
 
   let txHash;
   try {
     txHash = await submitter.writeContract({
       address: ENTRY_POINT, abi: entryPointAbi, functionName: "handleOps",
+      // Beneficiary is the submitter, so the account's prefund comes back to whoever paid.
       args: [[userOp], submitter.account.address], chain: null, gas: 3_000_000n,
     });
   } catch (cause) {
