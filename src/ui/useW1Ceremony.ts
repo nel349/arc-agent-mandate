@@ -19,8 +19,13 @@ const CIRCLE_CONFIG = {
   passkeyDomain: process.env.EXPO_PUBLIC_CIRCLE_PASSKEY_DOMAIN ?? "kuiralabs.github.io",
 } as const;
 
+export interface LogLine {
+  readonly id: number;
+  readonly text: string;
+}
+
 export interface W1Ceremony {
-  readonly log: readonly string[];
+  readonly log: readonly LogLine[];
   readonly busy: boolean;
   readonly address: Address | null;
   readonly balance: string | null;
@@ -34,7 +39,10 @@ export interface W1Ceremony {
 export function useW1Ceremony(): W1Ceremony {
   const [account, setAccount] = useState<ArcAccount | null>(null);
   const [balance, setBalance] = useState<string | null>(null);
-  const [log, setLog] = useState<string[]>([]);
+  // Entries carry their own id rather than being keyed by text. Two `say()` calls in the same
+  // second with the same message produce identical strings, and React keyed on those silently
+  // reuses the wrong row.
+  const [log, setLog] = useState<LogLine[]>([]);
   const [busy, setBusy] = useState(false);
 
   // Every line goes to the screen AND to console. The screen is for whoever is holding the
@@ -42,7 +50,10 @@ export function useW1Ceremony(): W1Ceremony {
   // cannot be read by anyone not standing next to the device.
   const say = useCallback((line: string) => {
     console.log(`[w1] ${line}`);
-    setLog((previous) => [...previous, `${new Date().toISOString().slice(11, 19)}  ${line}`]);
+    setLog((previous) => [
+      ...previous,
+      { id: previous.length, text: `${new Date().toISOString().slice(11, 19)}  ${line}` },
+    ]);
   }, []);
 
   /** The fields viem attaches to its errors, in the order worth reading them. */

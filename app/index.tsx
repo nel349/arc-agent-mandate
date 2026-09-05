@@ -26,7 +26,13 @@ export default function W1Screen() {
   const { log, busy, address, balance, connect, signIn, refresh, send } = useW1Ceremony();
 
   return (
-    <ScrollView style={styles.page} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={styles.page}
+      contentContainerStyle={styles.content}
+      // Lets iOS apply safe-area insets natively, rather than a SafeAreaView wrapper or manual
+      // padding that has to be re-guessed per device.
+      contentInsetAdjustmentBehavior="automatic"
+    >
       <View style={styles.card}>
         <Text style={styles.label}>smart account</Text>
         <Text style={styles.mono}>{address ?? NOT_SET}</Text>
@@ -41,7 +47,7 @@ export default function W1Screen() {
 
       <Text style={styles.label}>log</Text>
       {log.map((line) => (
-        <Text key={line} style={styles.logLine}>{line}</Text>
+        <Text key={line.id} style={styles.logLine}>{line.text}</Text>
       ))}
     </ScrollView>
   );
