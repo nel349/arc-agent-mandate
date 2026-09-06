@@ -49,6 +49,40 @@ refused payment never even costs gas.
 | `CIRCLE_CLIENT_URL`, `CIRCLE_CLIENT_KEY`, `CIRCLE_PASSKEY_DOMAIN` | the bundler the agent submits through. Arc has no public bundler, so without these a payment cannot be sent |
 | `ARC_MANDATE_KEY_PATH` | where the agent's key lives (default `~/.arc-mandate/agent.key`) |
 
+## Installing it
+
+An MCP client launches the server itself, so it needs an **absolute path** and its own environment
+— it inherits neither a working directory nor your shell. A config copied out of a README is
+therefore wrong on every machine but the author's, which is why this is generated:
+
+```bash
+node scripts/print-mcp-config.mjs            # the shape, with placeholders
+node scripts/print-mcp-config.mjs --secrets  # filled in, written to a gitignored file
+```
+
+**Claude Desktop** — merge the `mcpServers` entry into
+`~/Library/Application Support/Claude/claude_desktop_config.json`.
+
+**Claude Code** — from this directory:
+
+```bash
+claude mcp add-json arc-mandate "$(node scripts/print-mcp-config.mjs --entry --secrets)"
+```
+
+Restart the client either way: servers are started once, at startup.
+
+`--secrets` writes to a file rather than printing, because a key pasted into a chat window is in
+someone's scrollback forever. It is not much of a secret — the mobile app ships the same key, it is
+bound to a passkey domain, and it authorises nothing on its own, since a spend still needs a
+session-key signature the mandate permits — but that is a reason not to worry, not a reason to be
+careless.
+
+### Then
+
+Ask the agent for its address. It prints a code; scan it in the app, set a limit and a window,
+confirm with Face ID. From then on the agent can spend inside that allowance without asking, and
+cannot spend outside it however it is asked.
+
 ## Why the agent holds nothing
 
 An allowance is authority, not a balance. An agent that keeps even a fraction of a dollar has
