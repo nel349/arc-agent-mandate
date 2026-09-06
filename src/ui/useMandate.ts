@@ -6,7 +6,8 @@ import {
   type Mandate, type MandateTerms,
 } from "../arc/mandate.ts";
 import { Usdc } from "../arc/usdc.ts";
-import { describeMandateFailure } from "./mandate-errors.ts";
+import { describeFailure, MANDATE_FAILURES } from "./failure.ts";
+
 
 declare const __DEV__: boolean;
 
@@ -57,7 +58,7 @@ export function useMandate(account: ArcAccount | null): MandateScreen {
         setReady(deployed);
         setMandates(live);
       } catch (cause) {
-        setError(describeMandateFailure(cause));
+        setError(describeFailure(cause, MANDATE_FAILURES));
       }
     })();
   }, [account]);
@@ -114,7 +115,7 @@ export function useMandate(account: ArcAccount | null): MandateScreen {
           }
           refresh();
         } catch (cause) {
-          setError(describeMandateFailure(cause));
+          setError(describeFailure(cause, MANDATE_FAILURES));
         } finally {
           setBusy(false);
         }

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { connectArcAccount, WebAuthnMode, type ArcAccount } from "../arc/account.ts";
 import { balanceOf } from "../arc/send.ts";
 import { Usdc } from "../arc/usdc.ts";
+import { describeFailure, WALLET_FAILURES } from "./failure.ts";
 
 /**
  * The wallet: creating one, returning to one, and what it holds.
@@ -52,17 +53,11 @@ export function useArcAccount(): ArcWallet {
       try {
         await work();
       } catch (cause) {
-        // The screen flattens structure away; the console is where a bundler or paymaster
-        // rejection stays readable, so the full object goes there and one line goes on screen.
-        console.error(`[wallet] ${what} failed`, cause);
-        const raw = cause instanceof Error ? cause.message : String(cause);
-        setError(
-          /user rejected|cancell?ed|NotAllowedError/i.test(raw)
-            ? "Cancelled."
-            : /network|fetch failed|timeout|ECONN/i.test(raw)
-              ? "Could not reach Arc. Check the connection and try again."
-              : raw.split("\n")[0]!.slice(0, 140),
-        );
+        // One describer, shared with the mandate screen. This used to be a second, weaker copy:
+        // it read only the outermost `message`, so a reason nested in `cause` never reached it,
+        // and its cancellation check could not match what iOS actually reports — so dismissing
+        // the passkey prompt showed library prose about a failed credential request.
+        setError(describeFailure(cause, WALLET_FAILURES));
       } finally {
         setBusy(false);
       }

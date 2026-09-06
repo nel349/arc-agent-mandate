@@ -67,27 +67,76 @@ function describeLink(link: unknown): string {
   return [`${link.name}: ${link.message}`, ...extra].join(" | ");
 }
 
-export function describeMandateFailure(cause: unknown): string {
+export /**
+ * Did the person dismiss the passkey prompt?
+ *
+ * Cancelling is not a failure, and it is the most common way any of these end. It has to be
+ * recognised by the words the platform actually uses, which say nothing about cancelling: iOS
+ * reports `com.apple.AuthenticationServices.AuthorizationError error 1001` wrapped in ox's
+ * `CredentialRequestFailedError: Failed to request credential`. None of "cancelled", "rejected" or
+ * `NotAllowedError` appears anywhere in it, so the old check could never match and a dismissed
+ * prompt reached the screen as library prose about a credential request.
+ *
+ * 1001 is `ASAuthorizationError.canceled` specifically. The neighbouring codes are real failures
+ * and are deliberately not swept in here — `.failed` reads the same to a matcher and means
+ * something went wrong.
+ */
+function wasCancelled(text: string): boolean {
+  return (
+    /AuthorizationError error 1001/i.test(text) ||
+    /\bNotAllowedError\b|\bAbortError\b/i.test(text) ||
+    /user (rejected|cancell?ed|denied)/i.test(text) ||
+    /\bcancell?ed by (the )?user\b/i.test(text)
+  );
+}
+
+/**
+ * Failures only the allowance screen can have.
+ *
+ * Kept here rather than beside the hook so that every sentence a person can be shown lives in one
+ * module. Domain rules are *data*; which set applies is the caller's business, but the words are
+ * not scattered across the app.
+ */
+export const MANDATE_FAILURES = [
+  [/returned no data|is not a contract/i, "The allowance contract is not deployed on this network yet."],
+  [/PermissionsCheckFailed|AA2[0-9]/i, "The account refused this. The allowance may have been used up or revoked."],
+] as const;
+
+/** Failures only the wallet ceremony can have. */
+export const WALLET_FAILURES = [
+  [/relying party|rp\.id|not associated with domain/i,
+   "This app is not associated with the passkey domain yet."],
+] as const;
+
+export function describeFailure(
+  cause: unknown,
+  /**
+   * Tried before the shared rules, so each caller can name the failures only it can have. A
+   * missing allowance contract means something to the mandate screen and nothing to a wallet.
+   */
+  domainRules: readonly (readonly [RegExp, string])[] = [],
+): string {
   const chain = causeChain(cause);
   const raw = chain.join("\n");
   // Each link on its own line. A nested `cause` is not expanded by React Native's console, so
   // logging the error object alone showed the wrapper and hid the reason.
-  console.error("[mandate] " + chain.map((m, i) => `${"  ".repeat(i)}${i > 0 ? "caused by " : ""}${m}`).join("\n"));
+  //
+  // Dismissing a prompt is a normal outcome, not a fault, and `console.error` puts a red box and a
+  // stack trace on the screen for it — which reads as something being broken when nothing is.
+  const report = "[mandate] " + chain.map((m, i) => `${"  ".repeat(i)}${i > 0 ? "caused by " : ""}${m}`).join("\n");
+  if (wasCancelled(raw)) console.log(report);
+  else console.error(report);
 
-  if (/returned no data|is not a contract/i.test(raw)) {
-    return "The allowance contract is not deployed on this network yet.";
-  }
   if (/insufficient|exceeds balance/i.test(raw)) {
     return "Not enough USDC in the wallet to cover this.";
   }
-  if (/user rejected|cancell?ed|NotAllowedError/i.test(raw)) {
-    return "Cancelled.";
+  if (wasCancelled(raw)) return "Cancelled. Nothing changed.";
+
+  for (const [pattern, message] of domainRules) {
+    if (pattern.test(raw)) return message;
   }
   if (/network|fetch failed|timeout|ECONN/i.test(raw)) {
     return "Could not reach Arc. Check the connection and try again.";
-  }
-  if (/PermissionsCheckFailed|AA2[0-9]/i.test(raw)) {
-    return "The account refused this. The allowance may have been used up or revoked.";
   }
   // Unknown: the innermost message, which is the one that says what actually happened — the outer
   // links are our own wrappers. The whole chain is in the console above.
