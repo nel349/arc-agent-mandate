@@ -1,6 +1,5 @@
 import { useCallback, useRef, useState } from "react";
 import { router } from "expo-router";
-import { CameraView, useCameraPermissions } from "expo-camera";
 import { StyleSheet, Text, View } from "react-native";
 import { Button } from "../src/ui/Button.tsx";
 import { Note } from "../src/ui/Note.tsx";
@@ -8,6 +7,26 @@ import { Screen } from "../src/ui/Screen.tsx";
 import { tokens } from "../src/ui/tokens.ts";
 import { useTheme } from "../src/ui/theme-context.tsx";
 import { pairedAddress } from "../src/ui/pairing.ts";
+
+/**
+ * `expo-camera`, if this build actually contains it.
+ *
+ * It is a native module, so a JavaScript-only reload cannot add it — a device running a build from
+ * before it was installed throws at *import*, which takes the route's default export with it and
+ * leaves the navigator reporting a screen that does not exist. The person sees a red box about
+ * `ExpoCamera` and no way forward, on a screen whose entire job is to offer a shortcut.
+ *
+ * Requiring it behind a guard turns that into a sentence saying which build is needed, with
+ * pasting still available. This is the second time in this project a native module has been added
+ * without one; the first was `AsyncStorage`, and it white-screened the app.
+ */
+const camera = (() => {
+  try {
+    return require("expo-camera") as typeof import("expo-camera");
+  } catch {
+    return null;
+  }
+})();
 
 /**
  * Scanning an agent's pairing code.
@@ -22,6 +41,26 @@ import { pairedAddress } from "../src/ui/pairing.ts";
  * so this is a shortcut to the same field, never the only way in.
  */
 export default function ScanScreen() {
+  if (camera === null) return <CameraMissing />;
+  return <Scanner camera={camera} />;
+}
+
+/** This build predates the camera. Say which build is needed, and offer the way that still works. */
+function CameraMissing() {
+  return (
+    <Screen>
+      <Note tone="warn">
+        This build does not include the camera, so scanning is unavailable. Rebuild the app with
+        `npx expo run:ios --device` to enable it — a JavaScript reload cannot add a native module.
+      </Note>
+      <Button tier="solid" title="Paste the address instead" onPress={() => router.back()} />
+    </Screen>
+  );
+}
+
+function Scanner({ camera: { CameraView, useCameraPermissions } }: {
+  readonly camera: NonNullable<typeof camera>;
+}) {
   const c = useTheme().color;
   const [permission, requestPermission] = useCameraPermissions();
   const [problem, setProblem] = useState<string | null>(null);
