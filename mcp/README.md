@@ -51,21 +51,39 @@ refused payment never even costs gas.
 
 ## Installing it
 
-Once, from this directory:
+```bash
+claude mcp add-json arc-mandate '{
+  "command": "npx", "args": ["-y", "@kuiralabs/arc-mandate"],
+  "env": {
+    "CIRCLE_CLIENT_URL": "https://modular-sdk.circle.com/v1/rpc/w3s/buidl",
+    "CIRCLE_CLIENT_KEY": "TEST_CLIENT_KEY:…",
+    "CIRCLE_PASSKEY_DOMAIN": "your-passkey-domain"
+  } }'
+```
+
+Restart the client afterwards — MCP servers are launched at startup.
+
+Working in this repo instead of installing the package? Point it at the file and drop the `env`
+block; the server reads this project's `.env` on its own:
 
 ```bash
 claude mcp add arc-mandate node "$PWD/mcp/server.mjs"
 ```
 
-Then restart the client — MCP servers are launched at startup.
+### Why you bring your own key
 
-Nothing secret goes in the config. The server reads this project's `.env` itself, so the path is
-the only thing the client needs. For Claude Desktop, the same two fields go into
-`~/Library/Application Support/Claude/claude_desktop_config.json`:
+Arc has no public bundler. Circle's is the only way to get a user operation on chain, and their
+Gas Station is what pays the gas so that neither you nor the agent has to — which means somebody's
+account is paying, and for a developer tool that is yours.
 
-```json
-{ "mcpServers": { "arc-mandate": { "command": "node", "args": ["/absolute/path/to/mcp/server.mjs"] } } }
-```
+Shipping a key in the package would make this install a single line with nothing to configure. It
+would also mean every user's gas came out of one policy, which is a bill rather than a design. The
+honest version of a tool at this stage is that you bring your own; the version that hides the key
+is a service, and a service charges for it up front.
+
+**You do not need it to start.** Pairing and reading an allowance use a public RPC and work with no
+configuration at all. The first time you try to *pay*, the connector explains exactly what to do —
+it does not simply fail with the names of three environment variables.
 
 That is the whole developer setup. Everything after it is scanning.
 

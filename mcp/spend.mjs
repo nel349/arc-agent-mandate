@@ -1,5 +1,5 @@
 import { publicClient } from "./chain.mjs";
-import { bundlerConfigured, missingBundlerConfig } from "./bundler.mjs";
+import { bundlerConfigured, bundlerSetupInstructions } from "./bundler.mjs";
 
 /**
  * Getting the agent's payment onto the chain, without the agent ever holding money.
@@ -34,12 +34,8 @@ import { circleTransport } from "./bundler.mjs";
 
 export async function submitSpend({ agent, account, to, value }) {
   if (!bundlerConfigured()) {
-    return {
-      ok: false,
-      reason:
-        `the agent has no bundler configured (missing ${missingBundlerConfig().join(", ")}). ` +
-        "Arc has no public bundler, so a payment cannot be submitted without one.",
-    };
+    // The full walkthrough, not a list of variable names. This is the one wall a new person hits.
+    return { ok: false, setup: true, reason: bundlerSetupInstructions() };
   }
 
   try {

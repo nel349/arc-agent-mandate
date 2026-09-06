@@ -1,0 +1,38 @@
+{
+  "name": "@kuiralabs/arc-mandate",
+  "version": "0.1.0",
+  "description": "Let a coding agent spend a bounded USDC allowance on Arc, granted from your phone and enforced by the chain.",
+  "type": "module",
+  "bin": {
+    "arc-mandate": "server.mjs"
+  },
+  "files": [
+    "server.mjs",
+    "chain.mjs",
+    "identity.mjs",
+    "spend.mjs",
+    "bundler.mjs",
+    "session-account.mjs",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "mcp",
+    "arc",
+    "usdc",
+    "erc-4337",
+    "erc-6900",
+    "agent",
+    "allowance"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "dotenv": "^17.4.2",
+    "qrcode-terminal": "^0.12.0",
+    "viem": "^2.45.3",
+    "zod": "^3.25.76"
+  }
+}

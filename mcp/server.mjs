@@ -25,6 +25,7 @@ import { formatEther, isAddress, parseEther } from "viem";
 import { loadOrCreateAgent } from "./identity.mjs";
 import { findGrantingAccount, readAllowance } from "./chain.mjs";
 import { submitSpend } from "./spend.mjs";
+import { bundlerConfigured, bundlerSetupInstructions } from "./bundler.mjs";
 import qrcode from "qrcode-terminal";
 
 /**
@@ -86,7 +87,14 @@ server.registerTool(
   async () => {
     const account = await findGrantingAccount(agent.address);
     if (account) {
-      return text(`This agent is already authorised by ${account}.\nIts address is ${agent.address}.`);
+      // Now that an allowance exists, spending is the next thing they will try — so if the
+      // connector cannot reach a bundler, say so here rather than letting the first payment fail.
+      return text(
+        `This agent is already authorised by ${account}.\nIts address is ${agent.address}.` +
+          (bundlerConfigured()
+            ? ""
+            : `\n\nOne thing left before it can spend.\n\n${bundlerSetupInstructions()}`),
+      );
     }
     return text(
       `Grant an allowance to:\n\n${await pairingCode(agent.address)}\n    ${agent.address}\n\n` +
@@ -149,6 +157,11 @@ server.registerTool(
     }
 
     const result = await submitSpend({ agent, account, to, value });
+    if (result.setup) {
+      // Not a refusal — nothing is wrong with the payment, the connector simply has not been
+      // given a way to submit it. Relay this to the user as instructions, not as an error.
+      return text(`Nothing was spent — this connector cannot submit payments yet.\n\n${result.reason}`);
+    }
     if (!result.ok) {
       return text(
         `The chain refused this payment: ${result.reason}\n` +

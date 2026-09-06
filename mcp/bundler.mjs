@@ -28,11 +28,22 @@
 
 import { http } from "viem";
 
-const CLIENT_URL = process.env.CIRCLE_CLIENT_URL ?? process.env.EXPO_PUBLIC_CIRCLE_CLIENT_URL;
-const CLIENT_KEY = process.env.CIRCLE_CLIENT_KEY ?? process.env.EXPO_PUBLIC_CIRCLE_CLIENT_KEY;
-const PASSKEY_DOMAIN =
+/**
+ * Read when asked, never at import.
+ *
+ * These were module-scope constants, and that quietly broke loading a `.env`: ESM hoists every
+ * `import` and runs it before any statement in the importing module, so this file captured an
+ * empty `process.env` before `server.mjs` had a chance to populate it. The connector then reported
+ * itself unconfigured while sitting next to a file holding exactly the values it wanted.
+ *
+ * It survived review because the check used to confirm the fix — reading an allowance — needs no
+ * credentials at all. Only paying does.
+ */
+const clientUrl = () => process.env.CIRCLE_CLIENT_URL ?? process.env.EXPO_PUBLIC_CIRCLE_CLIENT_URL;
+const clientKey = () => process.env.CIRCLE_CLIENT_KEY ?? process.env.EXPO_PUBLIC_CIRCLE_CLIENT_KEY;
+const passkeyDomain = () =>
   process.env.CIRCLE_PASSKEY_DOMAIN ?? process.env.EXPO_PUBLIC_CIRCLE_PASSKEY_DOMAIN;
-const CHAIN_PATH = process.env.ARC_CIRCLE_CHAIN_PATH ?? "arcTestnet";
+const chainPath = () => process.env.ARC_CIRCLE_CHAIN_PATH ?? "arcTestnet";
 
 
 /**
@@ -46,18 +57,58 @@ export function circleTransport() {
 }
 
 export function bundlerConfigured() {
-  return Boolean(CLIENT_URL && CLIENT_KEY && PASSKEY_DOMAIN);
+  return Boolean(clientUrl() && clientKey() && passkeyDomain());
 }
 
 export function missingBundlerConfig() {
   return [
-    !CLIENT_URL && "CIRCLE_CLIENT_URL",
-    !CLIENT_KEY && "CIRCLE_CLIENT_KEY",
-    !PASSKEY_DOMAIN && "CIRCLE_PASSKEY_DOMAIN",
+    !clientUrl() && "CIRCLE_CLIENT_URL",
+    !clientKey() && "CIRCLE_CLIENT_KEY",
+    !passkeyDomain() && "CIRCLE_PASSKEY_DOMAIN",
   ].filter(Boolean);
 }
 
-const endpoint = () => `${CLIENT_URL.replace(/\/$/, "")}/${CHAIN_PATH}`;
+/**
+ * What to tell someone who has not set this up yet.
+ *
+ * Written out in full, and written for the agent to relay, because this is the one wall a new
+ * person hits and the worst possible response is a sentence naming three environment variables
+ * they have never heard of. Everything except paying works without any of it — pairing and reading
+ * an allowance need only a public RPC — so this arrives at the moment it is needed and not before.
+ *
+ * The alternative was shipping a default key so nothing had to be configured. It was rejected on
+ * purpose: a shared key means everyone's gas comes out of one policy, and the honest version of
+ * this product is that you bring your own.
+ */
+export function bundlerSetupInstructions() {
+  return [
+    "Paying needs a Circle account, because Arc has no public bundler — Circle's is the only way",
+    "to get a user operation on chain, and their Gas Station is what pays the gas so neither you",
+    "nor the agent has to.",
+    "",
+    "It takes about five minutes, once:",
+    "",
+    "  1. Sign up at https://console.circle.com and open Wallets → Modular Wallets.",
+    "  2. Create a Client Key. It is bound to a domain — use the same passkey domain the wallet",
+    "     app is configured with, or the key is refused with 'Invalid credentials'.",
+    "  3. On testnet, Gas Station is set up for you. On mainnet you create a policy and fund it.",
+    "",
+    "Then give this connector the values and restart your client:",
+    "",
+    "  claude mcp remove arc-mandate",
+    "  claude mcp add-json arc-mandate '{",
+    '    "command": "npx", "args": ["-y", "@kuiralabs/arc-mandate"],',
+    '    "env": {',
+    '      "CIRCLE_CLIENT_URL": "https://modular-sdk.circle.com/v1/rpc/w3s/buidl",',
+    '      "CIRCLE_CLIENT_KEY": "TEST_CLIENT_KEY:…",',
+    '      "CIRCLE_PASSKEY_DOMAIN": "your-passkey-domain"',
+    "    } }'",
+    "",
+    `Missing right now: ${missingBundlerConfig().join(", ")}.`,
+  ].join("\n");
+}
+
+const endpoint = () => `${clientUrl().replace(/\/$/, "")}/${chainPath()}`;
 
 /**
  * Circle validates the domain-bound client key against the `uri` in this header. Without it every
@@ -65,7 +116,7 @@ const endpoint = () => `${CLIENT_URL.replace(/\/$/, "")}/${CHAIN_PATH}`;
  */
 const headers = () => ({
   "content-type": "application/json",
-  Authorization: `Bearer ${CLIENT_KEY}`,
-  "X-AppInfo": `platform=web;version=1.0.0;uri=${PASSKEY_DOMAIN}`,
+  Authorization: `Bearer ${clientKey()}`,
+  "X-AppInfo": `platform=web;version=1.0.0;uri=${passkeyDomain()}`,
 });
 
