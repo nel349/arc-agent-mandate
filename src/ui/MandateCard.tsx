@@ -1,7 +1,7 @@
 import { memo } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import type { Mandate } from "../arc/mandate.ts";
-import { expiryLabel, fractionUsed, shortAddress } from "./mandate-format.ts";
+import { agentHoldingNote, expiryLabel, fractionUsed, shortAddress } from "./mandate-format.ts";
 import { useTheme } from "./theme-context.tsx";
 import { Button } from "./Button.tsx";
 import { Surface } from "./Surface.tsx";
@@ -27,6 +27,7 @@ function MandateCardView({
 }) {
   const c = useTheme().color;
   const filled = Math.round(fractionUsed(mandate) * SEGMENTS);
+  const holding = agentHoldingNote(mandate.agentFloat);
 
   return (
     <Surface>
@@ -62,20 +63,18 @@ function MandateCardView({
           {mandate.spent.isZero() ? "nothing spent yet" : `${mandate.spent.format(2)} spent`}
         </Text>
         {/*
-          Shown only when it is not zero, which should be always.
+          Almost never shown, and that is the point.
 
-          Nothing is transferred to an agent: it hands its operations to a bundler and holds no
-          balance, so an allowance is authority and never a pot of money. An agent that does hold
-          something is either left over from when grants sent a submission float, or someone sent
-          it money directly — and either way the person should be able to see it rather than find
-          out by noticing their wallet is smaller. The account cannot take it back; only the
-          agent's own key can return it.
+          Nothing is transferred to an agent: it hands its operations to a bundler and the
+          paymaster covers them, so an allowance is authority and never a pot of money. A holding
+          is an anomaly — left from when grants sent a submission float, or sent by hand — and
+          belongs on screen rather than being discovered as a wallet that shrank.
+
+          `agentHoldingNote` decides when there is anything to say. Dust below the cost of
+          returning it is not raised: it once rendered as "agent holds 0.00", an alarm about
+          nothing, with no action available even if it had been real.
         */}
-        {!mandate.agentFloat.isZero() && (
-          <Text style={[styles.meta, { color: c.warn }]}>
-            agent holds {mandate.agentFloat.format(2)}
-          </Text>
-        )}
+        {holding !== null && <Text style={[styles.meta, { color: c.warn }]}>{holding}</Text>}
       </View>
 
       {/* Right-aligned and sized to itself. Taking an allowance back is the one thing you can do

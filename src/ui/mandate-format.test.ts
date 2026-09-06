@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { expiryLabel, fractionUsed, shortAddress } from "./mandate-format.ts";
+import { agentHoldingNote, expiryLabel, fractionUsed, shortAddress } from "./mandate-format.ts";
 import { Usdc } from "../arc/usdc.ts";
 import type { Mandate } from "../arc/mandate.ts";
 
@@ -68,4 +68,24 @@ test("addresses shorten to something recognisable", () => {
     shortAddress("0x68c91fb4f4e7f0236fd68c7d2605b5740787b17e"),
     "0x68c91fb4…787b17e",
   );
+});
+
+/**
+ * Nothing is transferred to an agent under the current design, so any holding is an anomaly. The
+ * card must not raise one for an amount that cannot be acted on: dust smaller than the gas needed
+ * to return it once rendered as "agent holds 0.00", warning about nothing.
+ */
+test("an agent holding nothing says nothing", () => {
+  assert.equal(agentHoldingNote(Usdc.ZERO), null);
+});
+
+test("dust too small to be worth returning is not raised as an alarm", () => {
+  assert.equal(agentHoldingNote(Usdc.parse("0.000265")), null, "warned about less than the gas to move it");
+  assert.equal(agentHoldingNote(Usdc.parse("0.004")), null);
+});
+
+test("a holding worth acting on is shown, with enough precision to be a number", () => {
+  assert.equal(agentHoldingNote(Usdc.parse("0.005")), "agent holds 0.0050");
+  assert.equal(agentHoldingNote(Usdc.parse("0.5")), "agent holds 0.50");
+  assert.equal(agentHoldingNote(Usdc.parse("2")), "agent holds 2.00");
 });
