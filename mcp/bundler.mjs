@@ -26,6 +26,8 @@
  * Sponsored, there is nothing to bill.
  */
 
+import { dirname, join, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import { http } from "viem";
 
 /**
@@ -81,6 +83,8 @@ export function missingBundlerConfig() {
  * this product is that you bring your own.
  */
 export function bundlerSetupInstructions() {
+  const missing = `Missing right now: ${missingBundlerConfig().join(", ")}.`;
+
   return [
     "Paying needs a Circle account, because Arc has no public bundler — Circle's is the only way",
     "to get a user operation on chain, and their Gas Station is what pays the gas so neither you",
@@ -93,20 +97,63 @@ export function bundlerSetupInstructions() {
     "     app is configured with, or the key is refused with 'Invalid credentials'.",
     "  3. On testnet, Gas Station is set up for you. On mainnet you create a policy and fund it.",
     "",
-    "Then give this connector the values and restart your client:",
+    ...whereToPutIt(),
     "",
-    "  claude mcp remove arc-mandate",
-    "  claude mcp add-json arc-mandate '{",
-    '    "command": "npx", "args": ["-y", "@kuiralabs/arc-mandate"],',
-    '    "env": {',
-    '      "CIRCLE_CLIENT_URL": "https://modular-sdk.circle.com/v1/rpc/w3s/buidl",',
-    '      "CIRCLE_CLIENT_KEY": "TEST_CLIENT_KEY:…",',
-    '      "CIRCLE_PASSKEY_DOMAIN": "your-passkey-domain"',
-    "    } }'",
+    "Do not paste the key into this conversation — put it in the file. A key in a chat window",
+    "stays in the transcript.",
     "",
-    `Missing right now: ${missingBundlerConfig().join(", ")}.`,
+    missing,
   ].join("\n");
 }
+
+/**
+ * Where the keys go depends on how the connector was installed, and guessing wrong wastes the one
+ * chance to be useful. Installed as a package it lives under `node_modules` and has no project
+ * around it, so the values belong in the client's own config. Run from a checkout there is a
+ * `.env` beside it, which is the shorter path and the one a developer already has open.
+ */
+function whereToPutIt() {
+  if (installedAsPackage()) {
+    return [
+      "Then give the connector the values. Edit your client's MCP config — for Claude Code:",
+      "",
+      "  claude mcp remove arc-mandate",
+      "  claude mcp add-json arc-mandate '{",
+      '    "command": "npx", "args": ["-y", "@kuiralabs/arc-mandate"],',
+      '    "env": {',
+      '      "CIRCLE_CLIENT_URL": "https://modular-sdk.circle.com/v1/rpc/w3s/buidl",',
+      '      "CIRCLE_CLIENT_KEY": "TEST_CLIENT_KEY:…",',
+      '      "CIRCLE_PASSKEY_DOMAIN": "your-passkey-domain"',
+      "    } }'",
+      "",
+      "For Claude Desktop, add the same `env` block to the arc-mandate entry in",
+      "~/Library/Application Support/Claude/claude_desktop_config.json.",
+      "",
+      "Then restart your client — an MCP server is only launched at startup.",
+    ];
+  }
+
+  return [
+    `Then add these three lines to ${envPath()} and restart your client:`,
+    "",
+    "  CIRCLE_CLIENT_URL=https://modular-sdk.circle.com/v1/rpc/w3s/buidl",
+    "  CIRCLE_CLIENT_KEY=TEST_CLIENT_KEY:…",
+    "  CIRCLE_PASSKEY_DOMAIN=your-passkey-domain",
+    "",
+    "The connector reads that file itself, so nothing needs to change in your client's config.",
+    "An MCP server is only launched at startup, so the restart is what picks the values up.",
+  ];
+}
+
+/** Under `node_modules` means installed; anywhere else means someone is working in the checkout. */
+function installedAsPackage() {
+  return fileURLToPath(import.meta.url).includes(`${sep}node_modules${sep}`);
+}
+
+function envPath() {
+  return join(dirname(dirname(fileURLToPath(import.meta.url))), ".env");
+}
+
 
 const endpoint = () => `${clientUrl().replace(/\/$/, "")}/${chainPath()}`;
 
