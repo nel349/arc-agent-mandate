@@ -128,7 +128,7 @@ web-only; `docs.arc.io/integrate` lists no mobile SDK).
 
 | | |
 |---|---|
-| `demo/` | a service that charges per request and verifies payment on chain |
+| `fixtures/` | a fake shop, for exercising a 402 flow by hand. Nothing uses it |
 | `contracts/src/session` | the allowance rules, and `PORTING.md` on what we changed and why |
 | `src/passkey/cose.ts` | the piece Circle assumes a browser did: attestation → public key |
 | `src/arc/usdc.ts` | why a dollar on Arc has two decimal scales, and how that trap is closed |

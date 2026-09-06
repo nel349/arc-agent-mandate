@@ -8,7 +8,7 @@ import { createPublicClient, defineChain, formatEther, http, parseEther } from "
  * so a 402 flow can be exercised by hand — ask, get told a price, pay, ask again — and it is
  * started deliberately or not at all:
  *
- *   SELLER_ADDRESS=0xYourPayee npm run seller
+ *   SELLER_ADDRESS=0xYourPayee node fixtures/seller.mjs
  *
  * It must never be started as part of demonstrating something. A counterparty you launch yourself,
  * on localhost, moments earlier, is not a counterparty: it is paying a script you control, which
