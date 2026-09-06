@@ -3,6 +3,8 @@ import { ScrollView, StyleSheet, View } from "react-native";
 import { Button } from "../src/ui/Button.tsx";
 import { ChoiceRow } from "../src/ui/ChoiceRow.tsx";
 import { Field } from "../src/ui/Field.tsx";
+import { GrantForm } from "../src/ui/GrantForm.tsx";
+import { readGrantTerms } from "../src/ui/grant-terms.ts";
 import { Label } from "../src/ui/Label.tsx";
 import { MandateCard } from "../src/ui/MandateCard.tsx";
 import { Note } from "../src/ui/Note.tsx";
@@ -29,6 +31,21 @@ import type { Mandate } from "../src/arc/mandate.ts";
  */
 export default function PreviewScreen() {
   const c = useTheme().color;
+  // The completed form above, kept live so it can be poked at rather than only looked at.
+  const [filledAgent, setFilledAgent] = useState(GOOD_ADDRESS);
+  const [filledAmount, setFilledAmount] = useState("37.50");
+  const [filledDays, setFilledDays] = useState("14");
+  const [filledAmountCustom, setFilledAmountCustom] = useState(true);
+  const [filledDaysCustom, setFilledDaysCustom] = useState(true);
+  const filled = { agent: filledAgent, amount: filledAmount, days: filledDays };
+  const read = readGrantTerms(filled);
+  const filledRead = {
+    problems: "problems" in read ? read.problems : NO_PROBLEMS,
+    summary: "terms" in read
+      ? grantSummary({ limit: read.terms.limit, days: read.terms.days, now: FIXED_NOW })
+      : null,
+  };
+
   const [amount, setAmount] = useState("20");
   const [custom, setCustom] = useState(false);
   const [typed, setTyped] = useState("");
@@ -39,6 +56,36 @@ export default function PreviewScreen() {
       contentContainerStyle={styles.content}
       contentInsetAdjustmentBehavior="automatic"
     >
+      {/*
+        The whole form, filled in, using the component the screen uses.
+
+        This is the state that was unreachable: the form only renders once a wallet exists, so on a
+        simulator without a passkey nobody could look at a completed one — a confirmed address, a
+        custom amount open, the live summary, an enabled button.
+      */}
+      <Label>Grant form · everything filled in</Label>
+      <GrantForm
+        agent={filled.agent}
+        onAgent={setFilledAgent}
+        amount={filled.amount}
+        onAmount={(next) => { setFilledAmount(next); setFilledAmountCustom(false); }}
+        days={filled.days}
+        onDays={(next) => { setFilledDays(next); setFilledDaysCustom(false); }}
+        amountCustom={filledAmountCustom}
+        onAmountCustom={() => setFilledAmountCustom(true)}
+        daysCustom={filledDaysCustom}
+        onDaysCustom={() => setFilledDaysCustom(true)}
+        amounts={AMOUNTS}
+        windows={WINDOWS}
+        problems={filledRead.problems}
+        summary={filledRead.summary}
+        canGrant={filledRead.summary !== null}
+        busy={false}
+        onGrant={NOOP}
+        notice={null}
+        resetKey={0}
+      />
+
       <Label>Choice row · preset chosen</Label>
       <Surface>
         <ChoiceRow
@@ -117,12 +164,16 @@ export default function PreviewScreen() {
         <MandateCard mandate={HALF_SPENT} onRevoke={NOOP} busy={false} />
         <MandateCard mandate={EXPIRED} onRevoke={NOOP} busy={false} />
         <MandateCard mandate={WITH_DUST} onRevoke={NOOP} busy={false} />
+        <MandateCard mandate={BARELY_SPENT} onRevoke={NOOP} busy={false} />
+        <MandateCard mandate={NEARLY_SPENT} onRevoke={NOOP} busy={false} />
       </View>
     </ScrollView>
   );
 }
 
 const NOOP = () => {};
+/** Nothing to complain about, and the shape the reader returns. */
+const NO_PROBLEMS = { agent: null, amount: null, days: null } as const;
 const GOOD_ADDRESS = "0x68c91fb4f4e7f0236fd68c7d2605b5740787b17e";
 
 /**
@@ -144,6 +195,11 @@ const AMOUNTS = [
   { label: "20", value: "20" },
   { label: "100", value: "100" },
 ] as const;
+const WINDOWS = [
+  { label: "1 day", value: "1" },
+  { label: "7 days", value: "7" },
+  { label: "30 days", value: "30" },
+] as const;
 
 const sample = (limit: string, spent: string, expiresAt?: number, agentFloat = Usdc.ZERO): Mandate => {
   const l = Usdc.parse(limit);
@@ -163,6 +219,9 @@ const HALF_SPENT = sample("50", "25", NOW_SECONDS() + 86_400);
 const EXPIRED = sample("50", "50", NOW_SECONDS() - 86_400);
 /** Left over from when a grant sent the agent a float. Should not happen to a new mandate. */
 const WITH_DUST = sample("50", "10", NOW_SECONDS() + 3 * 86_400, Usdc.parse("0.5"));
+/** The two ends rounding could lie about: a little spent must not read as none, and nearly all as all. */
+const BARELY_SPENT = sample("50", "0.01", NOW_SECONDS() + 5 * 86_400);
+const NEARLY_SPENT = sample("50", "49.99", NOW_SECONDS() + 86_400);
 
 const styles = StyleSheet.create({
   page: { flex: 1 },

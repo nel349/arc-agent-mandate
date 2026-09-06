@@ -1,7 +1,7 @@
 import { memo } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import type { Mandate } from "../arc/mandate.ts";
-import { agentHoldingNote, expiryLabel, fractionUsed, shortAddress } from "./mandate-format.ts";
+import { agentHoldingNote, expiryLabel, fractionUsed, shortAddress, spentPercentLabel } from "./mandate-format.ts";
 import { useTheme } from "./theme-context.tsx";
 import { Button } from "./Button.tsx";
 import { Surface } from "./Surface.tsx";
@@ -43,10 +43,19 @@ function MandateCardView({
 
       {/* Two runs of blocks rather than twenty views: one string, one layout pass, and it cannot
           drift out of alignment with the figures above it. */}
-      <Text style={styles.meter} accessibilityLabel={`${mandate.spent.format(2)} of ${mandate.limit.format(2)} spent`}>
-        <Text style={{ color: c.signal }}>{"█".repeat(filled)}</Text>
-        <Text style={{ color: c.track }}>{"█".repeat(SEGMENTS - filled)}</Text>
-      </Text>
+      {/*
+        The percentage sits on the bar, because the bar alone did not read as a bar. Empty it
+        looked like a blank box, and part-filled it gave no sense of how far along it was — with
+        the figure above counting the opposite way, since that is what remains while this fills
+        with what is spent.
+      */}
+      <View style={styles.meterRow}>
+        <Text style={styles.meter} accessibilityLabel={`${mandate.spent.format(2)} of ${mandate.limit.format(2)} spent`}>
+          <Text style={{ color: c.signal }}>{"█".repeat(filled)}</Text>
+          <Text style={{ color: c.track }}>{"█".repeat(SEGMENTS - filled)}</Text>
+        </Text>
+        <Text style={[styles.percent, { color: c.muted }]}>{spentPercentLabel(mandate)}</Text>
+      </View>
 
       {/*
         A bar needs saying what it measures, and this one especially: the figure above is what is
@@ -122,6 +131,21 @@ const styles = StyleSheet.create({
     fontVariant: [...tokens.font.tabular],
   },
   of: { fontSize: tokens.font.small, fontWeight: "400", letterSpacing: 0 },
+  meterRow: {
+    flexDirection: "row",
+    // Baseline, not centre. `center` aligns the two *line boxes*, and these two do not carry their
+    // ink in the same place: a full block fills its box and hangs below the baseline, while digits
+    // sit on the baseline with nothing beneath. Centring the boxes therefore left the percentage
+    // riding 4pt high, measured. Text lines up with text by baseline.
+    alignItems: "baseline",
+    gap: tokens.space.sm,
+  },
+  percent: {
+    fontFamily: tokens.font.mono,
+    fontSize: tokens.font.small,
+    // Digits change as the allowance is used; tabular figures keep the row from twitching.
+    fontVariant: [...tokens.font.tabular],
+  },
   meter: {
     fontFamily: tokens.font.mono,
     fontSize: tokens.font.body,

@@ -5,8 +5,8 @@ import { useArcAccount } from "../src/ui/useArcAccount.ts";
 import { useMandate } from "../src/ui/useMandate.ts";
 import { MandateCard } from "../src/ui/MandateCard.tsx";
 import { Button } from "../src/ui/Button.tsx";
-import { ChoiceRow, type Choice } from "../src/ui/ChoiceRow.tsx";
-import { Field } from "../src/ui/Field.tsx";
+import { GrantForm } from "../src/ui/GrantForm.tsx";
+import type { Choice } from "../src/ui/ChoiceRow.tsx";
 import { Label } from "../src/ui/Label.tsx";
 import { Note } from "../src/ui/Note.tsx";
 import { Surface } from "../src/ui/Surface.tsx";
@@ -109,76 +109,27 @@ export default function AllowancesScreen() {
       {mandate.error !== null && <Note tone="warn" lines={ERROR_LINES}>{mandate.error}</Note>}
 
       {wallet.account !== null && (
-        <Surface>
-          <Label>Give an Agent an Allowance</Label>
-
-          <Field
-            key={formGeneration}
-            label="Agent address"
-            value={agent}
-            onChangeText={setAgent}
-            placeholder="0x…"
-            hint="Ask your agent for its address — it prints one on first run."
-            problem={problems.agent}
-            confirmed={problems.agent === null && agent.length > 0}
-          />
-
-          <ChoiceRow
-            label="Amount · USDC"
-            hint="The total this agent may ever spend. It cannot exceed this, whatever it is asked to buy."
-            options={AMOUNTS}
-            selected={amount}
-            onSelect={(next) => { setAmount(next); setAmountCustom(false); }}
-            custom={{
-              active: amountCustom,
-              onSelect: () => setAmountCustom(true),
-              children: (
-                <Field
-                  label="Amount"
-                  value={amount}
-                  onChangeText={setAmount}
-                  placeholder="10"
-                  keyboardType="decimal-pad"
-                  problem={problems.amount}
-                />
-              ),
-            }}
-          />
-
-          <ChoiceRow
-            label="Expires after"
-            hint="After this the allowance stops working on its own, with nothing to remember."
-            options={WINDOWS}
-            selected={days}
-            onSelect={(next) => { setDays(next); setDaysCustom(false); }}
-            custom={{
-              label: "Custom",
-              active: daysCustom,
-              onSelect: () => setDaysCustom(true),
-              children: (
-                <Field
-                  label="Days"
-                  value={days}
-                  onChangeText={setDays}
-                  placeholder="7"
-                  keyboardType="decimal-pad"
-                  problem={problems.days}
-                />
-              ),
-            }}
-          />
-
-          {summary !== null && <Note>{summary}</Note>}
-
-          <Button
-            tier="solid"
-            title="Grant Allowance"
-            onPress={grant}
-            busy={busy}
-            disabled={!canGrant}
-          />
-          {mandate.ready === false && <Note tone="warn">Not deployed to Arc testnet yet</Note>}
-        </Surface>
+        <GrantForm
+          agent={agent}
+          onAgent={setAgent}
+          amount={amount}
+          onAmount={(next) => { setAmount(next); setAmountCustom(false); }}
+          days={days}
+          onDays={(next) => { setDays(next); setDaysCustom(false); }}
+          amountCustom={amountCustom}
+          onAmountCustom={() => setAmountCustom(true)}
+          daysCustom={daysCustom}
+          onDaysCustom={() => setDaysCustom(true)}
+          amounts={AMOUNTS}
+          windows={WINDOWS}
+          problems={problems}
+          summary={summary}
+          canGrant={canGrant}
+          busy={busy}
+          onGrant={grant}
+          notice={mandate.ready === false ? "Not deployed to Arc testnet yet" : null}
+          resetKey={formGeneration}
+        />
       )}
 
       {mandate.mandates.length > 0 && <Label>Active Allowances</Label>}

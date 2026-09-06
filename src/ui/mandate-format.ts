@@ -75,3 +75,24 @@ export function agentHoldingNote(held: Usdc): string | null {
   const shown = units < FINER_PRECISION_BELOW_UNITS ? held.format(4) : held.format(2);
   return `agent holds ${shown}`;
 }
+
+/**
+ * How much of the allowance is gone, as a percentage beside the bar.
+ *
+ * The bar alone was not readable. Empty, it looked like a blank box; part-filled, it gave no sense
+ * of *how* part-filled, and the figure above it counts the opposite way — that is what is **left**,
+ * while the bar fills with what has been **spent**. A number on the bar settles both at a glance.
+ *
+ * Rounding is not allowed to lie in either direction. A little spending must not read as `0%`, and
+ * an allowance with anything left must not read as `100%`; both would say "nothing has happened"
+ * or "there is nothing left" when neither is true.
+ */
+export function spentPercentLabel(mandate: Mandate): string {
+  const fraction = fractionUsed(mandate);
+  if (fraction <= 0) return "0%";
+  if (fraction >= 1) return "100%";
+  const percent = Math.round(fraction * 100);
+  if (percent === 0) return "<1%";
+  if (percent === 100) return ">99%";
+  return `${percent}%`;
+}

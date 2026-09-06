@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { agentHoldingNote, expiryLabel, fractionUsed, shortAddress } from "./mandate-format.ts";
+import { agentHoldingNote, expiryLabel, fractionUsed, shortAddress, spentPercentLabel } from "./mandate-format.ts";
 import { Usdc } from "../arc/usdc.ts";
 import type { Mandate } from "../arc/mandate.ts";
 
@@ -88,4 +88,26 @@ test("a holding worth acting on is shown, with enough precision to be a number",
   assert.equal(agentHoldingNote(Usdc.parse("0.005")), "agent holds 0.0050");
   assert.equal(agentHoldingNote(Usdc.parse("0.5")), "agent holds 0.50");
   assert.equal(agentHoldingNote(Usdc.parse("2")), "agent holds 2.00");
+});
+
+test("the percentage tracks what has been spent", () => {
+  assert.equal(spentPercentLabel(mandate("50", "0")), "0%");
+  assert.equal(spentPercentLabel(mandate("50", "25")), "50%");
+  assert.equal(spentPercentLabel(mandate("50", "50")), "100%");
+});
+
+/**
+ * Rounding must not claim nothing has happened, or that nothing is left, when neither is true.
+ * The same defect as dust rendering "0.00": a real value rounded away to a reassuring one.
+ */
+test("a little spending is not rounded away to nothing", () => {
+  assert.equal(spentPercentLabel(mandate("50", "0.01")), "<1%");
+});
+
+test("an allowance with anything left is never shown as fully spent", () => {
+  assert.equal(spentPercentLabel(mandate("50", "49.99")), ">99%");
+});
+
+test("spending past the limit reads as fully spent, not more", () => {
+  assert.equal(spentPercentLabel(mandate("50", "60")), "100%");
 });
