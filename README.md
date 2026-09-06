@@ -22,35 +22,27 @@ and we would ship it; the port and the passkey bridge are the parts anyone else 
 
 That is the intent here — **contribute the plumbing, and use the product to show it works.**
 
-## See it work in 30 seconds
+## See it work
+
+The allowance rules are **deployed on Arc testnet** at
+`0x669Dd1eDb85ABD00f74186d88124614EE81E6670`, so nothing below is a simulation.
+
+Grant an allowance from the app, install the connector into an agent, and the agent pays for what
+it needs — bounded by the chain, refused by the chain when it asks for too much, and inert the
+moment you revoke.
 
 ```bash
-npm install && npm run demo
+# a service that charges for what it does, and checks the chain before answering
+SELLER_ADDRESS=0xYourPayee npm run seller
 ```
 
-That forks Arc, deploys the allowance rules, grants a $50-wallet an agent a **$10** mandate, and
-runs an agent that buys research data from a service charging $2 a query:
+Then point an agent at [`mcp/`](mcp/README.md) and ask it to buy something.
 
+The parts that are already provable without any of that:
+
+```bash
+npm run gate     # 95 unit, 30 contract on a fork of Arc, 23 integration
 ```
-═══ THE AGENT GETS ON WITH IT ════════════════════════════════════
-  paid 2 USDC  →  ACME Corp 10-K: revenue $412M, up 8% YoY…
-  paid 2 USDC  →  Globex Inc 10-Q: revenue $88M, down 2% QoQ…
-  paid 2 USDC  →  Initech 8-K: CFO departure announced…
-    wallet 493.99   seller 6      ← nobody approved any of that
-
-═══ THE AGENT TRIES TO OVERSPEND ═════════════════════════════════
-  refused at 12 USDC — the mandate was 10
-    wallet 489.99   seller 10     ← 490 USDC it could never touch
-
-═══ THE HUMAN REVOKES ════════════════════════════════════════════
-  the agent still holds its key, and can no longer spend a cent
-```
-
-The wallet holds **500** and the mandate is **10**. That gap is the whole point: the agent is
-stopped by the *rule*, not by running out of money.
-
-Requires [Foundry](https://book.getfoundry.sh/getting-started/installation) and Node 22+. It runs
-against a local fork, so it costs nothing and needs no keys.
 
 ## How it works
 
@@ -140,7 +132,7 @@ web-only; `docs.arc.io/integrate` lists no mobile SDK).
 
 | | |
 |---|---|
-| `demo/` | the runnable story above — seller, agent, narrative |
+| `demo/` | a service that charges per request and verifies payment on chain |
 | `contracts/src/session` | the allowance rules, and `PORTING.md` on what we changed and why |
 | `src/passkey/cose.ts` | the piece Circle assumes a browser did: attestation → public key |
 | `src/arc/usdc.ts` | why a dollar on Arc has two decimal scales, and how that trap is closed |

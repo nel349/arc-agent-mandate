@@ -9,10 +9,10 @@
     "android": "expo run:android",
     "test": "node --experimental-transform-types --disable-warning=ExperimentalWarning --test 'src/**/*.test.ts'",
     "typecheck": "tsc --noEmit",
-    "demo": "./demo/setup.sh && PLUGIN=$(cat /tmp/demo-plugin.txt) node demo/run.mjs",
     "test:contracts": "cd contracts && ARC_TESTNET_RPC_URL=${ARC_TESTNET_RPC_URL:-https://rpc.testnet.arc.network} FOUNDRY_DISABLE_NIGHTLY_WARNING=1 forge test",
     "test:integration": "node --experimental-transform-types --disable-warning=ExperimentalWarning --test integration/*.test.mjs",
-    "gate": "npm run typecheck && npm test && npm run test:contracts && npm run test:integration"
+    "gate": "npm run typecheck && npm test && npm run test:contracts && npm run test:integration",
+    "seller": "node demo/seller.mjs"
   },
   "dependencies": {
     "@circle-fin/modular-wallets-core": "^1.0.15",

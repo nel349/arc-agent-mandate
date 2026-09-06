@@ -1,3 +1,6 @@
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 import { createPublicClient, defineChain, encodeFunctionData, formatEther, http, parseAbi } from "viem";
 
 /**
@@ -11,6 +14,16 @@ import { createPublicClient, defineChain, encodeFunctionData, formatEther, http,
 export const ARC_RPC = process.env.ARC_RPC_URL ?? "https://rpc.testnet.arc.network";
 export const SESSION_KEY_PLUGIN =
   process.env.ARC_SESSION_KEY_PLUGIN ?? "0x669Dd1eDb85ABD00f74186d88124614EE81E6670";
+
+/**
+ * The block the plugin was deployed in, so a search has a floor that is true rather than recent.
+ *
+ * No grant can predate it. Shipped as a constant because the default without one was a rolling
+ * 50,000-block window, and Arc produces **167,669 blocks a day** at roughly half a second each —
+ * so a grant became unfindable about seven hours after it was made. That is not a corner case;
+ * it is every agent, by the next morning.
+ */
+const PLUGIN_DEPLOY_BLOCK = 60_625_268n;
 
 /**
  * Arc, described rather than just dialled.
@@ -55,7 +68,7 @@ const LOG_WINDOW = 9_999n;
  */
 const DEPLOY_BLOCK = process.env.ARC_PLUGIN_FROM_BLOCK
   ? BigInt(process.env.ARC_PLUGIN_FROM_BLOCK)
-  : null;
+  : PLUGIN_DEPLOY_BLOCK;
 const DEFAULT_LOOKBACK = 50_000n;
 
 const grantedEvent = pluginAbi.find((e) => e.type === "event" && e.name === "SessionKeyAdded");
@@ -73,6 +86,20 @@ export async function findGrantingAccount(agentAddress) {
   if (cachedAccount && (await stillGranted(cachedAccount, agentAddress))) return cachedAccount;
   cachedAccount = null;
 
+  // Remembered across restarts, because the search does not get cheaper with time. Arc produces
+  // about 167,000 blocks a day and `eth_getLogs` is capped at 10,000 a call, so scanning from the
+  // plugin's deployment costs six requests today and several hundred within a month. Finding the
+  // account once is the difference between an agent that starts and one that eventually times out.
+  //
+  // Always re-checked against the chain before use: a remembered grant may have been revoked while
+  // the agent was not running, and acting on a stale one would fail at validation with a confusing
+  // reason rather than an honest "nobody has granted me anything".
+  const remembered = readRemembered(agentAddress);
+  if (remembered && (await stillGranted(remembered, agentAddress))) {
+    cachedAccount = remembered;
+    return cachedAccount;
+  }
+
   const head = await publicClient.getBlockNumber();
   const floor = DEPLOY_BLOCK ?? (head > DEFAULT_LOOKBACK ? head - DEFAULT_LOOKBACK : 0n);
 
@@ -87,6 +114,7 @@ export async function findGrantingAccount(agentAddress) {
     for (const log of logs.reverse()) {
       if (await stillGranted(log.args.account, agentAddress)) {
         cachedAccount = log.args.account;
+        remember(agentAddress, cachedAccount);
         return cachedAccount;
       }
     }
@@ -117,3 +145,40 @@ export async function readAllowance(account, agentAddress) {
   };
 }
 
+
+/**
+ * Where the discovered account is kept, beside the agent's key.
+ *
+ * Keyed by agent address, so a machine that has run more than one agent does not hand the wrong
+ * account to whichever started last.
+ */
+const MEMORY_PATH =
+  process.env.ARC_MANDATE_ACCOUNT_PATH ?? join(homedir(), ".arc-mandate", "accounts.json");
+
+function readRemembered(agentAddress) {
+  try {
+    const all = JSON.parse(readFileSync(MEMORY_PATH, "utf8"));
+    const found = all[agentAddress.toLowerCase()];
+    return /^0x[0-9a-fA-F]{40}$/.test(found ?? "") ? found : null;
+  } catch {
+    // No file, unreadable, or not JSON. This is a cache: the search still works without it, and
+    // failing to read one must never stop an agent from finding its account the slow way.
+    return null;
+  }
+}
+
+function remember(agentAddress, account) {
+  try {
+    let all = {};
+    try {
+      all = JSON.parse(readFileSync(MEMORY_PATH, "utf8"));
+    } catch {
+      // First write, or a file worth replacing.
+    }
+    all[agentAddress.toLowerCase()] = account;
+    mkdirSync(dirname(MEMORY_PATH), { recursive: true, mode: 0o700 });
+    writeFileSync(MEMORY_PATH, `${JSON.stringify(all, null, 2)}\n`, { mode: 0o600 });
+  } catch {
+    // Losing the cache costs a slower start next time and nothing else.
+  }
+}

@@ -113,6 +113,8 @@ payee list, an expiry — was chosen to map onto it cleanly for that reason.
 Arc's argument is that a dollar is the unit of account. That argument is strongest where dollars
 are actually spent, which is a phone — and it is exactly where the tooling stops today.
 
-The demo is deliberately narrow to make the point checkable: an agent is given an allowance, spends
+The point is deliberately narrow to keep it checkable: an agent is given an allowance, spends
 inside it unattended, is refused by the chain when it tries to exceed it, and goes inert the moment
-it is revoked. `npm run demo`.
+it is revoked. Every one of those is exercised by the test suites — `npm run gate` — and the
+plugin is deployed on Arc testnet, so the same behaviour is observable on a chain anyone can read
+rather than only on a fork.
