@@ -50,8 +50,9 @@ server.registerTool(
       account
         ? `This agent is already authorised by ${account}.\nIts address is ${agent.address}.`
         : `Grant an allowance to:\n\n    ${agent.address}\n\n` +
-            `Open the Agent Mandate app → Add an agent → scan or paste that address, set a limit, ` +
-            `and confirm with Face ID.${created ? "\n\n(A new key was generated for this agent.)" : ""}`,
+            `Open the Agent Mandate app, paste that address into "Give an agent an allowance", ` +
+            `choose an amount and how long it lasts, and confirm with Face ID.` +
+            `${created ? "\n\n(A new key was generated for this agent.)" : ""}`,
     );
   },
 );
