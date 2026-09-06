@@ -96,3 +96,24 @@ export function spentPercentLabel(mandate: Mandate): string {
   if (percent === 100) return ">99%";
   return `${percent}%`;
 }
+
+/**
+ * When the agent last spent, in words — or that it never has.
+ *
+ * This is the only thing the chain can honestly say about an agent's activity, and it is worth
+ * knowing what it does *not* say. Reading a chain leaves no trace, so an agent that is installed,
+ * paired and running looks identical to one that was never set up until the moment it spends.
+ * "Never used" therefore means exactly that, and not "not connected" — the wording avoids implying
+ * something nobody can know.
+ */
+export function lastUsedLabel(mandate: Mandate, now: number = Date.now()): string {
+  if (mandate.lastUsedAt === null) return "never used";
+
+  const seconds = Math.floor(now / 1000) - mandate.lastUsedAt;
+  if (seconds < 90) return "used just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `used ${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `used ${hours}h ago`;
+  return `used ${Math.floor(hours / 24)} days ago`;
+}

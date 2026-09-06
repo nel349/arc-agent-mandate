@@ -1,7 +1,7 @@
 import { memo } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import type { Mandate } from "../arc/mandate.ts";
-import { agentHoldingNote, expiryLabel, fractionUsed, shortAddress, spentPercentLabel } from "./mandate-format.ts";
+import { agentHoldingNote, expiryLabel, fractionUsed, lastUsedLabel, shortAddress, spentPercentLabel } from "./mandate-format.ts";
 import { useTheme } from "./theme-context.tsx";
 import { Button } from "./Button.tsx";
 import { Surface } from "./Surface.tsx";
@@ -69,7 +69,12 @@ function MandateCardView({
       */}
       <View style={styles.row}>
         <Text style={[styles.meta, { color: c.dim }]}>
+          {/* What was spent, and when — the only two things the chain can say about an agent's
+              activity. It cannot say whether one is running: reading leaves no trace, so an agent
+              that is paired and working looks exactly like one never installed until it spends. */}
           {mandate.spent.isZero() ? "nothing spent yet" : `${mandate.spent.format(2)} spent`}
+          {" · "}
+          {lastUsedLabel(mandate)}
         </Text>
         {/*
           Almost never shown, and that is the point.
@@ -112,7 +117,8 @@ export const MandateCard = memo(MandateCardView, (a, b) =>
   a.mandate.expiresAt === b.mandate.expiresAt &&
   // The float drains as the agent submits, so a comparator blind to it would freeze that figure
   // at whatever it was on first render.
-  a.mandate.agentFloat.toNativeUnits() === b.mandate.agentFloat.toNativeUnits(),
+  a.mandate.agentFloat.toNativeUnits() === b.mandate.agentFloat.toNativeUnits() &&
+  a.mandate.lastUsedAt === b.mandate.lastUsedAt,
 );
 
 const styles = StyleSheet.create({

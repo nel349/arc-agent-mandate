@@ -147,6 +147,15 @@ export interface Mandate {
    * balance that is smaller than it was, with nothing saying why.
    */
   readonly agentFloat: Usdc;
+  /**
+   * When the agent last spent, or `null` if it never has.
+   *
+   * The plugin records this against the spend limit and it comes back on every read, so it costs
+   * nothing to show — and it is the only thing the chain can honestly say about an agent's
+   * activity. Reading a chain leaves no trace, so an agent that has been installed, paired and is
+   * running looks exactly like one that was never set up, right up until it spends.
+   */
+  readonly lastUsedAt: number | null;
 }
 
 /**
@@ -520,5 +529,6 @@ export async function readMandate(address: Address, agent: Address): Promise<Man
     remaining: spent.compare(limit) >= 0 ? Usdc.ZERO : limit.subtract(spent),
     expiresAt: range[1] === 0 ? undefined : Number(range[1]),
     agentFloat: Usdc.fromNativeUnits(agentBalance),
+    lastUsedAt: spend.lastUsedTime === 0 ? null : Number(spend.lastUsedTime),
   };
 }

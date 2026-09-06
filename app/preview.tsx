@@ -201,7 +201,7 @@ const WINDOWS = [
   { label: "30 days", value: "30" },
 ] as const;
 
-const sample = (limit: string, spent: string, expiresAt?: number, agentFloat = Usdc.ZERO): Mandate => {
+const sample = (limit: string, spent: string, expiresAt?: number, agentFloat = Usdc.ZERO, lastUsedAt: number | null = null): Mandate => {
   const l = Usdc.parse(limit);
   const s = Usdc.parse(spent);
   return {
@@ -211,11 +211,12 @@ const sample = (limit: string, spent: string, expiresAt?: number, agentFloat = U
     remaining: s.compare(l) >= 0 ? Usdc.ZERO : l.subtract(s),
     expiresAt,
     agentFloat,
+    lastUsedAt,
   };
 };
 
 const FRESH = sample("50", "0", NOW_SECONDS() + 7 * 86_400);
-const HALF_SPENT = sample("50", "25", NOW_SECONDS() + 86_400);
+const HALF_SPENT = sample("50", "25", NOW_SECONDS() + 86_400, Usdc.ZERO, NOW_SECONDS() - 300);
 const EXPIRED = sample("50", "50", NOW_SECONDS() - 86_400);
 /** Left over from when a grant sent the agent a float. Should not happen to a new mandate. */
 const WITH_DUST = sample("50", "10", NOW_SECONDS() + 3 * 86_400, Usdc.parse("0.5"));

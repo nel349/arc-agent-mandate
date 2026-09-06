@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { agentHoldingNote, expiryLabel, fractionUsed, shortAddress, spentPercentLabel } from "./mandate-format.ts";
+import { agentHoldingNote, expiryLabel, fractionUsed, lastUsedLabel, shortAddress, spentPercentLabel } from "./mandate-format.ts";
 import { Usdc } from "../arc/usdc.ts";
 import type { Mandate } from "../arc/mandate.ts";
 
@@ -13,6 +13,7 @@ const mandate = (limit: string, spent: string, expiresAt?: number): Mandate => {
     remaining: s.compare(l) >= 0 ? Usdc.ZERO : l.subtract(s),
     expiresAt,
     agentFloat: Usdc.parse("0.5"),
+    lastUsedAt: null,
   };
 };
 
@@ -110,4 +111,29 @@ test("an allowance with anything left is never shown as fully spent", () => {
 
 test("spending past the limit reads as fully spent, not more", () => {
   assert.equal(spentPercentLabel(mandate("50", "60")), "100%");
+});
+
+/** The clock is fixed so the wording is asserted, not the time of day. */
+const NOW = Date.UTC(2026, 8, 6, 12);
+const used = (secondsAgo: number | null) => ({
+  ...mandate("50", "10"),
+  lastUsedAt: secondsAgo === null ? null : Math.floor(NOW / 1000) - secondsAgo,
+});
+
+test("an agent that has never spent says so, and does not claim to be disconnected", () => {
+  // Reading the chain leaves no trace, so "never used" is all anyone can honestly say — an agent
+  // that is installed and running looks the same as one that was never set up.
+  assert.equal(lastUsedLabel(used(null), NOW), "never used");
+});
+
+test("recent use reads as recent", () => {
+  assert.equal(lastUsedLabel(used(10), NOW), "used just now");
+  assert.equal(lastUsedLabel(used(60 * 5), NOW), "used 5 min ago");
+  assert.equal(lastUsedLabel(used(3600 * 3), NOW), "used 3h ago");
+  assert.equal(lastUsedLabel(used(86_400 * 4), NOW), "used 4 days ago");
+});
+
+test("the unit changes before the number gets silly", () => {
+  assert.match(lastUsedLabel(used(3600 * 47), NOW), /^used 47h ago$/);
+  assert.match(lastUsedLabel(used(3600 * 49), NOW), /days ago$/);
 });
