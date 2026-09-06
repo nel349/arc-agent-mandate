@@ -47,6 +47,7 @@ export const pluginAbi = parseAbi([
   "event SessionKeyRemoved(address indexed account, address indexed sessionKey)",
   "function isSessionKeyOf(address account, address sessionKey) view returns (bool)",
   "function getNativeTokenSpendLimitInfo(address account, address sessionKey) view returns ((bool hasLimit, uint256 limit, uint256 limitUsed, uint48 refreshInterval, uint48 lastUsedTime))",
+  "function getKeyTimeRange(address account, address sessionKey) view returns (uint48 validAfter, uint48 validUntil)",
   "function executeWithSessionKey((address target,uint256 value,bytes data)[] calls, address sessionKey) returns (bytes[])",
 ]);
 
@@ -131,17 +132,59 @@ function stillGranted(account, agentAddress) {
 }
 
 /** What the agent has left to spend, read from the account rather than remembered. */
+/**
+ * What the agent can actually spend, which is not the same as what it was granted.
+ *
+ * Three things bound a payment, and reading only the first is how an agent ends up promising a
+ * purchase it cannot make:
+ *
+ * - **The limit**, minus what has already been spent. The obvious one.
+ * - **The wallet's balance.** An allowance of 20 against a wallet holding 5 can spend 5. Reporting
+ *   the allowance alone told an agent it had 19.89 available when the account held 4.86.
+ * - **The time range.** An expired mandate leaves the session key installed, so every check short
+ *   of reading `validUntil` says the allowance is healthy — and the chain then refuses the payment
+ *   for a reason the agent has no way to explain.
+ *
+ * `spendable` is the smallest of them, and is what anything deciding whether a payment can be made
+ * should use. The parts are reported alongside it so a refusal can say *which* bound was hit.
+ */
 export async function readAllowance(account, agentAddress) {
-  const info = await publicClient.readContract({
-    address: SESSION_KEY_PLUGIN, abi: pluginAbi, functionName: "getNativeTokenSpendLimitInfo",
-    args: [account, agentAddress],
-  });
+  const [info, range, balance] = await Promise.all([
+    publicClient.readContract({
+      address: SESSION_KEY_PLUGIN, abi: pluginAbi, functionName: "getNativeTokenSpendLimitInfo",
+      args: [account, agentAddress],
+    }),
+    publicClient.readContract({
+      address: SESSION_KEY_PLUGIN, abi: pluginAbi, functionName: "getKeyTimeRange",
+      args: [account, agentAddress],
+    }),
+    publicClient.getBalance({ address: account }),
+  ]);
+
   const remaining = info.limitUsed >= info.limit ? 0n : info.limit - info.limitUsed;
+  const [validAfter, validUntil] = range;
+  const now = BigInt(Math.floor(Date.now() / 1000));
+
+  // Zero means "no bound" for both ends, which is how the plugin encodes an open range.
+  const expired = validUntil !== 0n && now >= validUntil;
+  const notYet = validAfter !== 0n && now < validAfter;
+  const usable = !expired && !notYet;
+
+  const spendable = usable ? (remaining < balance ? remaining : balance) : 0n;
+
   return {
     limit: formatEther(info.limit),
     spent: formatEther(info.limitUsed),
     remaining: formatEther(remaining),
     remainingWei: remaining,
+    walletBalance: formatEther(balance),
+    walletBalanceWei: balance,
+    expiresAt: validUntil === 0n ? null : Number(validUntil),
+    expired,
+    notYet,
+    /** The real ceiling on the next payment: the smallest of limit-left and wallet balance, or zero. */
+    spendable: formatEther(spendable),
+    spendableWei: spendable,
   };
 }
 

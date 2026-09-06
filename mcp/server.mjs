@@ -68,8 +68,9 @@ async function requireMandate() {
   const account = await findGrantingAccount(agent.address);
   if (!account) {
     throw new Error(
-      `No allowance yet. Open the Agent Mandate app, choose "Add an agent", and grant this ` +
-        `address:\n\n    ${agent.address}\n\nThen ask me again.`,
+      `No allowance yet.\n\nOpen the Agent Mandate app, paste this address into ` +
+        `"Give an agent an allowance", set a limit and how long it lasts, and confirm with ` +
+        `Face ID:\n\n    ${agent.address}\n\nThen ask me again.`,
     );
   }
   return { account, allowance: await readAllowance(account, agent.address) };
@@ -117,10 +118,27 @@ server.registerTool(
   async () => {
     const { account, allowance } = await requireMandate();
     return text(
-      `Allowance from ${account}\n` +
-        `  limit     ${allowance.limit} USDC\n` +
-        `  spent     ${allowance.spent} USDC\n` +
-        `  remaining ${allowance.remaining} USDC`,
+      [
+        `Allowance from ${account}`,
+        `  limit      ${allowance.limit} USDC`,
+        `  spent      ${allowance.spent} USDC`,
+        `  remaining  ${allowance.remaining} USDC`,
+        `  wallet     ${allowance.walletBalance} USDC`,
+        "",
+        // The number to plan against. Three things bound a payment and the allowance is only one
+        // of them, so reporting it alone is how an agent promises a purchase it cannot make.
+        `  spendable now: ${allowance.spendable} USDC`,
+        ...(allowance.expired
+          ? ["", "This allowance has expired, so nothing can be spent until it is granted again."]
+          : allowance.notYet
+            ? ["", "This allowance has not started yet."]
+            : allowance.spendableWei < allowance.remainingWei
+              ? ["", "The wallet holds less than the allowance permits, so the wallet is the limit."]
+              : []),
+        ...(allowance.expiresAt === null
+          ? []
+          : [`  expires ${new Date(allowance.expiresAt * 1000).toISOString().slice(0, 16).replace("T", " ")} UTC`]),
+      ].join("\n"),
     );
   },
 );
@@ -148,11 +166,23 @@ server.registerTool(
     const { account, allowance } = await requireMandate();
     // Checked here purely so the agent gets a sentence it can act on. The chain refuses it either
     // way; this only avoids spending a round trip to be told so.
-    if (value > allowance.remainingWei) {
+    if (allowance.expired) {
       return text(
-        `Refused before sending: ${usd(value)} exceeds the ${allowance.remaining} USDC remaining. ` +
-          `Ask the user to raise the limit if this purchase is worth it — do not retry a smaller ` +
-          `amount unless that actually satisfies the task.`,
+        `Refused before sending: this allowance expired. Nothing was spent. Ask the user to grant ` +
+          `a new one from the app — the amount is not the problem, the window closed.`,
+      );
+    }
+    if (value > allowance.spendableWei) {
+      // Which bound was hit changes what the user should do about it, so say which.
+      const walletIsTheLimit = allowance.walletBalanceWei < allowance.remainingWei;
+      return text(
+        `Refused before sending: ${usd(value)} exceeds the ${allowance.spendable} USDC available. ` +
+          (walletIsTheLimit
+            ? `The allowance permits ${allowance.remaining} USDC but the wallet only holds ` +
+              `${allowance.walletBalance}, so the wallet is the limit — the user needs to add funds, ` +
+              `not raise the allowance.`
+            : `That is the allowance's remaining limit. Ask the user to raise it if this purchase ` +
+              `is worth it — do not retry a smaller amount unless that actually satisfies the task.`),
       );
     }
 
