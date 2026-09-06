@@ -35,8 +35,9 @@ export interface MandateScreen {
    * fill in a form that cannot work.
    */
   readonly ready: boolean | null;
-  grant(terms: MandateTerms): void;
-  revoke(agent: Address): void;
+  /** `onGranted` runs when the operation has landed, not when it was requested. */
+  grant(terms: MandateTerms, onGranted?: () => void): void;
+  revoke(agent: Address, onRevoked?: () => void): void;
   changeLimit(agent: Address, limit: Usdc): void;
   refresh(): void;
 }
@@ -100,7 +101,18 @@ export function useMandate(account: ArcAccount | null): MandateScreen {
    * themselves, so this is not credential-adjacent, but it stays out of release builds anyway.
    */
   const perform = useCallback(
-    (label: string, run: (account: ArcAccount) => Promise<readonly Hash[]>) => {
+    (
+      label: string,
+      run: (account: ArcAccount) => Promise<readonly Hash[]>,
+      /**
+       * Run only once the operation has actually landed.
+       *
+       * The screen used to clear its form on the line after calling this, which happens
+       * immediately — before the passkey prompt, let alone the receipt. Cancelling Face ID meant
+       * the address you had just scanned was already gone.
+       */
+      onDone?: () => void,
+    ) => {
       if (!account || busy) return;
       setError(null);
       setBusy(true);
@@ -114,6 +126,7 @@ export function useMandate(account: ArcAccount | null): MandateScreen {
             for (const hash of hashes) console.log(`[mandate]   ${hash}`);
           }
           refresh();
+          onDone?.();
         } catch (cause) {
           setError(describeFailure(cause, MANDATE_FAILURES));
         } finally {
@@ -125,13 +138,14 @@ export function useMandate(account: ArcAccount | null): MandateScreen {
   );
 
   const grant = useCallback(
-    (terms: MandateTerms) =>
-      perform("granted an allowance", async (a) => [(await grantMandate(a, terms)).grant]),
+    (terms: MandateTerms, onGranted?: () => void) =>
+      perform("granted an allowance", async (a) => [(await grantMandate(a, terms)).grant], onGranted),
     [perform],
   );
 
   const revoke = useCallback(
-    (agent: Address) => perform("revoked an allowance", async (a) => [await revokeMandate(a, agent)]),
+    (agent: Address, onRevoked?: () => void) =>
+      perform("revoked an allowance", async (a) => [await revokeMandate(a, agent)], onRevoked),
     [perform],
   );
 

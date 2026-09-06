@@ -81,15 +81,23 @@ export default function AllowancesScreen() {
    */
   const grant = useCallback(() => {
     if (terms === null) return;
-    mandate.grant({
-      agent: terms.agent,
-      limit: terms.limit,
-      payees: [],
-      expiresAt: Math.floor(Date.now() / 1000) + Math.round(terms.days * 86_400),
-      label: "agent",
-    });
-    setAgent("");
-    setFormGeneration((n) => n + 1);
+    mandate.grant(
+      {
+        agent: terms.agent,
+        limit: terms.limit,
+        payees: [],
+        expiresAt: Math.floor(Date.now() / 1000) + Math.round(terms.days * 86_400),
+        label: "agent",
+      },
+      // Cleared when the grant actually lands, not when it is asked for. `grant` returns
+      // immediately, so clearing on the next line emptied the form before the passkey prompt had
+      // even appeared — dismiss Face ID and the address you had just scanned was gone, with
+      // nothing granted and nothing said.
+      () => {
+        setAgent("");
+        setFormGeneration((n) => n + 1);
+      },
+    );
   }, [terms, mandate]);
 
   const canGrant = terms !== null && !busy && mandate.ready === true;
