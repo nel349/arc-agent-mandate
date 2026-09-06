@@ -6,6 +6,7 @@ import { formatEther, isAddress, parseEther } from "viem";
 import { loadOrCreateAgent } from "./identity.mjs";
 import { findGrantingAccount, readAllowance } from "./chain.mjs";
 import { submitSpend } from "./spend.mjs";
+import qrcode from "qrcode-terminal";
 
 /**
  * An allowance for your coding agent.
@@ -18,6 +19,25 @@ import { submitSpend } from "./spend.mjs";
  * exists and the person already runs it. That is the pairing problem solved by not having one.
  */
 const { account: agent, created } = loadOrCreateAgent();
+/**
+ * The address as a scannable code, because the two halves of this are on different devices.
+ *
+ * The agent runs on a laptop and the wallet lives on a phone, so pairing means moving 42 characters
+ * between them — the one genuinely awkward step in the flow, and the first one anybody meets. A
+ * code the phone can read turns it into pointing a camera.
+ *
+ * Rendered small and as text, since it has to survive being printed inside a chat transcript
+ * rather than a terminal. The address is printed underneath either way: a code is a convenience,
+ * and a person whose camera will not cooperate must never be stuck.
+ */
+function pairingCode(address) {
+  return new Promise((resolve) => {
+    qrcode.generate(address, { small: true }, (code) =>
+      resolve(code.split("\n").map((line) => `  ${line}`).join("\n")),
+    );
+  });
+}
+
 const server = new McpServer({ name: "arc-mandate", version: "0.1.0" });
 
 const usd = (wei) => `$${formatEther(wei)}`;
@@ -46,13 +66,14 @@ server.registerTool(
   },
   async () => {
     const account = await findGrantingAccount(agent.address);
+    if (account) {
+      return text(`This agent is already authorised by ${account}.\nIts address is ${agent.address}.`);
+    }
     return text(
-      account
-        ? `This agent is already authorised by ${account}.\nIts address is ${agent.address}.`
-        : `Grant an allowance to:\n\n    ${agent.address}\n\n` +
-            `Open the Agent Mandate app, paste that address into "Give an agent an allowance", ` +
-            `choose an amount and how long it lasts, and confirm with Face ID.` +
-            `${created ? "\n\n(A new key was generated for this agent.)" : ""}`,
+      `Grant an allowance to:\n\n${await pairingCode(agent.address)}\n    ${agent.address}\n\n` +
+        `Open the Agent Mandate app, scan that code — or paste the address — into ` +
+        `"Give an agent an allowance", choose an amount and how long it lasts, and confirm with ` +
+        `Face ID.${created ? "\n\n(A new key was generated for this agent.)" : ""}`,
     );
   },
 );

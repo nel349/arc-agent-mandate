@@ -1,11 +1,13 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { FlashList } from "@shopify/flash-list";
+import { router, useLocalSearchParams } from "expo-router";
 import { StyleSheet, Text, View } from "react-native";
 import { useArcAccount } from "../src/ui/useArcAccount.ts";
 import { useMandate } from "../src/ui/useMandate.ts";
 import { MandateCard } from "../src/ui/MandateCard.tsx";
 import { Button } from "../src/ui/Button.tsx";
 import { GrantForm } from "../src/ui/GrantForm.tsx";
+import { IconButton } from "../src/ui/IconButton.tsx";
 import type { Choice } from "../src/ui/ChoiceRow.tsx";
 import { Label } from "../src/ui/Label.tsx";
 import { Note } from "../src/ui/Note.tsx";
@@ -39,6 +41,20 @@ export default function AllowancesScreen() {
    * address is invalid. A new key says "this is a fresh form", which is exactly what happened.
    */
   const [formGeneration, setFormGeneration] = useState(0);
+
+  /**
+   * An address handed back by the scanner.
+   *
+   * The scan screen replaces this one rather than stacking on it, so the address arrives as a
+   * route parameter instead of through a callback. Cleared once taken, or navigating back here
+   * later would silently refill a field the person had emptied on purpose.
+   */
+  const scanned = useLocalSearchParams<{ agent?: string }>().agent;
+  useEffect(() => {
+    if (scanned === undefined) return;
+    setAgent(scanned);
+    router.setParams({ agent: undefined });
+  }, [scanned]);
 
   const busy = wallet.busy || mandate.busy;
   const c = useTheme().color;
@@ -129,6 +145,15 @@ export default function AllowancesScreen() {
           onGrant={grant}
           notice={mandate.ready === false ? "Not deployed to Arc testnet yet" : null}
           resetKey={formGeneration}
+          addressAction={
+            <IconButton
+              icon="qr-code-outline"
+              size={tokens.size.control.hint}
+              onPress={() => router.push("/scan")}
+              label="Scan the agent's code"
+              hint="Read a pairing code the agent printed, instead of typing its address"
+            />
+          }
         />
       )}
 

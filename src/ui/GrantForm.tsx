@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Button } from "./Button.tsx";
 import { ChoiceRow, type Choice } from "./ChoiceRow.tsx";
 import { Field } from "./Field.tsx";
@@ -22,7 +23,7 @@ import type { GrantProblems } from "./grant-terms.ts";
 export function GrantForm({
   agent, onAgent, amount, onAmount, days, onDays,
   amountCustom, onAmountCustom, daysCustom, onDaysCustom,
-  amounts, windows, problems, summary, canGrant, busy, onGrant, notice, resetKey,
+  amounts, windows, problems, summary, canGrant, busy, onGrant, notice, resetKey, addressAction,
 }: {
   readonly agent: string;
   readonly onAgent: (next: string) => void;
@@ -50,6 +51,8 @@ export function GrantForm({
    * without this, a successful grant left the form complaining that the empty address is invalid.
    */
   readonly resetKey: number;
+  /** Shown beside the address label — the scan shortcut, when the screen offers one. */
+  readonly addressAction?: ReactNode;
 }) {
   return (
     <Surface>
@@ -64,6 +67,7 @@ export function GrantForm({
         hint="Ask your agent for its address — it prints one on first run."
         problem={problems.agent}
         confirmed={problems.agent === null && agent.length > 0}
+        action={addressAction}
       />
 
       <ChoiceRow

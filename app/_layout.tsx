@@ -101,6 +101,9 @@ function Navigator() {
       <Stack.Screen name="settings" options={{ title: "Settings" }} />
       <Stack.Screen name="dev" options={{ title: "Developer harness" }} />
       <Stack.Screen name="preview" options={{ title: "Component preview" }} />
+      {/* Full-screen: a viewfinder with a navigation bar over it reads as a page about the camera
+          rather than a camera. */}
+      <Stack.Screen name="scan" options={{ title: "Scan", headerShown: false, presentation: "modal" }} />
     </Stack>
   );
 }

@@ -29,6 +29,14 @@
             "deploymentTarget": "15.1"
           }
         }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Scan an agent's pairing code so you can grant it an allowance. The camera is used only for that, and nothing is recorded.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
       ]
     ]
   }

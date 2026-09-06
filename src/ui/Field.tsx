@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useState, type ReactNode } from "react";
 import { StyleSheet, Text, TextInput, type KeyboardTypeOptions } from "react-native";
 import { Labelled } from "./Labelled.tsx";
 import { useTheme } from "./theme-context.tsx";
@@ -18,7 +18,7 @@ import { tokens } from "./tokens.ts";
  * open covered in complaints about fields nobody has reached yet.
  */
 export function Field({
-  label, value, onChangeText, placeholder, hint, keyboardType, problem, confirmed = false,
+  label, value, onChangeText, placeholder, hint, keyboardType, problem, confirmed = false, action,
 }: {
   readonly label: string;
   readonly value: string;
@@ -31,6 +31,8 @@ export function Field({
   readonly problem?: string | null;
   /** Accepted, and worth confirming — an address that checks out reads the same as one that does not. */
   readonly confirmed?: boolean;
+  /** A shortcut to filling this in, shown beside the label. Scanning a code, for instance. */
+  readonly action?: ReactNode;
 }) {
   const c = useTheme().color;
 
@@ -50,7 +52,12 @@ export function Field({
     <Labelled
       label={label}
       hint={hint}
-      trailing={confirmed && !showProblem ? <Text style={[styles.mark, { color: c.signal }]}>✓</Text> : undefined}
+      trailing={
+        <>
+          {confirmed && !showProblem && <Text style={[styles.mark, { color: c.signal }]}>✓</Text>}
+          {action}
+        </>
+      }
     >
       <TextInput
         style={[styles.input, { backgroundColor: c.groundLow, borderColor: edge, color: c.paper }]}
