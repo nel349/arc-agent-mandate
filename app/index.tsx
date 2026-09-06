@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { FlashList } from "@shopify/flash-list";
-import { router, useLocalSearchParams } from "expo-router";
 import { StyleSheet, Text, View } from "react-native";
 import { useArcAccount } from "../src/ui/useArcAccount.ts";
 import { useMandate } from "../src/ui/useMandate.ts";
 import { MandateCard } from "../src/ui/MandateCard.tsx";
 import { Button } from "../src/ui/Button.tsx";
 import { GrantForm } from "../src/ui/GrantForm.tsx";
+import { ScanModal } from "../src/ui/ScanModal.tsx";
 import { IconButton } from "../src/ui/IconButton.tsx";
 import type { Choice } from "../src/ui/ChoiceRow.tsx";
 import { Label } from "../src/ui/Label.tsx";
@@ -42,19 +42,8 @@ export default function AllowancesScreen() {
    */
   const [formGeneration, setFormGeneration] = useState(0);
 
-  /**
-   * An address handed back by the scanner.
-   *
-   * The scan screen replaces this one rather than stacking on it, so the address arrives as a
-   * route parameter instead of through a callback. Cleared once taken, or navigating back here
-   * later would silently refill a field the person had emptied on purpose.
-   */
-  const scanned = useLocalSearchParams<{ agent?: string }>().agent;
-  useEffect(() => {
-    if (scanned === undefined) return;
-    setAgent(scanned);
-    router.setParams({ agent: undefined });
-  }, [scanned]);
+  /** Open while the camera is up. The scanned value lands here directly; there is nothing to pass. */
+  const [scanning, setScanning] = useState(false);
 
   const busy = wallet.busy || mandate.busy;
   const c = useTheme().color;
@@ -149,7 +138,7 @@ export default function AllowancesScreen() {
             <IconButton
               icon="qr-code-outline"
               size={tokens.size.control.hint}
-              onPress={() => router.push("/scan")}
+              onPress={() => setScanning(true)}
               label="Scan the agent's code"
               hint="Read a pairing code the agent printed, instead of typing its address"
             />
@@ -169,14 +158,24 @@ export default function AllowancesScreen() {
   );
 
   return (
-    <FlashList
+    <>
+      <ScanModal
+        visible={scanning}
+        onClose={() => setScanning(false)}
+        onScanned={(address) => {
+          setAgent(address);
+          setScanning(false);
+        }}
+      />
+      <FlashList
       data={mandate.mandates}
       renderItem={renderMandate}
       keyExtractor={keyOfMandate}
       ListHeaderComponent={header}
       contentContainerStyle={styles.content}
       contentInsetAdjustmentBehavior="automatic"
-    />
+      />
+    </>
   );
 }
 
