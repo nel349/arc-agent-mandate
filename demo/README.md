@@ -1,10 +1,21 @@
-# A service that charges for what it does
+# A fake shop, for faking a paid API
 
-`seller.mjs` is a small HTTP service that answers a question for USDC. Ask without paying and it
-replies **402 Payment Required** with a price and an address; pay, ask again, and it answers.
+**Nothing in this project uses this.** Not the app, not the connector, not the mandate. It is not
+part of any flow and must never be started as part of one — it runs when you ask for it, or not at
+all.
 
-It reads the chain before answering, so an unpaid request gets nothing. Nothing here takes the
-agent's word for anything.
+It answers a question for USDC. Ask without paying and it replies **402 Payment Required** with a
+price and an address; pay, ask again, and it answers. It reads the chain before answering, so an
+unpaid request gets nothing.
+
+Why it is not part of the demonstration: a counterparty you start yourself, on localhost, moments
+earlier, is not a counterparty. It is paying a script you control — which proves nothing that a
+plain transfer does not, and reads as theatre to anyone watching. Showing a purchase is only worth
+it against a service you did not write.
+
+What the product actually claims needs none of this: an allowance granted on a phone, an agent on
+another machine spending inside it unattended, the chain refusing it past the limit, and the whole
+thing going inert on revoke. All of that is visible in the wallet and on a block explorer.
 
 ```bash
 SELLER_ADDRESS=0xYourPayee npm run seller

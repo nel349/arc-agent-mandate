@@ -2,17 +2,21 @@ import { createServer } from "node:http";
 import { createPublicClient, defineChain, formatEther, http, parseEther } from "viem";
 
 /**
- * A service that charges per request, on the real chain.
+ * A fake shop, for faking a paid API. Run it only when you mean to.
  *
- * The shape an agent actually meets in the wild: ask, get told the price, pay, ask again. It is
- * deliberately not a mock — it reads the chain before it answers, so a request whose payment never
- * landed gets nothing. Nothing here trusts the agent's word for anything.
+ * **Nothing in this project uses it.** Not the app, not the connector, not the mandate. It exists
+ * so a 402 flow can be exercised by hand — ask, get told a price, pay, ask again — and it is
+ * started deliberately or not at all:
  *
- * It used to run against a forked anvil beside a scripted buyer, which made the whole thing a
- * play: the "agent" was a function called `buy()`, and what the demo proved — that a chain
- * enforces a spend limit — is what the contract and integration suites already prove properly. The
- * part worth showing is an actual agent deciding to pay, and that only means something against a
- * chain anyone can check.
+ *   SELLER_ADDRESS=0xYourPayee npm run seller
+ *
+ * It must never be started as part of demonstrating something. A counterparty you launch yourself,
+ * on localhost, moments earlier, is not a counterparty: it is paying a script you control, which
+ * proves nothing that a plain transfer does not, and it makes the whole thing read as theatre. A
+ * purchase is only worth showing against a service you did not write.
+ *
+ * What it does do honestly: it reads the chain before it answers, so a request whose payment never
+ * landed gets nothing. It cannot be talked into serving on credit.
  *
  *   ARC_RPC_URL     which chain to read (defaults to Arc testnet)
  *   SELLER_ADDRESS  where payment must land — required, since it decides who gets paid

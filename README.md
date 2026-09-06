@@ -31,12 +31,8 @@ Grant an allowance from the app, install the connector into an agent, and the ag
 it needs — bounded by the chain, refused by the chain when it asks for too much, and inert the
 moment you revoke.
 
-```bash
-# a service that charges for what it does, and checks the chain before answering
-SELLER_ADDRESS=0xYourPayee npm run seller
-```
-
-Then point an agent at [`mcp/`](mcp/README.md) and ask it to buy something.
+Point an agent at [`mcp/`](mcp/README.md), grant it an allowance from the app, and ask it to pay
+for something. The wallet and any block explorer show the result; nothing else has to be running.
 
 The parts that are already provable without any of that:
 
