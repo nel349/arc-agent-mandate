@@ -65,7 +65,7 @@ const text = (s) => ({ content: [{ type: "text", text: s }] });
 
 /** Every spending tool needs the same two facts, and neither is configured. */
 async function requireMandate() {
-  const account = await findGrantingAccount(agent.address);
+  const account = await findGrantingAccount(agent.address, { keyIsNew: created });
   if (!account) {
     throw new Error(
       `No allowance yet.\n\nOpen the Agent Mandate app, paste this address into ` +
@@ -86,7 +86,7 @@ server.registerTool(
     inputSchema: {},
   },
   async () => {
-    const account = await findGrantingAccount(agent.address);
+    const account = await findGrantingAccount(agent.address, { keyIsNew: created });
     if (account) {
       // Now that an allowance exists, spending is the next thing they will try — so if the
       // connector cannot reach a bundler, say so here rather than letting the first payment fail.

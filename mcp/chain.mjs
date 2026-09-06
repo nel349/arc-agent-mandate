@@ -83,26 +83,36 @@ const grantedEvent = pluginAbi.find((e) => e.type === "event" && e.name === "Ses
  */
 let cachedAccount = process.env.ARC_ACCOUNT ?? null;
 
-export async function findGrantingAccount(agentAddress) {
+export async function findGrantingAccount(agentAddress, { keyIsNew = false } = {}) {
   if (cachedAccount && (await stillGranted(cachedAccount, agentAddress))) return cachedAccount;
   cachedAccount = null;
 
-  // Remembered across restarts, because the search does not get cheaper with time. Arc produces
-  // about 167,000 blocks a day and `eth_getLogs` is capped at 10,000 a call, so scanning from the
-  // plugin's deployment costs six requests today and several hundred within a month. Finding the
-  // account once is the difference between an agent that starts and one that eventually times out.
-  //
   // Always re-checked against the chain before use: a remembered grant may have been revoked while
   // the agent was not running, and acting on a stale one would fail at validation with a confusing
   // reason rather than an honest "nobody has granted me anything".
-  const remembered = readRemembered(agentAddress);
-  if (remembered && (await stillGranted(remembered, agentAddress))) {
-    cachedAccount = remembered;
+  const state = readState(agentAddress);
+  if (state.account && (await stillGranted(state.account, agentAddress))) {
+    cachedAccount = state.account;
     return cachedAccount;
   }
 
   const head = await publicClient.getBlockNumber();
-  const floor = DEPLOY_BLOCK ?? (head > DEFAULT_LOOKBACK ? head - DEFAULT_LOOKBACK : 0n);
+
+  /**
+   * Where to stop searching downwards.
+   *
+   * A key generated moments ago cannot have been granted anything earlier, so there is no history
+   * worth reading — the floor is the head and the first lookup costs one request instead of
+   * hundreds. Otherwise resume from wherever a previous fruitless search got to, and fall back to
+   * the plugin's deployment only when nothing is known, which happens once per install.
+   */
+  const previouslySearched = state.searchedThrough;
+  const bottom = DEPLOY_BLOCK ?? 0n;
+  const floor = keyIsNew && previouslySearched === null
+    ? head
+    : previouslySearched !== null && previouslySearched > bottom
+      ? previouslySearched
+      : bottom;
 
   for (let to = head; to > floor; to -= LOG_WINDOW + 1n) {
     const from = to > floor + LOG_WINDOW ? to - LOG_WINDOW : floor;
@@ -115,12 +125,16 @@ export async function findGrantingAccount(agentAddress) {
     for (const log of logs.reverse()) {
       if (await stillGranted(log.args.account, agentAddress)) {
         cachedAccount = log.args.account;
-        remember(agentAddress, cachedAccount);
+        writeState(agentAddress, { account: cachedAccount });
         return cachedAccount;
       }
     }
     if (from === floor) break;
   }
+
+  // Nothing here. Record how far this got, so the next lookup reads only what the chain has added
+  // since rather than starting over — which is what made an unpaired agent slower every day.
+  writeState(agentAddress, { searchedThrough: head });
   return null;
 }
 
@@ -198,19 +212,41 @@ export async function readAllowance(account, agentAddress) {
 const MEMORY_PATH =
   process.env.ARC_MANDATE_ACCOUNT_PATH ?? join(homedir(), ".arc-mandate", "accounts.json");
 
-function readRemembered(agentAddress) {
+/**
+ * What is known about one agent: the account that granted it, and how far the chain has been
+ * searched for that grant.
+ *
+ * The second half is what keeps an unpaired agent usable. Searching is head-downwards and stops at
+ * the first hit, so an agent that *has* been granted something is cheap to resolve. One that has
+ * **not** finds nothing and therefore walks the entire history, every single call — and Arc mints
+ * 167,669 blocks a day against a 10,000-block cap on `eth_getLogs`. Measured against the live
+ * chain: eight requests today, twenty-four tomorrow, and five hundred within a month, by which
+ * point the very first thing a new user does exceeds their client's timeout and pairing simply
+ * never completes.
+ *
+ * So a search that finds nothing records how far it got, and the next one resumes from there.
+ * A newly generated key skips the history altogether: it cannot have been granted anything before
+ * it existed.
+ */
+function readState(agentAddress) {
   try {
     const all = JSON.parse(readFileSync(MEMORY_PATH, "utf8"));
-    const found = all[agentAddress.toLowerCase()];
-    return /^0x[0-9a-fA-F]{40}$/.test(found ?? "") ? found : null;
+    const entry = all[agentAddress.toLowerCase()];
+    if (typeof entry === "string") return { account: entry, searchedThrough: null }; // older format
+    if (entry && typeof entry === "object") {
+      return {
+        account: /^0x[0-9a-fA-F]{40}$/.test(entry.account ?? "") ? entry.account : null,
+        searchedThrough:
+          typeof entry.searchedThrough === "string" ? BigInt(entry.searchedThrough) : null,
+      };
+    }
   } catch {
-    // No file, unreadable, or not JSON. This is a cache: the search still works without it, and
-    // failing to read one must never stop an agent from finding its account the slow way.
-    return null;
+    // Absent, unreadable, or not JSON. This is a cache: a lookup still works without it.
   }
+  return { account: null, searchedThrough: null };
 }
 
-function remember(agentAddress, account) {
+function writeState(agentAddress, patch) {
   try {
     let all = {};
     try {
@@ -218,10 +254,20 @@ function remember(agentAddress, account) {
     } catch {
       // First write, or a file worth replacing.
     }
-    all[agentAddress.toLowerCase()] = account;
+    const key = agentAddress.toLowerCase();
+    const previous = typeof all[key] === "string" ? { account: all[key] } : (all[key] ?? {});
+    all[key] = {
+      ...previous,
+      ...patch,
+      ...(patch.searchedThrough === undefined
+        ? {}
+        : { searchedThrough: String(patch.searchedThrough) }),
+    };
     mkdirSync(dirname(MEMORY_PATH), { recursive: true, mode: 0o700 });
     writeFileSync(MEMORY_PATH, `${JSON.stringify(all, null, 2)}\n`, { mode: 0o600 });
   } catch {
-    // Losing the cache costs a slower start next time and nothing else.
+    // Losing this costs a slower lookup next time and nothing else.
   }
 }
+
+
