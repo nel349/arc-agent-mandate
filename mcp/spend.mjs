@@ -79,7 +79,21 @@ const GAS = {
   paymasterPostOpGasLimit: 20_000n,
 };
 
-/** Bundlers require a meaningfully higher bid to replace an operation already at this nonce. */
+/**
+ * How far above the chain's own estimate to bid.
+ *
+ * Not caution — necessity. `estimateFeesPerGas` returns a price Circle's bundler will accept into
+ * its mempool and then never include: measured, an operation at the bare estimate (25 gwei against
+ * a 21–25 gwei chain) sits forever, while the same operation at twice that is included in six
+ * seconds. The failure is silent and total — the bundler returns a hash, `eth_getUserOperationByHash`
+ * shows the operation waiting, and nothing ever says it will not be mined.
+ *
+ * Over-bidding costs us nothing, which is what makes this the right lever: the paymaster pays, and
+ * `maxFeePerGas` is a ceiling rather than a price. Bidding thin costs a payment that never happens.
+ */
+const FEE_PREMIUM = 2n;
+
+/** Bundlers require a meaningfully higher bid again to replace an operation already at this nonce. */
 const REPLACEMENT_MULTIPLIER = 3n;
 
 /**
@@ -91,9 +105,13 @@ const REPLACEMENT_MULTIPLIER = 3n;
  * working permanently, for a reason nothing on the machine explains.
  */
 async function sendWithFeeBump(bundler, { to, value }) {
-  // From the chain, never a constant: Arc's base fee has been seen at 20, 25 and 45 gwei, and an
-  // operation offering less than the base fee is never included.
-  const fees = await publicClient.estimateFeesPerGas();
+  // From the chain, never a constant: Arc's base fee has been seen at 20, 25, 45 and 66 gwei, and
+  // an operation offering less than the base fee is never included. The premium is on top of that.
+  const estimate = await publicClient.estimateFeesPerGas();
+  const fees = {
+    maxFeePerGas: estimate.maxFeePerGas * FEE_PREMIUM,
+    maxPriorityFeePerGas: estimate.maxPriorityFeePerGas * FEE_PREMIUM,
+  };
   const calls = [{ to, value, data: "0x" }];
 
   try {
@@ -103,8 +121,8 @@ async function sendWithFeeBump(bundler, { to, value }) {
     return bundler.sendUserOperation({
       calls,
       ...GAS,
-      maxFeePerGas: fees.maxFeePerGas * REPLACEMENT_MULTIPLIER,
-      maxPriorityFeePerGas: fees.maxPriorityFeePerGas * REPLACEMENT_MULTIPLIER,
+      maxFeePerGas: estimate.maxFeePerGas * REPLACEMENT_MULTIPLIER,
+      maxPriorityFeePerGas: estimate.maxPriorityFeePerGas * REPLACEMENT_MULTIPLIER,
     });
   }
 }
