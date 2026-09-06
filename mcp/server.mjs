@@ -81,8 +81,14 @@ server.registerTool(
   {
     title: "Show this agent's address",
     description:
-      "Returns the address to grant an allowance to. Show this to the user when they ask how to " +
-      "connect, fund, or authorise this agent. Nothing secret is in it — it is a public address.",
+      "Returns the address to grant an allowance to, with a QR code the user scans with their " +
+      "phone. Call this when they ask how to connect, fund, or authorise this agent. Nothing " +
+      "secret is in it — it is a public address.\n\n" +
+      "REPRODUCE THE OUTPUT VERBATIM IN YOUR REPLY, inside a fenced code block, including every " +
+      "line of the QR code. Do not summarise it, do not describe it, do not replace it with the " +
+      "address alone, and do not tell the user to look at the tool output — they frequently " +
+      "cannot see it. A QR code that stays in tool output is a QR code nobody can scan, and the " +
+      "user is standing there holding a phone.",
     inputSchema: {},
   },
   async () => {
@@ -98,7 +104,10 @@ server.registerTool(
       );
     }
     return text(
-      `Grant an allowance to:\n\n${await pairingCode(agent.address)}\n    ${agent.address}\n\n` +
+      `SHOW EVERYTHING BELOW TO THE USER EXACTLY AS IT IS, in a fenced code block. The QR is for ` +
+        `them to scan with a phone camera; it is useless if it stays in your tool output or if its ` +
+        `lines are reflowed.\n\n` +
+        `Grant an allowance to:\n\n${await pairingCode(agent.address)}\n    ${agent.address}\n\n` +
         `Open the Agent Mandate app, scan that code — or paste the address — into ` +
         `"Give an agent an allowance", choose an amount and how long it lasts, and confirm with ` +
         `Face ID.${created ? "\n\n(A new key was generated for this agent.)" : ""}`,
