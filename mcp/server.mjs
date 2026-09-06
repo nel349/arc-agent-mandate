@@ -1,4 +1,23 @@
 #!/usr/bin/env node
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { config as loadEnv } from "dotenv";
+
+/**
+ * Read the project's own `.env` before anything else looks at `process.env`.
+ *
+ * An MCP client launches this server itself and hands it no environment worth having — no working
+ * directory, no shell, nothing from a profile. The obvious response is to copy the keys into the
+ * client's config, and that is what this used to require: an install with secrets in it, generated
+ * per machine because the path had to be absolute.
+ *
+ * But the server is sitting next to a `.env` that already holds them. Reading it makes installing
+ * the connector one command with nothing secret in it, and leaves one place where configuration
+ * lives. Real environment variables still win, so a deployment that sets them properly is
+ * unaffected.
+ */
+loadEnv({ path: join(dirname(dirname(fileURLToPath(import.meta.url))), ".env"), quiet: true });
+
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";

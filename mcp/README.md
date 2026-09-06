@@ -51,37 +51,33 @@ refused payment never even costs gas.
 
 ## Installing it
 
-An MCP client launches the server itself, so it needs an **absolute path** and its own environment
-— it inherits neither a working directory nor your shell. A config copied out of a README is
-therefore wrong on every machine but the author's, which is why this is generated:
+Once, from this directory:
 
 ```bash
-node scripts/print-mcp-config.mjs            # the shape, with placeholders
-node scripts/print-mcp-config.mjs --secrets  # filled in, written to a gitignored file
+claude mcp add arc-mandate node "$PWD/mcp/server.mjs"
 ```
 
-**Claude Desktop** — merge the `mcpServers` entry into
-`~/Library/Application Support/Claude/claude_desktop_config.json`.
+Then restart the client — MCP servers are launched at startup.
 
-**Claude Code** — from this directory:
+Nothing secret goes in the config. The server reads this project's `.env` itself, so the path is
+the only thing the client needs. For Claude Desktop, the same two fields go into
+`~/Library/Application Support/Claude/claude_desktop_config.json`:
 
-```bash
-claude mcp add-json arc-mandate "$(node scripts/print-mcp-config.mjs --entry --secrets)"
+```json
+{ "mcpServers": { "arc-mandate": { "command": "node", "args": ["/absolute/path/to/mcp/server.mjs"] } } }
 ```
 
-Restart the client either way: servers are started once, at startup.
+That is the whole developer setup. Everything after it is scanning.
 
-`--secrets` writes to a file rather than printing, because a key pasted into a chat window is in
-someone's scrollback forever. It is not much of a secret — the mobile app ships the same key, it is
-bound to a passkey domain, and it authorises nothing on its own, since a spend still needs a
-session-key signature the mandate permits — but that is a reason not to worry, not a reason to be
-careless.
+## Using it
 
-### Then
+Ask the agent for its address. It prints a code.
 
-Ask the agent for its address. It prints a code; scan it in the app, set a limit and a window,
-confirm with Face ID. From then on the agent can spend inside that allowance without asking, and
-cannot spend outside it however it is asked.
+Scan the code in the app, choose an amount and how long it lasts, confirm with Face ID.
+
+That is the whole thing. From then on the agent spends inside the allowance without asking, and
+cannot spend outside it however it is asked — not because it is well behaved, but because the
+account refuses.
 
 ## Why the agent holds nothing
 
