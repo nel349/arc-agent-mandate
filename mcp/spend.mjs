@@ -32,11 +32,27 @@ import { createBundlerClient } from "viem/account-abstraction";
 import { toSessionKeyAccount } from "./session-account.mjs";
 import { circleTransport } from "./bundler.mjs";
 
-export async function submitSpend({ agent, account, to, value }) {
+/**
+ * Submit one or more calls as a single operation, signed by the session key.
+ *
+ * `calls` rather than a single payee, because buying is not transferring. A transfer moves money
+ * and tells the seller nothing; a purchase has to name what it is for, and funding an escrow takes
+ * an approval and a deposit that must land together or not at all. The plugin already accepts a
+ * batch — `executeWithSessionKey` takes an array — and meters every call in it, so a batch is
+ * bounded exactly as a single call is.
+ *
+ * The generality stops here, deliberately. Nothing an agent says reaches this as calldata: callers
+ * build these calls from narrow arguments, so an agent can ask to pay an invoice or top up its
+ * float and cannot ask to invoke an arbitrary function. A spend limit bounds the value moved, not
+ * what is called, so that distinction is the whole difference between an agent that pays and an
+ * agent that transacts.
+ */
+export async function submitSpend({ agent, account, calls }) {
   if (!bundlerConfigured()) {
     // The full walkthrough, not a list of variable names. This is the one wall a new person hits.
     return { ok: false, setup: true, reason: bundlerSetupInstructions() };
   }
+  if (!Array.isArray(calls) || calls.length === 0) throw new Error("submitSpend needs at least one call");
 
   try {
     const smartAccount = await toSessionKeyAccount({ address: account, agent, client: publicClient });
@@ -49,7 +65,7 @@ export async function submitSpend({ agent, account, to, value }) {
       paymaster: true,
     });
 
-    const userOpHash = await sendWithFeeBump(bundler, { to, value });
+    const userOpHash = await sendWithFeeBump(bundler, calls);
     const receipt = await bundler.waitForUserOperationReceipt({ hash: userOpHash });
     if (!receipt.success) return { ok: false, reason: "refused during validation" };
     return { ok: true, hash: receipt.receipt.transactionHash, userOpHash };
@@ -100,7 +116,7 @@ const REPLACEMENT_MULTIPLIER = 3n;
  * "already known", and a different one as "replacement underpriced". Left alone the agent stops
  * working permanently, for a reason nothing on the machine explains.
  */
-async function sendWithFeeBump(bundler, { to, value }) {
+async function sendWithFeeBump(bundler, calls) {
   // From the chain, never a constant: Arc's base fee has been seen at 20, 25, 45 and 66 gwei, and
   // an operation offering less than the base fee is never included. The premium is on top of that.
   const estimate = await publicClient.estimateFeesPerGas();
@@ -108,8 +124,6 @@ async function sendWithFeeBump(bundler, { to, value }) {
     maxFeePerGas: estimate.maxFeePerGas * FEE_PREMIUM,
     maxPriorityFeePerGas: estimate.maxPriorityFeePerGas * FEE_PREMIUM,
   };
-  const calls = [{ to, value, data: "0x" }];
-
   try {
     return await bundler.sendUserOperation({ calls, ...GAS, ...fees });
   } catch (cause) {

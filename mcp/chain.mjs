@@ -48,6 +48,7 @@ export const pluginAbi = parseAbi([
   "function isSessionKeyOf(address account, address sessionKey) view returns (bool)",
   "function getNativeTokenSpendLimitInfo(address account, address sessionKey) view returns ((bool hasLimit, uint256 limit, uint256 limitUsed, uint48 refreshInterval, uint48 lastUsedTime))",
   "function getKeyTimeRange(address account, address sessionKey) view returns (uint48 validAfter, uint48 validUntil)",
+  "function getERC20SpendLimitInfo(address account, address sessionKey, address token) view returns ((bool hasLimit, uint256 limit, uint256 limitUsed, uint48 refreshInterval, uint48 lastUsedTime))",
   "function executeWithSessionKey((address target,uint256 value,bytes data)[] calls, address sessionKey) returns (bytes[])",
 ]);
 
@@ -162,8 +163,27 @@ function stillGranted(account, agentAddress) {
  * `spendable` is the smallest of them, and is what anything deciding whether a payment can be made
  * should use. The parts are reported alongside it so a refusal can say *which* bound was hit.
  */
+/**
+ * Arc's dollar at two scales: 18 decimals natively, 6 through the ERC-20 view, one balance.
+ * Everything below works in native units so one set of numbers reaches the tools.
+ */
+export const NATIVE_PER_ERC20 = 10n ** 12n;
+
+/** The ERC-20 view of USDC, which is the rail an unscoped mandate meters everything on. */
+export const USDC_ERC20_VIEW = "0x3600000000000000000000000000000000000000";
+
+/**
+ * Which meter bounds a mandate, as values rather than bare strings.
+ *
+ * These two decide which limit is read and which rail a payment has to travel. Spelled inline they
+ * are just strings, and every way of getting one wrong is silent — a payment on the unmetered rail
+ * is refused by the chain, and a limit read from the wrong meter reports zero against a live
+ * mandate. `src/arc/mandate.ts` names the same pair as a type for the app.
+ */
+export const RAIL = Object.freeze({ native: "native", erc20: "erc20" });
+
 export async function readAllowance(account, agentAddress) {
-  const [info, range, balance] = await Promise.all([
+  const [nativeInfo, range, balance, erc20Info] = await Promise.all([
     publicClient.readContract({
       address: SESSION_KEY_PLUGIN, abi: pluginAbi, functionName: "getNativeTokenSpendLimitInfo",
       args: [account, agentAddress],
@@ -173,7 +193,20 @@ export async function readAllowance(account, agentAddress) {
       args: [account, agentAddress],
     }),
     publicClient.getBalance({ address: account }),
+    publicClient.readContract({
+      address: SESSION_KEY_PLUGIN, abi: pluginAbi, functionName: "getERC20SpendLimitInfo",
+      args: [account, agentAddress, USDC_ERC20_VIEW],
+    }),
   ]);
+
+  // Which meter is in force, read rather than assumed. An unscoped mandate routes everything —
+  // payments and x402 escrow alike — through the ERC-20 rail, so that one limit is the whole
+  // allowance. A mandate that named payees is metered natively, where naming them means something.
+  // Mandates granted before the ERC-20 shape existed are all native, so both must be handled.
+  const onErc20 = erc20Info.hasLimit;
+  const info = onErc20
+    ? { limit: erc20Info.limit * NATIVE_PER_ERC20, limitUsed: erc20Info.limitUsed * NATIVE_PER_ERC20 }
+    : nativeInfo;
 
   const remaining = info.limitUsed >= info.limit ? 0n : info.limit - info.limitUsed;
   const [validAfter, validUntil] = range;
@@ -199,6 +232,8 @@ export async function readAllowance(account, agentAddress) {
     /** The real ceiling on the next payment: the smallest of limit-left and wallet balance, or zero. */
     spendable: formatEther(spendable),
     spendableWei: spendable,
+    /** Which rail a payment has to travel to be seen by the meter above. */
+    rail: onErc20 ? RAIL.erc20 : RAIL.native,
   };
 }
 

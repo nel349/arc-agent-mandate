@@ -21,11 +21,13 @@ loadEnv({ path: join(dirname(dirname(fileURLToPath(import.meta.url))), ".env"), 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { formatEther, isAddress, parseEther } from "viem";
+import { encodeFunctionData, formatEther, formatUnits, isAddress, parseAbi, parseEther, parseUnits } from "viem";
 import { loadOrCreateAgent } from "./identity.mjs";
-import { findGrantingAccount, readAllowance } from "./chain.mjs";
+import { findGrantingAccount, NATIVE_PER_ERC20, RAIL, readAllowance, USDC_ERC20_VIEW } from "./chain.mjs";
 import { submitSpend } from "./spend.mjs";
 import { bundlerConfigured, bundlerSetupInstructions } from "./bundler.mjs";
+import { gatewayAccepting, readEscrow, topUpCalls } from "./gateway.mjs";
+import { fetchWithPayment } from "./x402.mjs";
 import qrcode from "qrcode-terminal";
 
 /**
@@ -61,6 +63,8 @@ function pairingCode(address) {
 const server = new McpServer({ name: "arc-mandate", version: "0.1.0" });
 
 const usd = (wei) => `$${formatEther(wei)}`;
+/** Escrow and the online budget are both ERC-20 scale — six decimals, not eighteen. */
+const online = (units) => `$${formatUnits(units, 6)}`;
 const text = (s) => ({ content: [{ type: "text", text: s }] });
 
 /** Every spending tool needs the same two facts, and neither is configured. */
@@ -115,6 +119,20 @@ server.registerTool(
   },
 );
 
+/**
+ * What is already in escrow, as one extra line.
+ *
+ * Not a second budget — escrow is money this allowance has *already* spent, parked where the agent
+ * can sign against it. Reporting it as a separate limit would double-count the same dollars, which
+ * is precisely the confusion metering everything on one rail exists to remove.
+ */
+async function escrowLine(allowance) {
+  if (allowance.rail !== RAIL.erc20) return [];
+  const held = await readEscrow(agent.address);
+  if (held === 0n) return [];
+  return [`  of which ${online(held)} is already in escrow, spendable on the web without a top-up`];
+}
+
 server.registerTool(
   "check_allowance",
   {
@@ -147,10 +165,50 @@ server.registerTool(
         ...(allowance.expiresAt === null
           ? []
           : [`  expires ${new Date(allowance.expiresAt * 1000).toISOString().slice(0, 16).replace("T", " ")} UTC`]),
+        // Reported separately because the chain meters it separately: the online budget does not
+        // come out of the limit above, and the two together are what this agent may spend.
+        ...(await escrowLine(allowance)),
       ].join("\n"),
     );
   },
 );
+
+const erc20Abi = parseAbi(["function transfer(address to, uint256 value) returns (bool)"]);
+
+/**
+ * The one call that pays somebody, on whichever rail the mandate's meter watches.
+ *
+ * An unscoped mandate meters the ERC-20 view and leaves the native limit at zero, so a payment
+ * sent as native value is not merely unmetered — it is refused outright. A scoped one is the other
+ * way round. Sending on the wrong rail therefore fails loudly rather than quietly, which is the
+ * good case; this exists so it does not happen at all.
+ *
+ * The money arrives the same either way. Arc's two views are one balance, so a recipient paid
+ * through the ERC-20 view sees their *native* balance rise by the same amount — verified on chain,
+ * not assumed.
+ */
+function paymentCall(to, value, rail) {
+  if (rail === RAIL.native) return { call: { to, value, data: "0x" } };
+
+  // The rail is the 6-decimal view, so anything finer cannot be sent. Truncating would pay less
+  // than asked and report success, which is the one outcome worse than refusing.
+  if (value % NATIVE_PER_ERC20 !== 0n) {
+    return {
+      problem:
+        `Nothing was sent. ${formatEther(value)} USDC is finer than this allowance can pay — it ` +
+        `settles in millionths of a dollar. Round the amount and try again.`,
+    };
+  }
+  return {
+    call: {
+      to: USDC_ERC20_VIEW,
+      value: 0n,
+      data: encodeFunctionData({
+        abi: erc20Abi, functionName: "transfer", args: [to, value / NATIVE_PER_ERC20],
+      }),
+    },
+  };
+}
 
 server.registerTool(
   "pay",
@@ -195,7 +253,9 @@ server.registerTool(
       );
     }
 
-    const result = await submitSpend({ agent, account, to, value });
+    const call = paymentCall(to, value, allowance.rail);
+    if (call.problem) return text(call.problem);
+    const result = await submitSpend({ agent, account, calls: [call.call] });
     if (result.setup) {
       // Not a refusal — nothing is wrong with the payment, the connector simply has not been
       // given a way to submit it. Relay this to the user as instructions, not as an error.
@@ -212,6 +272,149 @@ server.registerTool(
       `Paid ${usd(value)} to ${to}${reason ? ` for ${reason}` : ""}.\n` +
         `Transaction ${result.hash}\n` +
         `Remaining after this: about ${formatEther(allowance.remainingWei - value)} USDC.`,
+    );
+  },
+);
+
+/**
+ * Moving money from the wallet into the agent's escrow, so it can pay a seller directly.
+ *
+ * This spends the *same* allowance a direct payment spends — that is the point of metering
+ * everything on one rail, and why nobody has to be shown a second number. What escrow buys is not
+ * more authority but a different shape of it: money the agent can sign against without a
+ * round trip, because Circle's Gateway will only accept a payment from the payer's own key.
+ *
+ * Returns a sentence rather than a boolean because every way this fails sends the user somewhere
+ * different: a scoped allowance means asking for an unscoped one, a spent allowance means raising
+ * it, a thin wallet means adding money. Collapsing those into "insufficient funds" is how an agent
+ * tells someone to do the wrong thing.
+ */
+async function fundEscrow({ account, allowance, needed }) {
+  if (allowance.rail !== RAIL.erc20) {
+    return {
+      ok: false,
+      reason:
+        `This allowance names specific payees, so it is metered on a rail that cannot reach a web ` +
+        `seller. Buying online needs an allowance without a payee list — an agent shopping the ` +
+        `open web does not know who it will pay. Ask the user to grant one.`,
+    };
+  }
+  const held = await readEscrow(agent.address);
+  if (held >= needed) return { ok: true, toppedUp: 0n };
+
+  const shortfall = needed - held;
+  // `spendable` already takes the wallet balance and the time window into account, so this is the
+  // real ceiling rather than the limit on paper.
+  const available = allowance.spendableWei / NATIVE_PER_ERC20;
+  if (shortfall > available) {
+    const walletIsTheLimit = allowance.walletBalanceWei < allowance.remainingWei;
+    return {
+      ok: false,
+      reason:
+        `This needs ${online(shortfall)} more than the agent holds, and only ${online(available)} ` +
+        `is available. ` +
+        (walletIsTheLimit
+          ? `The wallet holds less than the allowance permits, so the user needs to add funds ` +
+            `rather than raise the limit.`
+          : `That is the allowance's remaining limit — report it and let the user decide; do not ` +
+            `retry a smaller amount unless it actually satisfies the task.`),
+    };
+  }
+
+  const accepting = await gatewayAccepting();
+  if (!accepting.ok) return { ok: false, reason: accepting.reason };
+
+  const result = await submitSpend({ agent, account, calls: topUpCalls(agent.address, shortfall) });
+  if (result.setup) return { ok: false, reason: result.reason };
+  if (!result.ok) return { ok: false, reason: `The top-up was refused: ${result.reason}` };
+  return { ok: true, toppedUp: shortfall };
+}
+
+server.registerTool(
+  "buy",
+  {
+    title: "Buy something from a web address",
+    description:
+      "Fetches a URL and pays if it answers 402 Payment Required, using the x402 protocol. Use " +
+      "this for paid APIs and paid pages rather than telling the user you cannot access them. " +
+      "The user's online budget bounds this and the chain enforces it, so an over-budget purchase " +
+      "is refused and costs nothing. Report a refusal; never ask for a bigger budget mid-task.",
+    inputSchema: {
+      url: z.string().describe("The address to fetch, e.g. https://api.example.com/report"),
+      method: z.string().optional().describe("HTTP method, default GET"),
+      reason: z.string().optional().describe("What this buys, shown to the user in their feed"),
+    },
+  },
+  async ({ url, method = "GET", reason }) => {
+    const { account, allowance } = await requireMandate();
+    let toppedUp = 0n;
+
+    const outcome = await fetchWithPayment({
+      url,
+      method,
+      agent,
+      ensureFunds: async (needed) => {
+        const funded = await fundEscrow({ account, allowance, needed });
+        if (funded.ok) toppedUp = funded.toppedUp;
+        return funded;
+      },
+    });
+
+    if (outcome.problem) {
+      return text(`Nothing was bought and nothing was spent. ${outcome.problem}`);
+    }
+    if (!outcome.paid && outcome.response.status !== 402) {
+      // Never needed paying — an ordinary page, or an ordinary error.
+      const body = await outcome.response.text();
+      return text(
+        `${outcome.response.status} ${outcome.response.statusText}, no payment required.\n\n` +
+          body.slice(0, 4000),
+      );
+    }
+    if (!outcome.paid) {
+      const detail = outcome.settlement?.errorReason ?? outcome.settlement?.error;
+      return text(
+        `The seller refused the payment${detail ? `: ${detail}` : ""}. The agent's escrow was not ` +
+          `charged — a payment that is not settled moves nothing.`,
+      );
+    }
+
+    const body = await outcome.response.text();
+    return text(
+      [
+        `Bought ${online(outcome.amount)} from ${outcome.payTo}${reason ? ` for ${reason}` : ""}.`,
+        toppedUp > 0n ? `Moved ${online(toppedUp)} from the wallet into the agent's escrow first.` : null,
+        "",
+        body.slice(0, 4000),
+      ].filter((line) => line !== null).join("\n"),
+    );
+  },
+);
+
+server.registerTool(
+  "top_up",
+  {
+    title: "Move money into the agent's escrow ahead of time",
+    description:
+      "Pre-funds the agent's online escrow so later purchases do not each need a top-up first. " +
+      "Only worth doing before a run of small payments — `buy` tops up on its own when it has to. " +
+      "Money in escrow is committed to this agent and can only leave as a payment or a delayed " +
+      "withdrawal, so top up what the task needs, not what the budget allows.",
+    inputSchema: {
+      amount: z.string().describe("Amount in USDC, as a decimal string, e.g. \"0.50\""),
+    },
+  },
+  async ({ amount }) => {
+    const { account, allowance } = await requireMandate();
+    const wanted = parseUnits(amount, 6);
+    if (wanted <= 0n) throw new Error("Amount must be positive.");
+
+    const held = await readEscrow(agent.address);
+    const funded = await fundEscrow({ account, allowance, needed: held + wanted });
+    if (!funded.ok) return text(`Nothing was moved. ${funded.reason}`);
+    return text(
+      `Moved ${online(funded.toppedUp)} into the agent's escrow. It now holds ` +
+        `${online(await readEscrow(agent.address))}, spendable on the web without further approval.`,
     );
   },
 );

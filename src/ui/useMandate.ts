@@ -156,11 +156,17 @@ export function useMandate(account: ArcAccount | null): MandateScreen {
    */
   const changeLimit = useCallback(
     (agent: Address, limit: Usdc) => {
-      if (!mandates.some((m) => m.agent === agent)) {
+      const mandate = mandates.find((m) => m.agent === agent);
+      if (!mandate) {
         setError(`no mandate for ${agent}`);
         return;
       }
-      perform("changed an allowance", async (a) => [await updateMandate(a, { agent, limit })]);
+      // The rail comes from the mandate rather than a default, because the two are metered
+      // separately: setting the wrong one leaves the real limit untouched and adds a second meter
+      // beside it, so a change meant to narrow the mandate would widen it instead.
+      perform("changed an allowance", async (a) => [
+        await updateMandate(a, { agent, limit, rail: mandate.rail }),
+      ]);
     },
     [mandates, perform],
   );

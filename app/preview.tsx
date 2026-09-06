@@ -212,6 +212,7 @@ const sample = (limit: string, spent: string, expiresAt?: number, agentFloat = U
     expiresAt,
     agentFloat,
     lastUsedAt,
+    rail: "erc20",
   };
 };
 

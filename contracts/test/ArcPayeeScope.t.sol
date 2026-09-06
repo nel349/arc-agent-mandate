@@ -99,7 +99,15 @@ contract ArcPayeeScopeTest is ArcMscaHarness {
         _spendLocal(USDC_ERC20_VIEW, 0, abi.encodeWithSignature("transfer(address,uint256)", PAYEE, uint256(1e6)));
     }
 
-    /// The complete fix: invert the list, then name the one rail that must stay shut.
+    /// The complete fix *for a mandate metered natively*: invert the list, then name the one rail
+    /// that must stay shut.
+    ///
+    /// **Superseded for the unscoped case, and kept because it is still the scoped one.** An
+    /// unscoped mandate no longer shuts this rail -- it moves onto it, meters everything there
+    /// with a single ERC-20 limit, and leaves the native limit at zero. That is what lets a person
+    /// be shown one number that is the whole truth; see `ArcOneMeter`. A mandate that *names*
+    /// payees still uses the shape below, because the ERC-20 rail cannot scope a payee: the access
+    /// list sees the token as the target and never reads the recipient out of the calldata.
     function test_denyingTheErc20ViewClosesTheSecondRailAgain() public {
         _grantWithoutPayees();
         _apply(

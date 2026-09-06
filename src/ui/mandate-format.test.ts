@@ -14,6 +14,7 @@ const mandate = (limit: string, spent: string, expiresAt?: number): Mandate => {
     expiresAt,
     agentFloat: Usdc.parse("0.5"),
     lastUsedAt: null,
+    rail: "erc20",
   };
 };
 

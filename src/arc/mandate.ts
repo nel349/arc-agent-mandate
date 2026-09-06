@@ -4,6 +4,7 @@ import {
 } from "viem";
 import { getUserOperationGasPrice } from "@circle-fin/modular-wallets-core";
 import { arcPublicClient, isDeployed } from "./client.ts";
+import { ARC_CONTRACTS } from "./chain.ts";
 // Type-only: erased at runtime, so this file never loads the passkey shim.
 import type { ArcAccount } from "./account.ts";
 import { Usdc } from "./usdc.ts";
@@ -44,6 +45,26 @@ const OWNER_PLUGIN: Address = "0x0000000C984AFf541D6cE86Bb697e68ec57873C8";
 /** `BaseMultisigPlugin.FunctionId.USER_OP_VALIDATION_OWNER`, the enum's only member. */
 const USER_OP_VALIDATION_OWNER = 0;
 
+/**
+ * Which meter bounds a mandate.
+ *
+ * A named type rather than the union written out wherever it is needed, because these two strings
+ * decide which limit is read, which limit a change writes to, and which rail a payment travels.
+ * Spelling one of them wrong is not a type error when the union is inline, and every consequence
+ * of getting it wrong is silent.
+ */
+export type MandateRail = "native" | "erc20";
+
+/**
+ * `type(uint256).max`, the plugin's sentinel for "no limit".
+ *
+ * Setting a limit to this **disables** it rather than raising it, which is how a meter is turned
+ * off when a mandate moves rails. One below it is therefore the highest real ceiling — which is
+ * what an unbounded gas limit has to be, since an unset limit denies rather than allows.
+ */
+const NO_LIMIT = (1n << 256n) - 1n;
+const HIGHEST_REAL_LIMIT = NO_LIMIT - 1n;
+
 export class MandateError extends Error {
   constructor(message: string, options?: { cause: unknown }) {
     super(message, options);
@@ -65,15 +86,19 @@ const pluginAbi = parseAbi([
   "function findPredecessor(address account, address sessionKey) view returns (bytes32)",
   "function getNativeTokenSpendLimitInfo(address account, address sessionKey) view returns ((bool hasLimit, uint256 limit, uint256 limitUsed, uint48 refreshInterval, uint48 lastUsedTime))",
   "function getKeyTimeRange(address account, address sessionKey) view returns (uint48 validAfter, uint48 validUntil)",
+  "function getERC20SpendLimitInfo(address account, address sessionKey, address token) view returns ((bool hasLimit, uint256 limit, uint256 limitUsed, uint48 refreshInterval, uint48 lastUsedTime))",
 ]);
 
 const updatesAbi = parseAbi([
   "function updateAccessListAddressEntry(address contractAddress, bool isOnList, bool checkSelectors)",
+  "function updateAccessListFunctionEntry(address contractAddress, bytes4 selector, bool isOnList)",
   "function setAccessListType(uint8 contractAccessControlType)",
   "function setNativeTokenSpendLimit(uint256 spendLimit, uint48 refreshInterval)",
+  "function setERC20SpendLimit(address token, uint256 spendLimit, uint48 refreshInterval)",
   "function setGasSpendLimit(uint256 spendLimit, uint48 refreshInterval)",
   "function updateTimeRange(uint48 validAfter, uint48 validUntil)",
 ]);
+
 
 /**
  * `ContractAccessControlType`, matching the plugin's enum by position.
@@ -87,37 +112,23 @@ const ACCESS_LIST = { allowlist: 0, denylist: 1, allowAll: 2 } as const;
 /**
  * Every contract that can move this account's USDC **without** carrying `msg.value`.
  *
- * The mandate's native limit counts `call.value` on every call, whatever it targets, so a
- * value-carrying call to any address is already bounded. What escapes the count is a contract with
- * protocol-level authority to move the balance on the account's behalf — on Arc, the ERC-20 view,
- * where `transfer` moves the same dollars with `value == 0`.
+ * On Arc the dollar is the native token *and* an ERC-20 view over the same balance, so the same
+ * money moves two ways. The mandate's native limit counts `call.value` on every call whatever it
+ * targets, so a value-carrying call is already bounded. What this names is the other kind: a
+ * contract with protocol-level authority to move the balance, where `value == 0` and the native
+ * counter sees nothing.
  *
- * Exported because it is a claim about the chain, not an implementation detail: it says these are
- * *all* of them. `integration/arc-rails.test.mjs` re-derives the set from Arc and fails if the
- * chain ever grows one this list does not name — which is the single weakness of granting on a
- * denylist, made loud instead of silent.
- */
-export const DENIED_RAILS: readonly Address[] = [
-  "0x3600000000000000000000000000000000000000",
-];
-
-/**
- * Shutting the rail a denylist would otherwise leave open.
+ * **These are metered, not denied — the name of the game changed.** An unscoped mandate now routes
+ * *everything* through this rail and bounds it with a single ERC-20 limit, which is what lets a
+ * person be shown one number that is the whole truth. A scoped mandate leaves the rail unnamed on
+ * an allowlist, where unlisted is already refused.
  *
- * Arc's dollar is the native token *and* an ERC-20 view over the same balance. A mandate bounds
- * native spending, and an ERC-20 `transfer` carries `value == 0` — so it moves the same dollars
- * without the native limit ever seeing them. Under an allowlist that call was refused for being
- * unlisted; under a denylist it has to be refused by name, or the limit on screen is half a bound.
+ * Exported because it is a claim about the chain rather than an implementation detail: it says
+ * these are *all* of them. `integration/arc-rails.test.mjs` re-derives the set from Arc and fails
+ * if the chain ever grows one this list does not name — which is the single weakness of granting
+ * on a denylist, made loud instead of silent.
  */
-function denyTheSecondRail(): Hex[] {
-  return DENIED_RAILS.map((rail) =>
-    encodeFunctionData({
-      abi: updatesAbi,
-      functionName: "updateAccessListAddressEntry",
-      args: [rail, true, false],
-    }),
-  );
-}
+export const USDC_RAILS: readonly Address[] = [ARC_CONTRACTS.usdc];
 
 export interface MandateTerms {
   /** The agent's address. It holds the matching key; we never see it. */
@@ -156,29 +167,62 @@ export interface Mandate {
    * running looks exactly like one that was never set up, right up until it spends.
    */
   readonly lastUsedAt: number | null;
+  /**
+   * Which meter bounds this mandate — see `permissionUpdates`.
+   *
+   * Not a setting anyone chooses: it follows from whether payees were named. It is here because a
+   * caller changing a limit has to change the one actually in force, and because mandates granted
+   * before the ERC-20 shape existed are all `native`.
+   */
+  readonly rail: MandateRail;
 }
 
 /**
- * The permission calls that turn a bare session key into a bounded one.
+ * Making the ERC-20 view the *only* rail, so one limit is the whole mandate.
  *
- * **Who a mandate may pay is decided here, and the default is a trap.** A new session key's
- * access control is `ALLOWLIST` with nothing on the list, and the plugin's per-call check opens
- * with `if (!contractData.isOnList) return false` — which covers a plain value transfer to an
- * ordinary address, not just contract calls. So granting an allowance without naming payees
- * produced a mandate that could not move a single wei, while reading on screen as a working
- * allowance with a limit and an expiry.
+ * Arc's dollar is reachable two ways, and the plugin meters them separately: the native limit
+ * counts `call.value`, an ERC-20 limit counts the amount in the calldata, and neither draws down
+ * the other. A mandate carrying both therefore permits their sum — which forces a person to hold
+ * two numbers in their head, or be shown one that is not the truth.
  *
- * Two shapes, then, and the list type has to match the intent:
+ * Nothing requires payments to use the native rail. Sent through the ERC-20 view, a payment
+ * arrives identically — the recipient's *native* balance rises by the same amount, because the two
+ * views are one balance — and `approve` funding an x402 escrow draws on the same meter. So the
+ * native limit is left at zero, which refuses any call carrying value, and one ERC-20 limit bounds
+ * everything the agent can do. `contracts/test/ArcOneMeter.t.sol` is the evidence.
  *
- * - **No payees named** — the product's default, because an agent shopping the open web does not
- *   know who it will pay. Invert to a `DENYLIST`, so anyone may be paid *except* the addresses
- *   named on it.
- * - **Payees named** — a genuinely scoped mandate. Keep the `ALLOWLIST`, where the empty-list
- *   default works in our favour: everything unnamed, including the second rail, is already shut.
+ * Three parts, each load-bearing, and the plugin's ERC-20 weaknesses are why:
  *
- * `ALLOW_ALL_ACCESS` is never used. It disables contract access control outright, and that is the
- * one setting that cannot close the ERC-20 rail.
+ * - **On the list with `checkSelectors`.** The denylist branch returns early for an unlisted
+ *   target, before the ERC-20 selector gate runs. Listing the rail is what reaches the gate, which
+ *   is what refuses `transferFrom` — otherwise unmetered.
+ * - **A spend limit**, which meters `transfer` and `approve` *and* is what sets
+ *   `isERC20WithSpendLimit`. Without it the gate is inert and the key is unbounded on this token.
+ * - **No native limit**, so there is no second meter and nothing escapes the first.
+ *
+ * Two costs, neither hidden. Refusals happen during execution rather than validation, so an
+ * over-limit payment is bundled and paid for before being rejected — callers should check the
+ * limit before sending. And payee scoping does not survive here: the access list sees `0x3600` as
+ * the target and never reads the recipient out of the calldata, which is exactly why a mandate
+ * that names payees keeps the native rail instead.
  */
+function meterEverythingOnOneRail(limit: Usdc): Hex[] {
+  return USDC_RAILS.flatMap((rail) => [
+    encodeFunctionData({
+      abi: updatesAbi,
+      functionName: "updateAccessListAddressEntry",
+      args: [rail, true, true],
+    }),
+    encodeFunctionData({
+      abi: updatesAbi,
+      functionName: "setERC20SpendLimit",
+      // ERC-20 scale: this rail is the 6-decimal view and the plugin compares the limit against
+      // 6-decimal calldata. Native units here would authorise a million times what was agreed.
+      args: [rail, limit.toErc20Units(), 0],
+    }),
+  ]);
+}
+
 function permissionUpdates(terms: MandateTerms): Hex[] {
   const scoped = terms.payees.length > 0;
 
@@ -200,20 +244,31 @@ function permissionUpdates(terms: MandateTerms): Hex[] {
     }));
   }
 
-  if (!scoped) updates.push(...denyTheSecondRail());
-
-  updates.push(encodeFunctionData({
-    abi: updatesAbi,
-    functionName: "setNativeTokenSpendLimit",
-    args: [terms.limit.toNativeUnits(), 0],
-  }));
+  if (scoped) {
+    // The native rail, where the payee is the call's target and so naming payees means something.
+    updates.push(encodeFunctionData({
+      abi: updatesAbi,
+      functionName: "setNativeTokenSpendLimit",
+      args: [terms.limit.toNativeUnits(), 0],
+    }));
+  } else {
+    // One meter on the ERC-20 rail, covering payments and x402 escrow alike. The native limit is
+    // deliberately not set: its default of zero refuses every value-carrying call, which is what
+    // leaves this the only rail and the limit the whole truth.
+    if (terms.limit.toErc20Units() === 0n) {
+      throw new MandateError(
+        "A limit below 0.000001 USDC cannot be expressed on the rail an unscoped mandate uses.",
+      );
+    }
+    updates.push(...meterEverythingOnOneRail(terms.limit));
+  }
 
   // Gas is a third way to spend the same balance, and an unset limit denies rather than allows.
   // `type(uint256).max` is the engine's "no limit" sentinel, so one below it is the real ceiling.
   updates.push(encodeFunctionData({
     abi: updatesAbi,
     functionName: "setGasSpendLimit",
-    args: [(1n << 256n) - 2n, 0],
+    args: [HIGHEST_REAL_LIMIT, 0],
   }));
 
   if (terms.expiresAt !== undefined) {
@@ -253,10 +308,41 @@ function changeUpdates(change: MandateChange): Hex[] {
     }));
   }
   if (change.limit !== undefined) {
-    updates.push(encodeFunctionData({
-      abi: updatesAbi, functionName: "setNativeTokenSpendLimit",
-      args: [change.limit.toNativeUnits(), 0],
-    }));
+    // Naming payees moves the mandate onto the native rail whatever it was on before, because
+    // that is the only rail where naming them means anything.
+    const rail = payees.length > 0 ? "native" : change.rail;
+    if (rail === undefined) {
+      throw new MandateError(
+        "Changing a limit needs to know which rail the mandate is on. Pass `rail` from readMandate.",
+      );
+    }
+    if (rail === "native") {
+      updates.push(encodeFunctionData({
+        abi: updatesAbi, functionName: "setNativeTokenSpendLimit",
+        args: [change.limit.toNativeUnits(), 0],
+      }));
+      // Moving onto the native rail must take the other meter with it, or the old ERC-20 limit
+      // stays live beside the new one and the mandate permits both. `type(uint256).max` is the
+      // engine's "no limit" sentinel, which is what disables a limit rather than widening it.
+      if (payees.length > 0) {
+        for (const erc20Rail of USDC_RAILS) {
+          updates.push(encodeFunctionData({
+            abi: updatesAbi, functionName: "setERC20SpendLimit",
+            args: [erc20Rail, NO_LIMIT, 0],
+          }));
+        }
+      }
+    } else {
+      if (change.limit.toErc20Units() === 0n) {
+        throw new MandateError("A limit below 0.000001 USDC cannot be expressed on this rail.");
+      }
+      for (const erc20Rail of USDC_RAILS) {
+        updates.push(encodeFunctionData({
+          abi: updatesAbi, functionName: "setERC20SpendLimit",
+          args: [erc20Rail, change.limit.toErc20Units(), 0],
+        }));
+      }
+    }
   }
   if (change.expiresAt !== undefined) {
     updates.push(encodeFunctionData({
@@ -446,6 +532,15 @@ function encodeInstallData(keys: readonly Address[], tags: readonly Hex[], updat
 export interface MandateChange {
   readonly agent: Address;
   readonly limit?: Usdc;
+  /**
+   * Which meter the mandate is currently on, from `readMandate`. Required alongside `limit`.
+   *
+   * There is no way to infer it here — this builds calldata and never touches the chain — and
+   * guessing would be silent: setting the native limit on a mandate metered through the ERC-20
+   * rail leaves the real limit untouched and adds a second meter beside it, so the agent ends up
+   * with more authority than the change asked for rather than less.
+   */
+  readonly rail?: MandateRail;
   /** Payees to **add**. There is no removal here; revoke and re-grant to narrow a list. */
   readonly addPayees?: readonly Address[];
   readonly expiresAt?: number;
@@ -506,8 +601,42 @@ export async function listMandates(address: Address): Promise<Mandate[]> {
   return Promise.all(agents.map((agent) => readMandate(address, agent)));
 }
 
+/**
+ * Which meter is in force, and what it says.
+ *
+ * Read rather than assumed, because both shapes exist on chain: mandates granted with named
+ * payees are metered natively, unscoped ones through the ERC-20 view, and mandates granted before
+ * this existed are all native. Picking the wrong one would report a limit of zero against a live
+ * mandate, or a live limit against a mandate that has none.
+ *
+ * The ERC-20 figures come back at 6-decimal scale and are widened here rather than at the call
+ * site, where a raw `fromNativeUnits` would be off by a million and still look like money.
+ */
+function meterInForce(
+  native: { limit: bigint; limitUsed: bigint; lastUsedTime: number },
+  erc20: { hasLimit: boolean; limit: bigint; limitUsed: bigint; lastUsedTime: number },
+): { rail: MandateRail; limit: Usdc; spent: Usdc; lastUsedTime: number } {
+  if (erc20.hasLimit) {
+    return {
+      rail: "erc20",
+      limit: Usdc.fromErc20Units(erc20.limit),
+      spent: Usdc.fromErc20Units(erc20.limitUsed),
+      // Both meters record a last-used time. The one that matters is the one doing the metering,
+      // and on this shape the native meter never moves — reading it would report an agent that
+      // has been spending all week as one that has never spent.
+      lastUsedTime: erc20.lastUsedTime,
+    };
+  }
+  return {
+    rail: "native",
+    limit: Usdc.fromNativeUnits(native.limit),
+    spent: Usdc.fromNativeUnits(native.limitUsed),
+    lastUsedTime: native.lastUsedTime,
+  };
+}
+
 export async function readMandate(address: Address, agent: Address): Promise<Mandate> {
-  const [spend, range, agentBalance] = await Promise.all([
+  const [spend, range, agentBalance, onlineLimit] = await Promise.all([
     arcPublicClient.readContract({
       address: SESSION_KEY_PLUGIN, abi: pluginAbi,
       functionName: "getNativeTokenSpendLimitInfo", args: [address, agent],
@@ -517,11 +646,16 @@ export async function readMandate(address: Address, agent: Address): Promise<Man
       functionName: "getKeyTimeRange", args: [address, agent],
     }),
     arcPublicClient.getBalance({ address: agent }),
+    arcPublicClient.readContract({
+      address: SESSION_KEY_PLUGIN, abi: pluginAbi,
+      functionName: "getERC20SpendLimitInfo", args: [address, agent, ARC_CONTRACTS.usdc],
+    }),
   ]);
-  const limit = Usdc.fromNativeUnits(spend.limit);
-  const spent = Usdc.fromNativeUnits(spend.limitUsed);
+  const meter = meterInForce(spend, onlineLimit);
+  const { limit, spent } = meter;
   return {
     agent,
+    rail: meter.rail,
     limit,
     spent,
     // Clamped: the engine records usage against the limit in force at the time, so lowering a
@@ -529,6 +663,6 @@ export async function readMandate(address: Address, agent: Address): Promise<Man
     remaining: spent.compare(limit) >= 0 ? Usdc.ZERO : limit.subtract(spent),
     expiresAt: range[1] === 0 ? undefined : Number(range[1]),
     agentFloat: Usdc.fromNativeUnits(agentBalance),
-    lastUsedAt: spend.lastUsedTime === 0 ? null : Number(spend.lastUsedTime),
+    lastUsedAt: meter.lastUsedTime === 0 ? null : Number(meter.lastUsedTime),
   };
 }

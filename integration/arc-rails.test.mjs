@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createPublicClient, http, parseAbi } from "viem";
-import { DENIED_RAILS } from "../src/arc/mandate.ts";
+import { USDC_RAILS } from "../src/arc/mandate.ts";
 
 /**
  * Does Arc still have only the rails we deny?
@@ -14,7 +14,7 @@ import { DENIED_RAILS } from "../src/arc/mandate.ts";
  *
  * The weakness is not that such a contract might appear. It is that it would appear **silently**.
  * This test is what makes it loud: it re-derives the set of second rails from the live chain and
- * fails when it finds one `DENIED_RAILS` does not name.
+ * fails when it finds one `USDC_RAILS` does not name.
  *
  * **What counts as a rail**, precisely: a contract whose `balanceOf` tracks the account's native
  * balance. That is what makes it a second view over one pot of money rather than an unrelated
@@ -91,14 +91,14 @@ test("no contract can move USDC off-limit except the ones the mandate denies", a
     if (await looksLikeASecondRail(address, nativeBalance, blockNumber)) rails.push(address.toLowerCase());
   }
 
-  const denied = new Set(DENIED_RAILS.map((a) => a.toLowerCase()));
+  const denied = new Set(USDC_RAILS.map((a) => a.toLowerCase()));
   const undenied = rails.filter((a) => !denied.has(a));
 
   assert.deepEqual(
     undenied,
     [],
     `Arc has grown a second view over the native balance that no mandate denies: ${undenied.join(", ")}.\n` +
-    "Until it is added to DENIED_RAILS in src/arc/mandate.ts, an agent on an unscoped mandate can\n" +
+    "Until it is added to USDC_RAILS in src/arc/mandate.ts, an agent on an unscoped mandate can\n" +
     "move USDC through it without the spend limit ever counting it. Add it, then re-run.",
   );
 
