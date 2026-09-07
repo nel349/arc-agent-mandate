@@ -114,9 +114,15 @@ Now ask the agent to spend:
 > **you:** check your allowance
 > **you:** pay $0.05 to 0x0000000000000000000000000000000000000dEaD
 
-Then ask for more than you granted. **The refusal happens during validation**, so it costs nothing —
-not even gas. Revoke in the app and try again: the next payment is refused at the account level, not
-by the agent agreeing to stop.
+Then ask for more than you granted. The connector checks the limit first and answers without
+sending anything, so that refusal is free. The point is what happens if it does not: the chain
+refuses the payment itself, so a modified connector that skipped the check gets no further. On the
+rail this app grants — one meter on the ERC-20 view, which is what lets the phone show a single
+number — that refusal lands at execution and costs gas, and a scoped mandate is the one that
+refuses during validation for nothing. Either way no money moves.
+
+Revoke in the app and try again: the next payment is refused at the account level, not by the agent
+agreeing to stop.
 
 ### 6. Buy something real
 
