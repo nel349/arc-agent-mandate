@@ -11,7 +11,7 @@ const mandate = (limit: string, spent: string, expiresAt?: number): Mandate => {
     agent: "0x1111111111111111111111111111111111111111",
     limit: l, spent: s,
     remaining: s.compare(l) >= 0 ? Usdc.ZERO : l.subtract(s),
-    expiresAt,
+    ...(expiresAt === undefined ? {} : { expiresAt }),
     agentFloat: Usdc.parse("0.5"),
     lastUsedAt: null,
     rail: "erc20",
@@ -61,6 +61,24 @@ test("expiry is reported in the unit a person would use", () => {
   assert.equal(expiryLabel(at(86_400 * 6), now), "6 days left");
 });
 
+/**
+ * The cutovers themselves, not values near them.
+ *
+ * Every one of these is an `<` that could as easily have been `<=`, and the difference only ever
+ * shows at the exact boundary — which is where a person watching a countdown will see it.
+ */
+test("each expiry cutover reads correctly at the second it happens", () => {
+  const now = 1_800_000_000_000;
+  const at = (seconds: number) => mandate("50", "0", Math.floor(now / 1000) + seconds);
+
+  assert.equal(expiryLabel(at(0), now), "expired", "the moment it expires, not a minute left");
+  assert.equal(expiryLabel(at(1), now), "1 min left", "a second left never reads as zero minutes");
+  assert.equal(expiryLabel(at(3600), now), "1h left", "an hour exactly is an hour, not 60 min");
+  assert.equal(expiryLabel(at(3599), now), "59 min left");
+  assert.equal(expiryLabel(at(3600 * 47), now), "47h left");
+  assert.equal(expiryLabel(at(3600 * 48), now), "2 days left", "48h exactly is where days begin");
+});
+
 test("no expiry says so rather than showing nothing", () => {
   assert.equal(expiryLabel(mandate("50", "0")), "no expiry");
 });
@@ -84,6 +102,15 @@ test("an agent holding nothing says nothing", () => {
 test("dust too small to be worth returning is not raised as an alarm", () => {
   assert.equal(agentHoldingNote(Usdc.parse("0.000265")), null, "warned about less than the gas to move it");
   assert.equal(agentHoldingNote(Usdc.parse("0.004")), null);
+});
+
+test("the thresholds for mentioning a holding are exact", () => {
+  // 0.005 USDC is the smallest holding worth raising; 0.01 is where two decimals stop rounding
+  // the figure away to "0.00".
+  assert.equal(agentHoldingNote(Usdc.parse("0.004999")), null);
+  assert.match(String(agentHoldingNote(Usdc.parse("0.005"))), /0\.0050/);
+  assert.match(String(agentHoldingNote(Usdc.parse("0.009999"))), /0\.0099/);
+  assert.equal(agentHoldingNote(Usdc.parse("0.01")), "agent holds 0.01");
 });
 
 test("a holding worth acting on is shown, with enough precision to be a number", () => {
@@ -137,4 +164,12 @@ test("recent use reads as recent", () => {
 test("the unit changes before the number gets silly", () => {
   assert.match(lastUsedLabel(used(3600 * 47), NOW), /^used 47h ago$/);
   assert.match(lastUsedLabel(used(3600 * 49), NOW), /days ago$/);
+});
+
+test("and it changes at the exact second, not a second either side", () => {
+  assert.equal(lastUsedLabel(used(89), NOW), "used just now");
+  assert.equal(lastUsedLabel(used(90), NOW), "used 1 min ago", "90 seconds stops being 'just now'");
+  assert.equal(lastUsedLabel(used(60 * 59), NOW), "used 59 min ago");
+  assert.equal(lastUsedLabel(used(3600), NOW), "used 1h ago", "an hour exactly is an hour");
+  assert.equal(lastUsedLabel(used(3600 * 48), NOW), "used 2 days ago");
 });

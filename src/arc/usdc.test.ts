@@ -54,6 +54,14 @@ test("handles negatives and comparison", () => {
   assert.equal(Usdc.parse("2").compare(Usdc.parse("2")), 0);
 });
 
+test("zero is neither negative nor formatted as a negative", () => {
+  // `isNegative` gates a grant, and a sign printed from `< 0` instead of `<= 0` renders "-0.00" —
+  // both are one character away in the source and neither shows up anywhere else.
+  assert.ok(!Usdc.ZERO.isNegative());
+  assert.equal(Usdc.ZERO.format(2), "0.00");
+  assert.equal(Usdc.parse("5").subtract(Usdc.parse("5")).format(2), "0.00");
+});
+
 test("rejects input it cannot represent", () => {
   assert.throws(() => Usdc.parse("1.2.3"), UsdcError);
   assert.throws(() => Usdc.parse("abc"), UsdcError);

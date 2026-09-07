@@ -51,6 +51,10 @@ test("rejects malformed input rather than returning wrong bytes", () => {
   assert.throws(() => fromBase64url("AB*D"), Base64UrlError, "illegal character");
   assert.throws(() => fromBase64url("AB+D"), Base64UrlError, "base64 '+' is not base64url");
   assert.throws(() => fromBase64url("AB/D"), Base64UrlError, "base64 '/' is not base64url");
+  // The decode table holds 128 entries, so a character above ASCII indexes past its end. Read
+  // without a bound it comes back undefined, which is not -1 and so does not look illegal.
+  assert.throws(() => fromBase64url("ABé"), Base64UrlError, "a non-ASCII character");
+  assert.throws(() => fromBase64url("AB\u0080D"), Base64UrlError, "the first code point past the table");
 });
 
 test("anyToBase64url accepts the three shapes Circle passes", () => {

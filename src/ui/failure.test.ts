@@ -75,6 +75,29 @@ test("viem's details reach the matcher, not only the message", () => {
 });
 
 /**
+ * The two other places viem hides the identifying mark: a numeric `code`, and a `shortMessage`
+ * that says something the long `message` does not. A rule that can only read `message` matches
+ * neither, and the screen falls back to quoting library prose.
+ */
+test("a failure identified only by its code, or only by its shortMessage, is still matched", () => {
+  const byCode = Object.assign(new Error("execution reverted"), { code: -32521 });
+  assert.match(
+    describeFailure(byCode, [[/code=-32521/, "The node refused the operation."]]),
+    /node refused/,
+    "a numeric code never reached the matcher",
+  );
+
+  const byShortMessage = Object.assign(new Error("long viem prose"), {
+    shortMessage: "The contract function \"getInstalledPlugins\" returned no data",
+  });
+  assert.match(
+    describeFailure(byShortMessage, MANDATE_FAILURES),
+    /not deployed on this network/,
+    "shortMessage never reached the matcher",
+  );
+});
+
+/**
  * The exact error a dismissed passkey prompt produces on iOS, from a real device log. None of
  * "cancelled", "rejected" or NotAllowedError appears in it, which is why the original check could
  * never match and a person who simply changed their mind was shown library prose about a failed
