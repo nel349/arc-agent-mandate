@@ -1,7 +1,10 @@
 # Building on Arc: what we hit that the docs don't cover
 
-Five things that cost us real time, each verified on-chain rather than inferred. Written down
+Twelve things that cost us real time, each verified on-chain rather than inferred. Written down
 because the next team will hit them too, and because they are cheap for Arc to document.
+
+The first eight are about Arc and Circle's account stack. The last four are about paying with
+x402 on Arc and about ERC-8004, which is where the agent half of this project lives.
 
 ## 1. Session keys on Arc do not work with Circle's Modular Wallets
 
@@ -150,7 +153,7 @@ different claims.
 
 The risk worth guarding is silent drift. Those constants live in the SDK, and a version bump
 that moves any of them moves every address ever derived — with no error, just funds at an
-address nobody can reach. `integration/rp-independence.test.mjs` pins a fixed public key to a
+address nobody can reach. `integration/rp-independence.test.ts` pins a fixed public key to a
 known address so that turns into a failing test.
 
 ## 8. An empty allowlist is not "anyone" — it is "no one"
@@ -190,8 +193,155 @@ The general lesson is worth more than the specific one: when a permission model 
 mode whose empty state is total denial, "unconfigured" and "unrestricted" look identical from
 every getter, and only differ when someone tries to spend.
 
+## 9. The ERC-20 view's balance lives in a precompile with no code, so no fork can execute a transfer
+
+Finding 2 says the two scales are one balance. This is the mechanism, and it decides how much of
+your suite can run locally.
+
+`0x3600…` is an ordinary contract and answers reads fine. Moving the balance is not its job: it
+delegates to a native precompile at `0x1800…`, and that address has no bytecode to delegate *to*.
+
+```bash
+cast code 0x1800000000000000000000000000000000000000 --rpc-url https://rpc.testnet.arc.network
+# 0x01
+```
+
+One byte. Enough that `EXTCODESIZE` is non-zero — so anything checking "is there a contract here"
+is satisfied — with the behaviour implemented in the client rather than in the EVM. A fork copies
+code and storage, and there is no code to copy, so the call arrives at a single stray byte:
+
+```
+transfer on 0x3600… over an anvil fork  ->  reverts with StackUnderflow
+```
+
+It reverts that way regardless of how permissions are configured, which is the part that wastes an
+afternoon: it looks exactly like a mandate misconfiguration. `approve` is unaffected, being pure
+storage, so an escrow top-up can be tested on a fork while the payment it enables cannot.
+
+**What this means for a test suite.** Anything that *executes* an ERC-20 transfer on Arc can be
+proven on a fork only as far as validation and metering; the transfer itself has to be checked
+against the live chain. `contracts/test/ArcOneMeter.t.sol` is split on exactly that line, and the
+remaining half was confirmed live: a real `transfer` on `0x3600…` moved 0.12 USDC and the
+recipient's **native** balance rose by exactly that — which is the whole claim, that a payment on
+this rail is indistinguishable from a native one to whoever receives it.
+
+The truncation from finding 2 is visible in the same pair of reads, on any funded account:
+
+```bash
+cast call 0x3600000000000000000000000000000000000000 "balanceOf(address)(uint256)" \
+  0x0000000071727De22E5E9d8BAf0edAc6f37da032 --rpc-url https://rpc.testnet.arc.network
+# 14286054545
+cast balance 0x0000000071727De22E5E9d8BAf0edAc6f37da032 --rpc-url https://rpc.testnet.arc.network
+# 14286054545062284104789      <- the same money, and .062284104789 of it is invisible above
+```
+
+## 10. Circle's Gateway verifies x402 with strict `ecrecover`, so a smart account cannot be the payer
+
+This is the finding that shaped the whole buyer half of this project.
+
+x402 on Arc settles through Circle's Gateway, which verifies a payment by recovering the signer
+from the signature and comparing it to the payer's address. There is no contract-signature path.
+Measured against the live testnet API, a smart-contract wallet is refused **however it signs** —
+including with a contract that returns the ERC-1271 magic value for every signature, and including
+with an on-chain authorised delegate. Strict `ecrecover`, no exceptions.
+
+So an ERC-4337 account cannot be an x402 payer on Arc today, and any design that assumes it can —
+"the agent pays from the user's smart wallet" — does not work.
+
+**The way through is `depositFor`.** The agent pays as itself, from its own EOA key, and the
+account funds that key's Gateway escrow without ever giving it a balance:
+
+```solidity
+depositFor(address token, address depositor, uint256 value)  // credits `depositor`, charges caller
+```
+
+The agent's own wallet stays empty, the escrow can only leave as a payment or a delayed withdrawal,
+and the agent needs no gas at any point — the funding is a sponsored user operation from the
+account, and the payment itself is a signature rather than a transaction.
+
+**State the cost rather than bury it.** Escrow is not clawback-able: `withdraw` pays `msg.sender`
+and only the depositor may call it, so money moved here is the agent's to withdraw. That is an
+argument for topping up per purchase rather than once and large, not against the design.
+
+A related trap when checking any of this: **do not grep bytecode for a selector.** Searching Arc's
+USDC for `1626ba7e` said it had no ERC-1271 support; an empirical call proved it does. And feeding
+`isValidSignature` 65 bytes of junk reverts with `InvalidSigOffset()`, which is a parser complaining
+about its argument, not a contract saying "unsupported". Both readings were wrong in the same
+direction. Call it and see.
+
+## 11. Circle's x402 client defaults to mainnet, and demands a week of validity
+
+Two small things that each cost an hour, both cheap to document.
+
+**The client defaults to the mainnet Gateway API**, where Arc testnet does not exist. The refusal
+is `unsupported_network`, which reads like *the seller advertised a chain nobody supports* rather
+than like *you asked the wrong host*. Arc is testnet-only today, so testnet is the sensible default
+and mainnet is the thing to opt into:
+
+```
+https://gateway-api-testnet.circle.com     <- Arc testnet lives here
+```
+
+**Gateway will not batch an authorisation that might expire before the batch settles, so it
+requires seven days.** A seller advertising a shorter `maxTimeoutSeconds` is not asking for a
+shorter authorisation — it is asking for one the facilitator will reject. A buyer has to floor it,
+and ignore the seller on this one field.
+
+**And "paid" is not "settled".** Gateway accepts a signature into a batch and lands it on chain
+roughly a quarter of an hour later. Anything that reports results — a leaderboard, a receipt — has
+to keep the two apart or it publishes claims as facts. `/v1/x402/verify` is unauthenticated on
+testnet and checks the signature and the validity window without checking funds, which makes it
+usable as an oracle in a test suite: a fresh key with no escrow verifies exactly as a funded one
+would, and nothing is spent.
+
+## 12. ERC-8004's ReputationRegistry refuses self-feedback, which is what makes it worth anything
+
+The registries are live on Arc testnet, and the identity one is an ordinary ERC-721:
+
+```bash
+cast call 0x8004A818BFB912233c491871b3d84c89A494BD9e "name()(string)" --rpc-url https://rpc.testnet.arc.network
+# "AgentIdentity"                                   symbol: "AGENT"
+# ReputationRegistry: 0x8004B663056A597Dffe9eCcC1965A193B7388713
+```
+
+`giveFeedback` refuses a caller who owns or operates the agent:
+
+```solidity
+require(!isAuthorizedOrOwner(msg.sender, agentId), "Self-feedback not allowed");
+```
+
+That constraint is the product. An agent cannot award itself a record and neither can whoever holds
+its identity, so a record written by a third party is evidence rather than a self-minted trophy.
+
+Two things to get right when writing one:
+
+**There is no reverse lookup, so an agent must declare its own id — and a declaration nobody checks
+lets anyone write onto a stranger's identity.** `getAgentWallet(agentId)` is the check: the id's
+registered wallet has to be the address that actually paid. Ours refuses the declaration and plays
+the game anyway rather than crediting the wrong agent.
+
+**Read the event ABI off the chain rather than writing it out.** `NewFeedback` does not index the
+fields a reader expects: `feedbackIndex` is unindexed and `indexedTag1` is indexed. Guessing it
+produced a decode that reported "score 1 at 100 decimals" for a score of 100 — a plausible number,
+which is the worst kind of wrong. Fetch the real ABI from a block explorer.
+
+**`setAgentWallet` has a five-minute deadline ceiling.** `MAX_DEADLINE_DELAY = 5 minutes`, so a
+signature made with the hour-long deadline that feels natural is rejected as "deadline too far".
+
 ---
 
-Every claim above is exercised by tests in this repository — `npm run gate` — with one exception,
-stated where it appears: the comparison against Circle's live address API needs their network and
-a browser `window`, so what the gate holds is the offline derivation it was checked against.
+**How each claim is held up.** Findings 1–8 are exercised by `npm run gate` in this repository,
+with one exception stated where it appears: the comparison against Circle's live address API needs
+their network and a browser `window`, so what the gate holds is the offline derivation it was
+checked against.
+
+Findings 9–12 are held in three places, and it is worth being exact about which:
+
+- **In the gate here.** The escrow-funding calldata and the x402 signature, the latter checked
+  against Circle's live `/v1/x402/verify` — including the control that the same payment signed by
+  the wrong key comes back refused, so the oracle is known to discriminate.
+- **In the seller repo's gate.** The seven-day floor, the testnet Gateway default, and the
+  claimed-versus-settled separation.
+- **Against the live chain only, and not reproducible on a fork.** The executed ERC-20 transfer of
+  finding 9, and the ERC-8004 writes of finding 12. Finding 9 is the reason: there is no local EVM
+  these can run on. The commands in each section reproduce them against Arc testnet directly.
