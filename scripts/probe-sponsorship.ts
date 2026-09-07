@@ -10,12 +10,16 @@ const env = Object.fromEntries(
     .split("\n").filter(l => l.includes("=") && !l.startsWith("#"))
     .map(l => [l.slice(0, l.indexOf("=")).trim(), l.slice(l.indexOf("=") + 1).trim()])
 );
-const URL_BASE = env.CIRCLE_CLIENT_URL || env.EXPO_PUBLIC_CIRCLE_CLIENT_URL;
-const KEY = env.CIRCLE_CLIENT_KEY || env.EXPO_PUBLIC_CIRCLE_CLIENT_KEY;
+const URL_BASE = env["CIRCLE_CLIENT_URL"] ?? env["EXPO_PUBLIC_CIRCLE_CLIENT_URL"];
+const KEY = env["CIRCLE_CLIENT_KEY"] ?? env["EXPO_PUBLIC_CIRCLE_CLIENT_KEY"];
+if (URL_BASE === undefined) {
+  console.error(`No CIRCLE_CLIENT_URL in ${ENV_PATH}, so there is no endpoint to probe.`);
+  process.exit(1);
+}
 const url = `${URL_BASE.replace(/\/$/, "")}/arcTestnet`;
 // Circle validates the domain-bound client key against the `uri` in X-AppInfo -- the same header
 // the RN shim rewrites. Without it every call is "Invalid credentials", naming neither.
-const APP_INFO = `platform=web;version=1.0.0;uri=${env.EXPO_PUBLIC_CIRCLE_PASSKEY_DOMAIN}`;
+const APP_INFO = `platform=web;version=1.0.0;uri=${env["EXPO_PUBLIC_CIRCLE_PASSKEY_DOMAIN"]}`;
 
 const MSCA = "0xa8546Ff7D7Fcd3BBd08C0ef31E74C73DF6BcC447";
 const MULTISIG = "0x0000000C984AFf541D6cE86Bb697e68ec57873C8";
@@ -39,8 +43,14 @@ const callData = encodeFunctionData({
          [{ plugin: MULTISIG, functionId: 0 }]],
 });
 
+/** What came back, undigested: the body is whatever the endpoint said, JSON or not. */
+interface Reply {
+  readonly status: number;
+  readonly body: unknown;
+}
+
 let id = 0;
-async function rpc(method, params) {
+async function rpc(method: string, params: readonly unknown[]): Promise<Reply> {
   const r = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json", "Authorization": `Bearer ${KEY}`, "X-AppInfo": APP_INFO },
@@ -96,13 +106,21 @@ const control = await rpc("pm_getPaymasterData", [
 ]);
 console.log("\ncontrol (plain execute) ->", JSON.stringify(control.body).slice(0, 400));
 
+/** Whether an answer carries a paymaster signature, without trusting its shape. */
+const paymasterIn = (body: unknown): boolean => {
+  if (typeof body !== "object" || body === null) return false;
+  const result = (body as { result?: unknown }).result;
+  if (typeof result !== "object" || result === null) return false;
+  return Boolean((result as { paymaster?: unknown }).paymaster);
+};
+
 /**
  * Does any of the above mean anything?
  *
  * A paymaster that signs everything tells you nothing by signing yours. Before reading a
  * `paymaster` field as approval, check what it does with input it should obviously refuse.
  */
-const sponsored = async (label, sender, data) => {
+const sponsored = async (label: string, sender: string, data: string): Promise<boolean> => {
   const r = await rpc("pm_getPaymasterData", [
     {
       sender, nonce: "0x0", callData: data,
@@ -112,7 +130,7 @@ const sponsored = async (label, sender, data) => {
     },
     ENTRY_POINT, "0x4cef52", {},
   ]);
-  const verdict = r.body?.result?.paymaster ? "signed" : "refused";
+  const verdict = paymasterIn(r.body) ? "signed" : "refused";
   console.log(`  ${label.padEnd(34)} ${verdict}`);
   return verdict === "signed";
 };

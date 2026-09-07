@@ -14,9 +14,9 @@ import { join } from "node:path";
  *
  * Each case loads the module afresh: the key path is read once, at import.
  */
-const withKeyPath = async (path) => {
+const withKeyPath = async (path: string) => {
   process.env.ARC_MANDATE_KEY_PATH = path;
-  const mod = await import(`../mcp/identity.mjs?case=${encodeURIComponent(path)}`);
+  const mod = await import(`../mcp/identity.ts?case=${encodeURIComponent(path)}`);
   return mod.loadOrCreateAgent;
 };
 

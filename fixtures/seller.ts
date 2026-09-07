@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { createPublicClient, defineChain, formatEther, http, parseEther } from "viem";
+import { createPublicClient, defineChain, formatEther, http, isAddress, parseEther, type Address } from "viem";
 
 /**
  * A fake shop, for faking a paid API. Run it only when you mean to.
@@ -8,7 +8,7 @@ import { createPublicClient, defineChain, formatEther, http, parseEther } from "
  * so a 402 flow can be exercised by hand — ask, get told a price, pay, ask again — and it is
  * started deliberately or not at all:
  *
- *   SELLER_ADDRESS=0xYourPayee node fixtures/seller.mjs
+ *   SELLER_ADDRESS=0xYourPayee node fixtures/seller.ts
  *
  * It must never be started as part of demonstrating something. A counterparty you launch yourself,
  * on localhost, moments earlier, is not a counterparty: it is paying a script you control, which
@@ -31,11 +31,12 @@ const arc = defineChain({
   rpcUrls: { default: { http: [process.env.ARC_RPC_URL ?? "https://rpc.testnet.arc.network"] } },
 });
 
-const SELLER = process.env.SELLER_ADDRESS;
-if (!/^0x[0-9a-fA-F]{40}$/.test(SELLER ?? "")) {
+const configured = process.env.SELLER_ADDRESS;
+if (configured === undefined || !isAddress(configured)) {
   console.error("Set SELLER_ADDRESS to the address payments should land at.");
   process.exit(1);
 }
+const SELLER: Address = configured;
 const PRICE = parseEther(process.env.SELLER_PRICE ?? "0.05");
 const PORT = Number(process.env.SELLER_PORT ?? 4021);
 
@@ -47,22 +48,22 @@ const publicClient = createPublicClient({ chain: arc, transport: http() });
  */
 let settled = await publicClient.getBalance({ address: SELLER });
 
-const json = (status, body) => [status, JSON.stringify(body)];
+const json = (status: number, body: unknown): readonly [number, string] => [status, JSON.stringify(body)];
 
-const ANSWERS = {
+const ANSWERS: Readonly<Record<string, string>> = {
   weather: "Clear, 18°C, wind 6 km/h.",
   price: "USDC is a dollar. That is rather the point.",
 };
-const answer = (query) => ANSWERS[query] ?? `No data for "${query}".`;
+const answer = (query: string): string => ANSWERS[query] ?? `No data for "${query}".`;
 
 createServer(async (request, response) => {
-  const url = new URL(request.url, `http://localhost:${PORT}`);
+  const url = new URL(request.url ?? "/", `http://localhost:${PORT}`);
   const query = url.searchParams.get("q") ?? "";
 
   const balance = await publicClient.getBalance({ address: SELLER });
   const paid = balance - settled;
 
-  let [status, body] =
+  const [status, body] =
     paid >= PRICE
       ? (settled += PRICE, json(200, { query, answer: answer(query), charged: formatEther(PRICE) }))
       : json(402, {

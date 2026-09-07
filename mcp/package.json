@@ -4,15 +4,17 @@
   "description": "Let a coding agent spend a bounded USDC allowance on Arc, granted from your phone and enforced by the chain.",
   "type": "module",
   "bin": {
-    "arc-mandate": "server.mjs"
+    "arc-mandate": "server.ts"
   },
   "files": [
-    "server.mjs",
-    "chain.mjs",
-    "identity.mjs",
-    "spend.mjs",
-    "bundler.mjs",
-    "session-account.mjs",
+    "server.ts",
+    "chain.ts",
+    "identity.ts",
+    "spend.ts",
+    "bundler.ts",
+    "session-account.ts",
+    "gateway.ts",
+    "x402.ts",
     "README.md"
   ],
   "engines": {

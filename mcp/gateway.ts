@@ -1,5 +1,12 @@
-import { encodeFunctionData, parseAbi } from "viem";
-import { publicClient, USDC_ERC20_VIEW } from "./chain.mjs";
+import { encodeFunctionData, parseAbi, type Address, type Hex } from "viem";
+import { publicClient, USDC_ERC20_VIEW } from "./chain.ts";
+
+/** One call in a batch, as `executeWithSessionKey` takes it. */
+export interface Call {
+  readonly to: Address;
+  readonly value: bigint;
+  readonly data: Hex;
+}
 
 /**
  * The agent's escrow, and the calls that fill it.
@@ -25,9 +32,9 @@ import { publicClient, USDC_ERC20_VIEW } from "./chain.mjs";
  */
 
 /** Circle's Gateway Wallet. Same address on every chain Gateway supports. */
-export const GATEWAY_WALLET = "0x0077777d7EBA4688BDeF3E311b846F25870A19B9";
+export const GATEWAY_WALLET: Address = "0x0077777d7EBA4688BDeF3E311b846F25870A19B9";
 
-// Re-exported so a caller working with escrow does not have to know it lives in `chain.mjs`.
+// Re-exported so a caller working with escrow does not have to know it lives in `chain.ts`.
 // Not redefined: the address is one fact, and a second copy is a second thing to get wrong.
 export { USDC_ERC20_VIEW };
 
@@ -41,7 +48,7 @@ const gatewayAbi = parseAbi([
 const erc20Abi = parseAbi(["function approve(address spender, uint256 value) returns (bool)"]);
 
 /** What the agent can spend online right now, at ERC-20 scale. */
-export async function readEscrow(agentAddress) {
+export async function readEscrow(agentAddress: Address): Promise<bigint> {
   return publicClient.readContract({
     address: GATEWAY_WALLET,
     abi: gatewayAbi,
@@ -62,7 +69,7 @@ export async function readEscrow(agentAddress) {
  * every time it sees one, whether or not an allowance already exists, so a larger approval would
  * spend the allowance without buying anything.
  */
-export function topUpCalls(agentAddress, amountErc20) {
+export function topUpCalls(agentAddress: Address, amountErc20: bigint): readonly Call[] {
   if (amountErc20 <= 0n) throw new Error("A top-up must be positive.");
   return [
     {
@@ -92,7 +99,7 @@ export function topUpCalls(agentAddress, amountErc20) {
  * Both of these are things Circle can change without telling us, and both fail in ways that look
  * like our bug rather than theirs.
  */
-export async function gatewayAccepting() {
+export async function gatewayAccepting(): Promise<{ ok: true } | { ok: false; reason: string }> {
   const [supported, paused] = await Promise.all([
     publicClient.readContract({
       address: GATEWAY_WALLET, abi: gatewayAbi, functionName: "isTokenSupported", args: [USDC_ERC20_VIEW],

@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { decodeFunctionData, parseAbi } from "viem";
+import { decodeFunctionData, parseAbi, type Address } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
-import { payableOption, signPayment } from "../mcp/x402.mjs";
-import { GATEWAY_WALLET, topUpCalls, USDC_ERC20_VIEW } from "../mcp/gateway.mjs";
+import { payableOption, signPayment, type PaymentOption, type SignedPayment } from "../mcp/x402.ts";
+import { GATEWAY_WALLET, topUpCalls, USDC_ERC20_VIEW } from "../mcp/gateway.ts";
 
 /**
  * Would Circle actually take the payment we sign?
@@ -27,7 +27,7 @@ const VERIFY = "https://gateway-api-testnet.circle.com/v1/x402/verify";
 const NETWORK = "eip155:5042002";
 
 /** A seller's terms, in the shape a `402` advertises them. */
-function requirements(payTo, overrides = {}) {
+function requirements(payTo: Address, overrides: Partial<PaymentOption> = {}): PaymentOption {
   return {
     scheme: "exact",
     network: NETWORK,
@@ -40,7 +40,14 @@ function requirements(payTo, overrides = {}) {
   };
 }
 
-async function verify({ authorization, signature }, option) {
+/** As much of the facilitator's answer as this test reads. */
+interface Verdict {
+  readonly isValid: boolean;
+  readonly invalidReason?: string;
+  readonly payer?: string;
+}
+
+async function verify({ authorization, signature }: SignedPayment, option: PaymentOption): Promise<Verdict> {
   const response = await fetch(VERIFY, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -57,7 +64,12 @@ async function verify({ authorization, signature }, option) {
     }),
   });
   assert.equal(response.status, 200, "the facilitator rejected the request shape, not the payment");
-  return response.json();
+  const body: unknown = await response.json();
+  assert.ok(
+    typeof body === "object" && body !== null && "isValid" in body,
+    `the facilitator answered something that is not a verdict: ${JSON.stringify(body)}`,
+  );
+  return body as Verdict;
 }
 
 test("Circle accepts a payment this connector signed", async () => {
@@ -70,7 +82,7 @@ test("Circle accepts a payment this connector signed", async () => {
     true,
     `the facilitator refused a payment we consider well formed: ${result.invalidReason ?? "no reason given"}`,
   );
-  assert.equal(result.payer.toLowerCase(), agent.address.toLowerCase());
+  assert.equal(result.payer?.toLowerCase(), agent.address.toLowerCase());
 });
 
 test("and refuses one signed by anybody else, so the check above means something", async () => {
@@ -120,24 +132,26 @@ test("two payments never reuse a nonce, which Circle treats as an idempotency ke
 test("a top-up approves exactly what it deposits, to the agent, in one batch", () => {
   const agent = privateKeyToAccount(generatePrivateKey()).address;
   const calls = topUpCalls(agent, 250_000n);
-  assert.equal(calls.length, 2, "an approval without its deposit is a standing authority");
+  const [approval, deposited] = calls;
+  assert.ok(approval && deposited, "an approval without its deposit is a standing authority");
+  assert.equal(calls.length, 2, "and a top-up is those two calls and nothing else");
 
   const approve = decodeFunctionData({
     abi: parseAbi(["function approve(address spender, uint256 value)"]),
-    data: calls[0].data,
+    data: approval.data,
   });
   const deposit = decodeFunctionData({
     abi: parseAbi(["function depositFor(address token, address depositor, uint256 value)"]),
-    data: calls[1].data,
+    data: deposited.data,
   });
 
-  assert.equal(calls[0].to, USDC_ERC20_VIEW);
-  assert.equal(calls[1].to, GATEWAY_WALLET);
+  assert.equal(approval.to, USDC_ERC20_VIEW);
+  assert.equal(deposited.to, GATEWAY_WALLET);
   assert.equal(approve.args[0], GATEWAY_WALLET, "the allowance must go to Gateway and nowhere else");
   assert.equal(approve.args[1], 250_000n);
   assert.equal(deposit.args[1].toLowerCase(), agent.toLowerCase(), "the escrow is credited to the agent");
   assert.equal(deposit.args[2], approve.args[1], "approval and deposit must be the same amount");
-  assert.equal(calls[0].value, 0n, "this rail carries no native value; the ERC-20 amount is the spend");
+  assert.equal(approval.value, 0n, "this rail carries no native value; the ERC-20 amount is the spend");
 });
 
 test("a top-up of nothing is refused rather than sent as a no-op operation", () => {

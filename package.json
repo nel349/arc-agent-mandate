@@ -2,7 +2,7 @@
   "name": "arc-agent-mandate",
   "version": "0.1.0",
   "private": true,
-  "main": "index.js",
+  "main": "index.ts",
   "scripts": {
     "start": "expo start --dev-client",
     "ios": "expo run:ios",
@@ -10,7 +10,7 @@
     "test": "node --experimental-transform-types --disable-warning=ExperimentalWarning --test 'src/**/*.test.ts'",
     "typecheck": "tsc --noEmit",
     "test:contracts": "cd contracts && ARC_TESTNET_RPC_URL=${ARC_TESTNET_RPC_URL:-https://rpc.testnet.arc.network} FOUNDRY_DISABLE_NIGHTLY_WARNING=1 forge test",
-    "test:integration": "node --experimental-transform-types --disable-warning=ExperimentalWarning --test integration/*.test.mjs",
+    "test:integration": "node --experimental-transform-types --disable-warning=ExperimentalWarning --test integration/*.test.ts",
     "gate": "npm run typecheck && npm test && npm run test:contracts && npm run test:integration"
   },
   "dependencies": {

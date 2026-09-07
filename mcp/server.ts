@@ -21,13 +21,13 @@ loadEnv({ path: join(dirname(dirname(fileURLToPath(import.meta.url))), ".env"), 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { encodeFunctionData, formatEther, formatUnits, isAddress, parseAbi, parseEther, parseUnits } from "viem";
-import { loadOrCreateAgent } from "./identity.mjs";
-import { findGrantingAccount, NATIVE_PER_ERC20, RAIL, readAllowance, USDC_ERC20_VIEW } from "./chain.mjs";
-import { submitSpend } from "./spend.mjs";
-import { bundlerConfigured, bundlerSetupInstructions } from "./bundler.mjs";
-import { gatewayAccepting, readEscrow, topUpCalls } from "./gateway.mjs";
-import { fetchWithPayment } from "./x402.mjs";
+import { encodeFunctionData, formatEther, formatUnits, isAddress, parseAbi, parseEther, parseUnits, type Address } from "viem";
+import { loadOrCreateAgent } from "./identity.ts";
+import { findGrantingAccount, NATIVE_PER_ERC20, RAIL, readAllowance, USDC_ERC20_VIEW, type Allowance } from "./chain.ts";
+import { submitSpend } from "./spend.ts";
+import { bundlerConfigured, bundlerSetupInstructions } from "./bundler.ts";
+import { gatewayAccepting, readEscrow, topUpCalls, type Call } from "./gateway.ts";
+import { fetchWithPayment, type Funding } from "./x402.ts";
 import qrcode from "qrcode-terminal";
 
 /**
@@ -52,8 +52,8 @@ const { account: agent, created } = loadOrCreateAgent();
  * rather than a terminal. The address is printed underneath either way: a code is a convenience,
  * and a person whose camera will not cooperate must never be stuck.
  */
-function pairingCode(address) {
-  return new Promise((resolve) => {
+function pairingCode(address: Address): Promise<string> {
+  return new Promise<string>((resolve) => {
     qrcode.generate(address, { small: true }, (code) =>
       resolve(code.split("\n").map((line) => `  ${line}`).join("\n")),
     );
@@ -62,10 +62,10 @@ function pairingCode(address) {
 
 const server = new McpServer({ name: "arc-mandate", version: "0.1.0" });
 
-const usd = (wei) => `$${formatEther(wei)}`;
+const usd = (wei: bigint): string => `$${formatEther(wei)}`;
 /** Escrow and the online budget are both ERC-20 scale — six decimals, not eighteen. */
-const online = (units) => `$${formatUnits(units, 6)}`;
-const text = (s) => ({ content: [{ type: "text", text: s }] });
+const online = (units: bigint): string => `$${formatUnits(units, 6)}`;
+const text = (body: string) => ({ content: [{ type: "text" as const, text: body }] });
 
 /** Every spending tool needs the same two facts, and neither is configured. */
 async function requireMandate() {
@@ -126,7 +126,7 @@ server.registerTool(
  * can sign against it. Reporting it as a separate limit would double-count the same dollars, which
  * is precisely the confusion metering everything on one rail exists to remove.
  */
-async function escrowLine(allowance) {
+async function escrowLine(allowance: Allowance): Promise<string[]> {
   if (allowance.rail !== RAIL.erc20) return [];
   const held = await readEscrow(agent.address);
   if (held === 0n) return [];
@@ -187,7 +187,9 @@ const erc20Abi = parseAbi(["function transfer(address to, uint256 value) returns
  * through the ERC-20 view sees their *native* balance rise by the same amount — verified on chain,
  * not assumed.
  */
-function paymentCall(to, value, rail) {
+type Payment = { readonly call: Call } | { readonly problem: string };
+
+function paymentCall(to: Address, value: bigint, rail: Allowance["rail"]): Payment {
   if (rail === RAIL.native) return { call: { to, value, data: "0x" } };
 
   // The rail is the 6-decimal view, so anything finer cannot be sent. Truncating would pay less
@@ -253,15 +255,15 @@ server.registerTool(
       );
     }
 
-    const call = paymentCall(to, value, allowance.rail);
-    if (call.problem) return text(call.problem);
-    const result = await submitSpend({ agent, account, calls: [call.call] });
-    if (result.setup) {
+    const payment = paymentCall(to, value, allowance.rail);
+    if ("problem" in payment) return text(payment.problem);
+    const result = await submitSpend({ agent, account, calls: [payment.call] });
+    if (!result.ok) {
       // Not a refusal — nothing is wrong with the payment, the connector simply has not been
       // given a way to submit it. Relay this to the user as instructions, not as an error.
-      return text(`Nothing was spent — this connector cannot submit payments yet.\n\n${result.reason}`);
-    }
-    if (!result.ok) {
+      if ("setup" in result) {
+        return text(`Nothing was spent — this connector cannot submit payments yet.\n\n${result.reason}`);
+      }
       return text(
         `The chain refused this payment: ${result.reason}\n` +
           `Nothing was spent. Common causes: the payee is not on the allowance's list, the ` +
@@ -289,7 +291,14 @@ server.registerTool(
  * it, a thin wallet means adding money. Collapsing those into "insufficient funds" is how an agent
  * tells someone to do the wrong thing.
  */
-async function fundEscrow({ account, allowance, needed }) {
+interface EscrowRequest {
+  readonly account: Address;
+  readonly allowance: Allowance;
+  /** ERC-20 scale, because escrow is. */
+  readonly needed: bigint;
+}
+
+async function fundEscrow({ account, allowance, needed }: EscrowRequest): Promise<Funding> {
   if (allowance.rail !== RAIL.erc20) {
     return {
       ok: false,
@@ -325,8 +334,10 @@ async function fundEscrow({ account, allowance, needed }) {
   if (!accepting.ok) return { ok: false, reason: accepting.reason };
 
   const result = await submitSpend({ agent, account, calls: topUpCalls(agent.address, shortfall) });
-  if (result.setup) return { ok: false, reason: result.reason };
-  if (!result.ok) return { ok: false, reason: `The top-up was refused: ${result.reason}` };
+  if (!result.ok) {
+    if ("setup" in result) return { ok: false, reason: result.reason };
+    return { ok: false, reason: `The top-up was refused: ${result.reason}` };
+  }
   return { ok: true, toppedUp: shortfall };
 }
 
@@ -353,25 +364,25 @@ server.registerTool(
       url,
       method,
       agent,
-      ensureFunds: async (needed) => {
+      ensureFunds: async (needed: bigint): Promise<Funding> => {
         const funded = await fundEscrow({ account, allowance, needed });
         if (funded.ok) toppedUp = funded.toppedUp;
         return funded;
       },
     });
 
-    if (outcome.problem) {
-      return text(`Nothing was bought and nothing was spent. ${outcome.problem}`);
-    }
-    if (!outcome.paid && outcome.response.status !== 402) {
-      // Never needed paying — an ordinary page, or an ordinary error.
-      const body = await outcome.response.text();
-      return text(
-        `${outcome.response.status} ${outcome.response.statusText}, no payment required.\n\n` +
-          body.slice(0, 4000),
-      );
-    }
     if (!outcome.paid) {
+      if (outcome.problem !== undefined) {
+        return text(`Nothing was bought and nothing was spent. ${outcome.problem}`);
+      }
+      if (outcome.response.status !== 402) {
+        // Never needed paying — an ordinary page, or an ordinary error.
+        const body = await outcome.response.text();
+        return text(
+          `${outcome.response.status} ${outcome.response.statusText}, no payment required.\n\n` +
+            body.slice(0, 4000),
+        );
+      }
       const detail = outcome.settlement?.errorReason ?? outcome.settlement?.error;
       return text(
         `The seller refused the payment${detail ? `: ${detail}` : ""}. The agent's escrow was not ` +

@@ -1,6 +1,6 @@
 # Working in this repo
 
-## Never start `fixtures/seller.mjs`
+## Never start `fixtures/seller.ts`
 
 It is a **fake shop** — a local web server that answers a trivial question for USDC and checks the
 chain before answering. Nothing in this project uses it. Not the app, not the connector, not the

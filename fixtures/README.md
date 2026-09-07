@@ -18,7 +18,7 @@ another machine spending inside it unattended, the chain refusing it past the li
 thing going inert on revoke. All of that is visible in the wallet and on a block explorer.
 
 ```bash
-SELLER_ADDRESS=0xYourPayee node fixtures/seller.mjs
+SELLER_ADDRESS=0xYourPayee node fixtures/seller.ts
 ```
 
 | | |
@@ -36,7 +36,7 @@ than kept.
 What they demonstrated — that a chain refuses a payment past its limit, and that revoking works —
 is proven far better by the 30 contract tests and 23 integration tests, which run against the same
 fork without a story wrapped around them. And what they could not demonstrate is the only part
-that was ever interesting: an actual agent deciding to spend. the old `agent.mjs` was a function
+that was ever interesting: an actual agent deciding to spend. the old `agent.ts` was a function
 called `buy()`.
 
 The plugin is deployed on Arc testnet now and mandates are granted from a real phone, so the

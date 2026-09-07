@@ -54,7 +54,7 @@ inventing a pairing flow and plug into the agent people already run.
 `mcp/` is an MCP server, so Claude Code, Cursor and Codex all work the same way:
 
 ```bash
-claude mcp add arc-mandate -- node .../mcp/server.mjs
+claude mcp add arc-mandate -- node .../mcp/server.ts
 ```
 
 The agent makes its own key, never sends it anywhere, and shows a public address. You grant to

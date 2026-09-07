@@ -124,7 +124,7 @@ const ACCESS_LIST = { allowlist: 0, denylist: 1, allowAll: 2 } as const;
  * an allowlist, where unlisted is already refused.
  *
  * Exported because it is a claim about the chain rather than an implementation detail: it says
- * these are *all* of them. `integration/arc-rails.test.mjs` re-derives the set from Arc and fails
+ * these are *all* of them. `integration/arc-rails.test.ts` re-derives the set from Arc and fails
  * if the chain ever grows one this list does not name — which is the single weakness of granting
  * on a denylist, made loud instead of silent.
  */
@@ -437,7 +437,7 @@ export interface GrantReceipt {
 }
 
 export async function grantMandate(account: ArcAccount, terms: MandateTerms): Promise<GrantReceipt> {
-  const plan = buildGrantPlan(account.address, terms, await isPluginInstalled(account.address));
+  const plan = buildGrantPlan(terms, await isPluginInstalled(account.address));
   try {
     return { grant: await sendManagement(account, plan.management) };
   } catch (cause) {
@@ -463,17 +463,11 @@ export async function grantMandate(account: ArcAccount, terms: MandateTerms): Pr
  * A grant is therefore exactly one operation. It used to be two, the second sending the agent a
  * float so it could submit for itself — which left money in the agent's pocket that nothing ever
  * returned. The agent hands its operations to a bundler now and holds nothing; see
- * `mcp/bundler.mjs`.
+ * `mcp/bundler.ts`.
  */
 export interface GrantPlan {
   /** The management operation. Goes in as the user operation's own `callData`, never nested. */
   readonly management: Hex;
-}
-
-export interface GrantCall {
-  readonly to: Address;
-  readonly data?: Hex;
-  readonly value?: bigint;
 }
 
 /**
@@ -484,8 +478,6 @@ export interface GrantCall {
  * meant to — and it was previously only reachable through a network call.
  */
 export function buildGrantPlan(
-  /** The granting account. Management calls target it, because that is where the plugin lives. */
-  accountAddress: Address,
   terms: MandateTerms,
   pluginInstalled: boolean,
 ): GrantPlan {
@@ -612,10 +604,35 @@ export async function listMandates(address: Address): Promise<Mandate[]> {
  * The ERC-20 figures come back at 6-decimal scale and are widened here rather than at the call
  * site, where a raw `fromNativeUnits` would be off by a million and still look like money.
  */
-function meterInForce(
-  native: { limit: bigint; limitUsed: bigint; lastUsedTime: number },
-  erc20: { hasLimit: boolean; limit: bigint; limitUsed: bigint; lastUsedTime: number },
-): { rail: MandateRail; limit: Usdc; spent: Usdc; lastUsedTime: number } {
+export interface NativeMeter {
+  readonly limit: bigint;
+  readonly limitUsed: bigint;
+  readonly lastUsedTime: number;
+}
+
+export interface Erc20Meter extends NativeMeter {
+  readonly hasLimit: boolean;
+}
+
+export interface MeterInForce {
+  readonly rail: MandateRail;
+  readonly limit: Usdc;
+  readonly spent: Usdc;
+  readonly lastUsedTime: number;
+}
+
+/**
+ * Which of the two meters is the one number, and at which scale to read it.
+ *
+ * Pure and exported for the same reason `buildGrantPlan` is: the two rails are 6 and 18 decimals
+ * over one balance, so reading a meter at the other one's scale is a million-fold error that looks
+ * entirely plausible on a phone. Reaching it needs two chain reads, which is how it stayed
+ * unchecked while every other part of the one-meter design was covered.
+ */
+export function meterInForce(
+  native: NativeMeter,
+  erc20: Erc20Meter,
+): MeterInForce {
   if (erc20.hasLimit) {
     return {
       rail: "erc20",
@@ -661,7 +678,7 @@ export async function readMandate(address: Address, agent: Address): Promise<Man
     // Clamped: the engine records usage against the limit in force at the time, so lowering a
     // limit below what is already spent is legitimate and must not read as negative money.
     remaining: spent.compare(limit) >= 0 ? Usdc.ZERO : limit.subtract(spent),
-    expiresAt: range[1] === 0 ? undefined : Number(range[1]),
+    ...(range[1] === 0 ? {} : { expiresAt: Number(range[1]) }),
     agentFloat: Usdc.fromNativeUnits(agentBalance),
     lastUsedAt: meter.lastUsedTime === 0 ? null : Number(meter.lastUsedTime),
   };

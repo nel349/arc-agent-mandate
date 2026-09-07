@@ -1,5 +1,5 @@
-import { publicClient } from "./chain.mjs";
-import { bundlerConfigured, bundlerSetupInstructions } from "./bundler.mjs";
+import { publicClient } from "./chain.ts";
+import { bundlerConfigured, bundlerSetupInstructions } from "./bundler.ts";
 
 /**
  * Getting the agent's payment onto the chain, without the agent ever holding money.
@@ -25,12 +25,30 @@ import { bundlerConfigured, bundlerSetupInstructions } from "./bundler.mjs";
  *
  * What it costs: the agent is configured with the Circle client key. That is the key the mobile
  * app already ships in its bundle, bound to a passkey domain, and it grants no authority by
- * itself — a spend still needs a session-key signature the mandate permits. See `bundler.mjs`.
+ * itself — a spend still needs a session-key signature the mandate permits. See `bundler.ts`.
  */
 
 import { createBundlerClient } from "viem/account-abstraction";
-import { toSessionKeyAccount } from "./session-account.mjs";
-import { circleTransport } from "./bundler.mjs";
+import type { Address, Hex } from "viem";
+import type { PrivateKeyAccount } from "viem/accounts";
+import { toSessionKeyAccount } from "./session-account.ts";
+import { circleTransport } from "./bundler.ts";
+import type { Call } from "./gateway.ts";
+
+export interface SpendRequest {
+  readonly agent: PrivateKeyAccount;
+  /** The granting account, which pays. */
+  readonly account: Address;
+  readonly calls: readonly Call[];
+}
+
+export type SpendResult =
+  /** The connector has no way to submit yet; `reason` is the walkthrough, not an error. */
+  | { readonly ok: false; readonly setup: true; readonly reason: string }
+  | { readonly ok: false; readonly reason: string }
+  | { readonly ok: true; readonly hash: Hex; readonly userOpHash: Hex };
+
+type Bundler = ReturnType<typeof createBundlerClient>;
 
 /**
  * Submit one or more calls as a single operation, signed by the session key.
@@ -47,7 +65,7 @@ import { circleTransport } from "./bundler.mjs";
  * what is called, so that distinction is the whole difference between an agent that pays and an
  * agent that transacts.
  */
-export async function submitSpend({ agent, account, calls }) {
+export async function submitSpend({ agent, account, calls }: SpendRequest): Promise<SpendResult> {
   if (!bundlerConfigured()) {
     // The full walkthrough, not a list of variable names. This is the one wall a new person hits.
     return { ok: false, setup: true, reason: bundlerSetupInstructions() };
@@ -116,7 +134,7 @@ const REPLACEMENT_MULTIPLIER = 3n;
  * "already known", and a different one as "replacement underpriced". Left alone the agent stops
  * working permanently, for a reason nothing on the machine explains.
  */
-async function sendWithFeeBump(bundler, calls) {
+async function sendWithFeeBump(bundler: Bundler, calls: readonly Call[]): Promise<Hex> {
   // From the chain, never a constant: Arc's base fee has been seen at 20, 25, 45 and 66 gwei, and
   // an operation offering less than the base fee is never included. The premium is on top of that.
   const estimate = await publicClient.estimateFeesPerGas();
@@ -137,22 +155,45 @@ async function sendWithFeeBump(bundler, calls) {
   }
 }
 
-function isStuckAtThisNonce(cause) {
-  for (let error = cause, depth = 0; error && depth < 6; error = error.cause, depth++) {
-    const text = `${error.shortMessage ?? ""} ${error.details ?? ""} ${error.message ?? ""}`;
-    if (/already known|replacement underpriced/i.test(text)) return true;
+/**
+ * Every message in a cause chain, outermost first.
+ *
+ * viem nests the useful sentence several layers down and spreads it across `shortMessage`,
+ * `details` and `message`, so the interesting words are never in one place. Walking it once here
+ * means the two callers below both read the whole thing rather than the top of it.
+ *
+ * Bounded at six because a cycle in a cause chain is not impossible, and an infinite loop while
+ * formatting an error is a worse failure than the error.
+ */
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+function messagesIn(cause: unknown): readonly string[] {
+  const found: string[] = [];
+  let error: unknown = cause;
+  for (let depth = 0; isRecord(error) && depth < 6; depth++) {
+    for (const field of [error["shortMessage"], error["details"], error["message"]]) {
+      if (typeof field === "string" && field !== "" && !found.includes(field)) found.push(field);
+    }
+    error = error["cause"];
   }
-  return false;
+  return found;
 }
 
-function shortReason(cause) {
-  const parts = [];
-  for (let e = cause, depth = 0; e && depth < 6; e = e.cause, depth++) {
-    for (const field of [e.shortMessage, e.details, e.message]) {
-      if (typeof field === "string" && field && !parts.includes(field)) parts.push(field);
-    }
-  }
-  const all = parts.join(" | ");
+/**
+ * An operation the bundler already holds at this nonce.
+ *
+ * An agent's nonce only advances when an operation is *included*, so one accepted and never mined
+ * blocks every later payment: an identical retry is "already known", a different one is
+ * "replacement underpriced". Recognising either is what lets the caller outbid rather than wedge.
+ */
+const isStuckAtThisNonce = (cause: unknown): boolean =>
+  /already known|replacement underpriced/i.test(messagesIn(cause).join(" "));
+
+function shortReason(cause: unknown): string {
+  const all = messagesIn(cause).join(" | ");
+  // The mandate refusing is the one outcome a person can act on, and viem reports it as an
+  // opaque AA code. Everything else is passed through as found.
   if (/AA2[0-9]|PermissionsCheckFailed/i.test(all)) return "refused by the allowance";
-  return all.split("\n")[0].slice(0, 220);
+  return (all.split("\n")[0] ?? all).slice(0, 220);
 }

@@ -4,7 +4,7 @@ An MCP server, so the agent you already run — Claude Code, Cursor, Codex — c
 wallet inside limits you set on your phone and take back with your face.
 
 ```bash
-claude mcp add arc-mandate -- node /path/to/arc-agent-mandate/mcp/server.mjs
+claude mcp add arc-mandate -- node /path/to/arc-agent-mandate/mcp/server.ts
 ```
 
 Then, in the agent:
@@ -67,7 +67,7 @@ Working in this repo instead of installing the package? Point it at the file and
 block; the server reads this project's `.env` on its own:
 
 ```bash
-claude mcp add arc-mandate node "$PWD/mcp/server.mjs"
+claude mcp add arc-mandate node "$PWD/mcp/server.ts"
 ```
 
 ### Why you bring your own key

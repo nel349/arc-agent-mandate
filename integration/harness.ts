@@ -1,5 +1,5 @@
-import { spawn, execFileSync } from "node:child_process";
-import { createPublicClient, createWalletClient, encodeFunctionData, formatEther, http, keccak256, parseAbi, toHex } from "viem";
+import { spawn, execFileSync, type ChildProcess } from "node:child_process";
+import { createPublicClient, createWalletClient, encodeFunctionData, formatEther, http, keccak256, parseAbi, toHex, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
 /**
@@ -21,7 +21,7 @@ export const MULTISIG = "0x0000000C984AFf541D6cE86Bb697e68ec57873C8";
 export const ENTRY_POINT = "0x0000000071727De22E5E9d8BAf0edAc6f37da032";
 export const USDC_ERC20_VIEW = "0x3600000000000000000000000000000000000000";
 
-const seed = (role) => keccak256(toHex(`kuiralabs.arc-agent-mandate.integration.${role}`));
+const seed = (role: string): Hex => keccak256(toHex(`kuiralabs.arc-agent-mandate.integration.${role}`));
 export const AGENT_PK = seed("agent");
 export const OUTSIDER_PK = seed("outsider");
 export const agent = privateKeyToAccount(AGENT_PK);
@@ -53,21 +53,48 @@ export const updatesAbi = parseAbi([
 export const publicClient = createPublicClient({ transport: http(RPC) });
 const wallet = createWalletClient({ account: submitter, transport: http(RPC) });
 
-let anvil;
-export let PLUGIN;
+let anvil: ChildProcess | null = null;
 
-const rpc = (method, params) =>
+/**
+ * The deployed plugin, which does not exist until the fork is up.
+ *
+ * Behind an accessor rather than an exported `let` so that reading it before `start()` is a
+ * sentence about the harness rather than a revert from a call to the zero address, which is what
+ * an undefined address looks like from the chain's side.
+ */
+let plugin: Address | null = null;
+export function pluginAddress(): Address {
+  if (plugin === null) throw new Error("start() has not run, so no plugin is deployed yet.");
+  return plugin;
+}
+
+interface RpcReply {
+  readonly result?: unknown;
+  readonly error?: { readonly message: string };
+}
+
+const rpc = (method: string, params: readonly unknown[]): Promise<RpcReply> =>
   fetch(RPC, { method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) }).then((r) => r.json());
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) }).then((r) => r.json() as Promise<RpcReply>);
 
-export const balance = (address) => publicClient.getBalance({ address });
-export const usdc = async (address) => formatEther(await balance(address));
+export const balance = (address: Address): Promise<bigint> => publicClient.getBalance({ address });
+export const usdc = async (address: Address): Promise<string> => formatEther(await balance(address));
 
 /** Anvil's own snapshot, so each test starts from the same granted mandate without re-forking. */
-export const snapshot = async () => (await rpc("evm_snapshot", [])).result;
-export const revert = (id) => rpc("evm_revert", [id]);
+export const snapshot = async (): Promise<string> => {
+  const { result } = await rpc("evm_snapshot", []);
+  if (typeof result !== "string") throw new Error(`anvil returned no snapshot id: ${String(result)}`);
+  return result;
+};
+export const revert = (id: string): Promise<RpcReply> => rpc("evm_revert", [id]);
 
-export async function start({ mandate = 10n * 10n ** 18n, walletBalance = 500n * 10n ** 18n } = {}) {
+export interface Fork {
+  /** The native spend limit the demo script grants, in wei. */
+  readonly mandate?: bigint;
+  readonly walletBalance?: bigint;
+}
+
+export async function start({ mandate = 10n * 10n ** 18n, walletBalance = 500n * 10n ** 18n }: Fork = {}): Promise<Address> {
   anvil = spawn("anvil", ["--fork-url", ARC_RPC, "--fork-block-number", String(FORK_BLOCK),
                           "--port", String(PORT), "--silent"], { stdio: "ignore" });
   for (let i = 0; i < 60; i++) {
@@ -87,28 +114,45 @@ export async function start({ mandate = 10n * 10n ** 18n, walletBalance = 500n *
            MANDATE_WEI: String(mandate), FOUNDRY_DISABLE_NIGHTLY_WARNING: "1" },
     encoding: "utf8",
   });
-  PLUGIN = out.match(/plugin\s+:\s+(0x[0-9a-fA-F]{40})/)[1];
-  return PLUGIN;
+  const deployed = out.match(/plugin\s+:\s+(0x[0-9a-fA-F]{40})/)?.[1];
+  if (deployed === undefined) throw new Error(`the setup script printed no plugin address:\n${out}`);
+  plugin = deployed as Address;
+  return plugin;
 }
 
-export async function stop() {
+export async function stop(): Promise<void> {
   anvil?.kill("SIGKILL");
   await new Promise((r) => setTimeout(r, 200));
 }
 
 /** Owner-level actions. On a phone these are a Face ID prompt; here the fork impersonates the
  *  EntryPoint, which is the only caller the account accepts for mandate management. */
-export async function asOwner(data) {
+export async function asOwner(data: Hex) {
   const res = await rpc("eth_sendTransaction", [{ from: ENTRY_POINT, to: MSCA, data, gas: "0x2dc6c0" }]);
   if (res.error) throw new Error(res.error.message);
-  return publicClient.waitForTransactionReceipt({ hash: res.result });
+  if (typeof res.result !== "string") throw new Error(`no transaction hash came back: ${String(res.result)}`);
+  return publicClient.waitForTransactionReceipt({ hash: res.result as Hex });
 }
 
-const pack = (hi, lo) => "0x" + ((BigInt(hi) << 128n) | BigInt(lo)).toString(16).padStart(64, "0");
+const pack = (hi: bigint, lo: bigint): Hex =>
+  `0x${((hi << 128n) | lo).toString(16).padStart(64, "0")}`;
 
 /** One purchase, signed by a session key, through the real EntryPoint. Throws REFUSED when the
  *  mandate rejects it -- which is a validation failure, so nothing is charged and nothing moves. */
-export async function spend({ calls, key = AGENT_PK }) {
+/** One call in a batch, as `executeWithSessionKey` takes it. */
+export interface Call {
+  readonly target: Address;
+  readonly value: bigint;
+  readonly data: Hex;
+}
+
+export interface Spend {
+  readonly calls: readonly Call[];
+  /** Whose key signs. Defaults to the granted agent; a test passes another to be refused. */
+  readonly key?: Hex;
+}
+
+export async function spend({ calls, key = AGENT_PK }: Spend) {
   const signer = privateKeyToAccount(key);
   const callData = encodeFunctionData({
     abi: pluginAbi, functionName: "executeWithSessionKey", args: [calls, signer.address],
@@ -117,17 +161,19 @@ export async function spend({ calls, key = AGENT_PK }) {
     address: ENTRY_POINT, abi: entryPointAbi, functionName: "getNonce",
     args: [MSCA, BigInt(signer.address)],
   });
-  const userOp = {
+  const unsigned = {
     sender: MSCA, nonce, initCode: "0x", callData,
     accountGasLimits: pack(500_000n, 500_000n), preVerificationGas: 100_000n,
     gasFees: pack(1_000_000_000n, 1_000_000_000n), paymasterAndData: "0x", signature: "0x",
-  };
+  } as const;
   const hash = await publicClient.readContract({
-    address: ENTRY_POINT, abi: entryPointAbi, functionName: "getUserOpHash", args: [userOp],
+    address: ENTRY_POINT, abi: entryPointAbi, functionName: "getUserOpHash", args: [unsigned],
   });
-  userOp.signature = await signer.signMessage({ message: { raw: hash } });
+  // A new object rather than a mutated one: the hash is over the unsigned operation, and a field
+  // that changes after it is hashed is the classic way to sign something other than what is sent.
+  const userOp = { ...unsigned, signature: await signer.signMessage({ message: { raw: hash } }) };
 
-  let txHash;
+  let txHash: Hex;
   try {
     txHash = await wallet.writeContract({
       address: ENTRY_POINT, abi: entryPointAbi, functionName: "handleOps",
@@ -141,16 +187,16 @@ export async function spend({ calls, key = AGENT_PK }) {
   return receipt;
 }
 
-export const pay = (to, value) => spend({ calls: [{ target: to, value, data: "0x" }] });
+export const pay = (to: Address, value: bigint) => spend({ calls: [{ target: to, value, data: "0x" }] });
 
-export const permissions = (updates) =>
+export const permissions = (updates: readonly Hex[]) =>
   asOwner(encodeFunctionData({
     abi: pluginAbi, functionName: "updateKeyPermissions", args: [agent.address, updates],
   }));
 
 export async function revokeAgent() {
   const predecessor = await publicClient.readContract({
-    address: PLUGIN, abi: pluginAbi, functionName: "findPredecessor", args: [MSCA, agent.address],
+    address: pluginAddress(), abi: pluginAbi, functionName: "findPredecessor", args: [MSCA, agent.address],
   });
   return asOwner(encodeFunctionData({
     abi: pluginAbi, functionName: "removeSessionKey", args: [agent.address, predecessor],
@@ -159,11 +205,11 @@ export async function revokeAgent() {
 
 export const sessionKeys = () =>
   publicClient.readContract({
-    address: PLUGIN, abi: pluginAbi, functionName: "sessionKeysOf", args: [MSCA],
+    address: pluginAddress(), abi: pluginAbi, functionName: "sessionKeysOf", args: [MSCA],
   });
 
 export const mandateInfo = () =>
   publicClient.readContract({
-    address: PLUGIN, abi: pluginAbi, functionName: "getNativeTokenSpendLimitInfo",
+    address: pluginAddress(), abi: pluginAbi, functionName: "getNativeTokenSpendLimitInfo",
     args: [MSCA, agent.address],
   });

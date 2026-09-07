@@ -1,6 +1,5 @@
-import { encodeFunctionData, erc20Abi, type Address, type Hash } from "viem";
+import { type Address, type Hash } from "viem";
 import { getUserOperationGasPrice } from "@circle-fin/modular-wallets-core";
-import { ARC_CONTRACTS } from "./chain.ts";
 import { Usdc } from "./usdc.ts";
 import { arcPublicClient } from "./client.ts";
 // Type-only: erased at runtime, so this file never loads the passkey shim.
@@ -80,33 +79,6 @@ export async function sendUsdc(account: ArcAccount, request: SendRequest): Promi
     });
   } catch (cause) {
     throw new ArcSendError(`sending ${request.amount} to ${request.to} failed`, { cause });
-  }
-}
-
-/** Sends through the ERC-20 interface. Only for recipients that require a `Transfer` event. */
-export async function sendUsdcAsErc20(account: ArcAccount, request: SendRequest): Promise<Hash> {
-  assertSendable(request);
-  if (request.amount.hasErc20Dust()) {
-    throw new ArcSendError(
-      `${request.amount} carries precision the 6-decimal ERC-20 view cannot express; ` +
-        "send it natively, or round it first — deliberately, not silently",
-    );
-  }
-  try {
-    return await account.bundler.sendUserOperation({
-      account: account.smartAccount,
-      calls: [{
-        to: ARC_CONTRACTS.usdc,
-        data: encodeFunctionData({
-          abi: erc20Abi,
-          functionName: "transfer",
-          args: [request.to, request.amount.toErc20Units()],
-        }),
-      }],
-      ...(await bundlerFees(account)),
-    });
-  } catch (cause) {
-    throw new ArcSendError(`ERC-20 transfer of ${request.amount} to ${request.to} failed`, { cause });
   }
 }
 

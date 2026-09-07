@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createPublicClient, http, parseAbi } from "viem";
+import { createPublicClient, http, parseAbi, type Address } from "viem";
 import { USDC_RAILS } from "../src/arc/mandate.ts";
 
 /**
@@ -38,16 +38,16 @@ const erc20Abi = parseAbi([
   "function symbol() view returns (string)",
 ]);
 
-const addressAt = (offset) =>
-  "0x" + (SYSTEM_RANGE_BASE + BigInt(offset)).toString(16).padStart(40, "0");
+const addressAt = (offset: number): Address =>
+  `0x${(SYSTEM_RANGE_BASE + BigInt(offset)).toString(16).padStart(40, "0")}`;
 
 /**
  * A probe with a real, non-round balance, so a contract that merely returns zero for everything
  * cannot look like a view over it by accident.
  */
-const PROBE = "0x0000000071727De22E5E9d8BAf0edAc6f37da032"; // the EntryPoint, which holds USDC
+const PROBE: Address = "0x0000000071727De22E5E9d8BAf0edAc6f37da032"; // the EntryPoint, which holds USDC
 
-async function looksLikeASecondRail(address, nativeBalance, blockNumber) {
+async function looksLikeASecondRail(address: Address, nativeBalance: bigint, blockNumber: bigint): Promise<boolean> {
   try {
     // Every read is pinned to one block. The probe is a live account, so reading its native
     // balance and its ERC-20 balance at different heights compares two different moments and the
@@ -79,14 +79,14 @@ test("no contract can move USDC off-limit except the ones the mandate denies", a
   });
   assert.ok(nativeBalance > 0n, `the probe account ${PROBE} holds nothing; pick one that does`);
 
-  const withCode = [];
+  const withCode: Address[] = [];
   for (let offset = 0; offset < SYSTEM_RANGE_SIZE; offset++) {
     const address = addressAt(offset);
     const code = await client.getCode({ address, blockNumber });
     if (code !== undefined && code !== "0x") withCode.push(address);
   }
 
-  const rails = [];
+  const rails: string[] = [];
   for (const address of withCode) {
     if (await looksLikeASecondRail(address, nativeBalance, blockNumber)) rails.push(address.toLowerCase());
   }

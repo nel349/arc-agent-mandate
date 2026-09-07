@@ -45,7 +45,7 @@ export function useArcAccount(): ArcWallet {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const run = useCallback((what: string, work: () => Promise<void>) => {
+  const run = useCallback((work: () => Promise<void>) => {
     if (busy) return;
     setError(null);
     setBusy(true);
@@ -69,17 +69,17 @@ export function useArcAccount(): ArcWallet {
     setBalance(await balanceOf(next.address));
   }, []);
 
-  const create = useCallback(() => run("create wallet", async () => {
+  const create = useCallback(() => run(async () => {
     await load(await connectArcAccount(
       { ...CIRCLE_CONFIG, username: `arc-${Date.now()}` }, WebAuthnMode.Register,
     ));
   }), [run, load]);
 
-  const signIn = useCallback(() => run("sign in", async () => {
+  const signIn = useCallback(() => run(async () => {
     await load(await connectArcAccount({ ...CIRCLE_CONFIG, username: "" }, WebAuthnMode.Login));
   }), [run, load]);
 
-  const refresh = useCallback(() => run("read balance", async () => {
+  const refresh = useCallback(() => run(async () => {
     if (!account) throw new Error("no wallet yet");
     setBalance(await balanceOf(account.address));
   }), [account, run]);

@@ -13,7 +13,7 @@ import { VECTOR_TAG } from "./vector-tag.ts";
  * Capturing that needs a device, and a device run that produces nothing durable is a device run
  * that has to happen again. So registration prints the vector, in development only. Metro
  * forwards device logs to the terminal running `expo start`, which means the string lands on a
- * machine that can save it — `scripts/save-vector.mjs` turns the printed line into a fixture that
+ * machine that can save it — `scripts/save-vector.ts` turns the printed line into a fixture that
  * `cose.device.test.ts` picks up automatically.
  */
 

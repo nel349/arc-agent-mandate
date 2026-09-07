@@ -14,7 +14,7 @@ whether it appends extension data after the COSE key.
 1. `npx expo run:ios --device` (or `--device` on Android).
 2. Settings → Developer harness → **1 · Register NEW passkey + account**.
 3. A line beginning `ARC_PASSKEY_VECTOR` appears in the terminal running Metro.
-4. `node scripts/save-vector.mjs '<paste the line>'`
+4. `node scripts/save-vector.ts '<paste the line>'`
 
 `cose.device.test.ts` picks up whatever lands here — no registration step, no import to update.
 

@@ -2,8 +2,8 @@
 /**
  * Turn a device-run log line into a test fixture.
  *
- *   node scripts/save-vector.mjs 'ARC_PASSKEY_VECTOR {"platform":"ios",…}'
- *   … | node scripts/save-vector.mjs          # or pipe the Metro output straight in
+ *   node scripts/save-vector.ts 'ARC_PASSKEY_VECTOR {"platform":"ios",…}'
+ *   … | node scripts/save-vector.ts          # or pipe the Metro output straight in
  *
  * Registration prints the line (see `src/passkey/vector-capture.ts`); this writes it to
  * `src/passkey/vectors/`, where `cose.device.test.ts` finds it without any further wiring.

@@ -140,5 +140,10 @@ export function describeFailure(
   }
   // Unknown: the innermost message, which is the one that says what actually happened — the outer
   // links are our own wrappers. The whole chain is in the console above.
-  return chain[chain.length - 1]!.split("\n")[0]!.slice(0, 160);
+  //
+  // A thrown `null` or `undefined` produces no chain at all. Rare, but it happens — a rejected
+  // promise with no reason — and an error handler that throws is the worst place to find out.
+  const innermost = chain.at(-1);
+  if (innermost === undefined) return "Something failed without saying what.";
+  return (innermost.split("\n")[0] ?? innermost).slice(0, 160);
 }

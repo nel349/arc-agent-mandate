@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createPublicClient, http } from "viem";
+import { createPublicClient, http, type Address, type Hex } from "viem";
 import { toWebAuthnAccount } from "viem/account-abstraction";
 import { toCircleSmartAccount } from "@circle-fin/modular-wallets-core";
 
@@ -35,12 +35,12 @@ import { toCircleSmartAccount } from "@circle-fin/modular-wallets-core";
  * that could never come from an authenticator is one SDK version away from failing for a reason
  * that has nothing to do with what this test is about. Nothing ever signs with it.
  */
-const FIXTURE_PUBLIC_KEY =
-  "0x048554b405f1ea88febd4fa83afebab3960471578b2d744c7f5394433135c8035" +
-  "0695ccd503535b5b37cea94b463c0c5e8c3163eff89425669712a08fd90fcad6d";
+const FIXTURE_PUBLIC_KEY: Hex =
+  `0x${"048554b405f1ea88febd4fa83afebab3960471578b2d744c7f5394433135c8035"}${
+    "0695ccd503535b5b37cea94b463c0c5e8c3163eff89425669712a08fd90fcad6d"}`;
 
 /** Recorded from the SDK version this repo pins. A change here is a recovery-breaking change. */
-const EXPECTED_ADDRESS = "0x5371d1f7eDfd0c6783B3A8305B2836D83796F6c2";
+const EXPECTED_ADDRESS: Address = "0x5371d1f7eDfd0c6783B3A8305B2836D83796F6c2";
 
 /**
  * Minimal, and never dialled. `getAddress` on this path is a pure computation — no anvil, no
@@ -53,7 +53,7 @@ const arc = {
   rpcUrls: { default: { http: ["https://rpc.testnet.arc.network"] } },
 };
 
-const accountFor = (publicKey) =>
+const accountFor = (publicKey: Hex) =>
   toCircleSmartAccount({
     // Deliberately a plain RPC, not Circle's modular transport. That is the whole point: this
     // path never calls them.
@@ -73,8 +73,8 @@ test("the account address derives from the credential alone, with no Circle tran
 
 test("a different credential is a different account", async () => {
   const other = await accountFor(
-    "0x04bd4a1b3f9e0d2c8a7f6e5d4c3b2a1908172635445362718293a4b5c6d7e8f90" +
-    "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091",
+    `0x${"04bd4a1b3f9e0d2c8a7f6e5d4c3b2a1908172635445362718293a4b5c6d7e8f90"}${
+      "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091"}`,
   );
   assert.notEqual(await other.getAddress(), EXPECTED_ADDRESS);
 });

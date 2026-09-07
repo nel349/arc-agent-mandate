@@ -1,9 +1,14 @@
 {
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
-    /* Unused imports and locals are dead code, and the review that catches them by eye
-       is the review that eventually stops happening. */
+    /* Unused imports, locals and parameters are dead code, and the review that catches them by
+       eye is the review that eventually stops happening. The rest match arc-maze, so one project
+       cannot quietly hold a lower standard than the other. */
     "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "exactOptionalPropertyTypes": true,
     "strict": true,
     "paths": {
       "@/*": [
@@ -25,6 +30,12 @@
     ]
   },
   "include": [
+    "index.ts",
+    "types/**/*.d.ts",
+    "mcp/**/*.ts",
+    "integration/**/*.ts",
+    "scripts/**/*.ts",
+    "fixtures/**/*.ts",
     "src/**/*.ts",
     "src/**/*.tsx",
     "modules/**/*.ts",

@@ -1,7 +1,7 @@
 import { after, before, beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { encodeFunctionData, parseEther } from "viem";
-import * as arc from "./harness.mjs";
+import * as arc from "./harness.ts";
 
 /**
  * The baseline: everything the product claims, exercised the way a user's money actually travels
@@ -12,7 +12,7 @@ import * as arc from "./harness.mjs";
  */
 describe("a mandate, end to end on a forked Arc", () => {
   const MANDATE = parseEther("10");
-  let clean;
+  let clean: string;
 
   before(async () => {
     await arc.start({ mandate: MANDATE, walletBalance: parseEther("500") });

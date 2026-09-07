@@ -46,9 +46,9 @@ const vectors = readdirSync(VECTOR_DIR)
   });
 
 test("the capture tag the app prints is the one the save script looks for", () => {
-  const script = readFileSync(join(HERE, "..", "..", "scripts", "save-vector.mjs"), "utf8");
+  const script = readFileSync(join(HERE, "..", "..", "scripts", "save-vector.ts"), "utf8");
   const declared = /const TAG = "([^"]+)"/.exec(script);
-  assert.notEqual(declared, null, "save-vector.mjs no longer declares a TAG constant");
+  assert.notEqual(declared, null, "save-vector.ts no longer declares a TAG constant");
   assert.equal(
     declared?.[1],
     VECTOR_TAG,

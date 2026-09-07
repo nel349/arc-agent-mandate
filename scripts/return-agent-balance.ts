@@ -2,7 +2,7 @@
 /**
  * Send an agent's balance back to the account that granted it.
  *
- *   node scripts/return-agent-balance.mjs <account address>
+ *   node scripts/return-agent-balance.ts <account address>
  *
  * Agents are not supposed to hold anything: they hand their operations to a bundler and the
  * paymaster covers them, so an allowance is authority and never a balance. Earlier grants sent a
@@ -13,8 +13,8 @@
  * It leaves nothing behind: the transfer is sized to the balance minus the gas of the transfer
  * itself, so the agent ends at zero rather than at another, smaller pile of dust.
  */
-import { createPublicClient, createWalletClient, defineChain, formatEther, http } from "viem";
-import { loadOrCreateAgent } from "../mcp/identity.mjs";
+import { createPublicClient, createWalletClient, defineChain, formatEther, http, isAddress, type Address } from "viem";
+import { loadOrCreateAgent } from "../mcp/identity.ts";
 
 const arc = defineChain({
   id: 5042002,
@@ -23,12 +23,13 @@ const arc = defineChain({
   rpcUrls: { default: { http: [process.env.ARC_RPC_URL ?? "https://rpc.testnet.arc.network"] } },
 });
 
-const to = process.argv[2];
-if (!/^0x[0-9a-fA-F]{40}$/.test(to ?? "")) {
-  console.error("Usage: node scripts/return-agent-balance.mjs <account address>\n\n" +
+const argument = process.argv[2];
+if (argument === undefined || !isAddress(argument)) {
+  console.error("Usage: node scripts/return-agent-balance.ts <account address>\n\n" +
     "The account to return to — the wallet that granted this agent its allowance.");
   process.exit(1);
 }
+const to: Address = argument;
 
 const { account: agent, path } = loadOrCreateAgent();
 const publicClient = createPublicClient({ chain: arc, transport: http() });

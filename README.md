@@ -86,7 +86,7 @@ testnet**. A dollar is plenty; a step in the maze costs a tenth of a cent.
 ### 4. Give an agent the connector
 
 ```bash
-claude mcp add arc-mandate -- node "$PWD/mcp/server.mjs"
+claude mcp add arc-mandate -- node "$PWD/mcp/server.ts"
 ```
 
 The server reads this repo's `.env` itself, so there are no secrets in your agent's config. Restart

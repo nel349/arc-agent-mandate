@@ -1,6 +1,10 @@
-import { createPublicClient, encodeFunctionData, http, parseAbi } from "viem";
+import {
+  createPublicClient, encodeFunctionData, http, parseAbi,
+  type Address, type Hex, type PublicClient,
+} from "viem";
+import type { PrivateKeyAccount } from "viem/accounts";
 import { entryPoint07Abi, entryPoint07Address, getUserOperationHash, toSmartAccount } from "viem/account-abstraction";
-import { ARC_RPC, SESSION_KEY_PLUGIN } from "./chain.mjs";
+import { ARC_RPC, SESSION_KEY_PLUGIN } from "./chain.ts";
 
 /**
  * The granting account, as viem sees it, signed for by the agent's session key.
@@ -29,10 +33,26 @@ const pluginAbi = parseAbi([
 ]);
 
 /** Long enough to price validation; replaced by the real signature before sending. */
-const STUB_SIGNATURE =
-  "0x" + "ff".repeat(64) + "1b";
+const STUB_SIGNATURE: Hex = `0x${"ff".repeat(64)}1b`;
 
-export async function toSessionKeyAccount({ address, agent, client }) {
+/**
+ * The shape viem hands to `signUserOperation`, taken from viem rather than written out here.
+ *
+ * Writing it by hand meant guessing at `UnionPartialBy<UserOperation, "sender">` and getting it
+ * subtly wrong; derived, it follows whatever viem changes it to and the compiler says so.
+ */
+type SignUserOperation = NonNullable<Parameters<typeof toSmartAccount>[0]["signUserOperation"]>;
+type UserOperationToSign = Parameters<SignUserOperation>[0];
+
+export interface SessionKeyAccountOptions {
+  /** The granting account — the smart wallet, not the agent. */
+  readonly address: Address;
+  /** The agent's own key, which signs but owns nothing. */
+  readonly agent: PrivateKeyAccount;
+  readonly client?: PublicClient;
+}
+
+export async function toSessionKeyAccount({ address, agent, client }: SessionKeyAccountOptions) {
   const publicClient = client ?? createPublicClient({ transport: http(ARC_RPC) });
 
   return toSmartAccount({
@@ -43,7 +63,7 @@ export async function toSessionKeyAccount({ address, agent, client }) {
       return address;
     },
 
-    async encodeCalls(calls) {
+    async encodeCalls(calls: readonly { to: Address; value?: bigint | undefined; data?: Hex | undefined }[]): Promise<Hex> {
       return encodeFunctionData({
         abi: pluginAbi,
         functionName: "executeWithSessionKey",
@@ -72,11 +92,11 @@ export async function toSessionKeyAccount({ address, agent, client }) {
       });
     },
 
-    async getStubSignature() {
+    async getStubSignature(): Promise<Hex> {
       return STUB_SIGNATURE;
     },
 
-    async signUserOperation(parameters) {
+    async signUserOperation(parameters: UserOperationToSign): Promise<Hex> {
       const { chainId = await publicClient.getChainId(), ...userOperation } = parameters;
       const hash = getUserOperationHash({
         chainId,

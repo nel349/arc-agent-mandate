@@ -1,7 +1,42 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { createPublicClient, defineChain, encodeFunctionData, formatEther, http, parseAbi } from "viem";
+import {
+  createPublicClient, defineChain, formatEther, http, parseAbi, parseAbiItem,
+  type Address,
+} from "viem";
+
+/** Which meter bounds a mandate. Named so the two strings cannot be spelled wrong in four places. */
+export type Rail = "native" | "erc20";
+
+export interface Allowance {
+  readonly limit: string;
+  readonly spent: string;
+  readonly remaining: string;
+  readonly remainingWei: bigint;
+  readonly walletBalance: string;
+  readonly walletBalanceWei: bigint;
+  /** Unix seconds, or null when the mandate never expires. */
+  readonly expiresAt: number | null;
+  readonly expired: boolean;
+  readonly notYet: boolean;
+  readonly spendable: string;
+  readonly spendableWei: bigint;
+  readonly rail: Rail;
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+const isAddress = (value: unknown): value is Address =>
+  typeof value === "string" && /^0x[0-9a-fA-F]{40}$/.test(value);
+
+/** What we remember about an agent between runs. A cache: a lookup still works without it. */
+interface Remembered {
+  readonly account: Address | null;
+  /** How far back the history has already been searched, so a retry resumes rather than restarts. */
+  readonly searchedThrough: bigint | null;
+}
 
 /**
  * Everything the agent needs to know about the chain, discovered rather than configured.
@@ -71,9 +106,15 @@ const LOG_WINDOW = 9_999n;
 const DEPLOY_BLOCK = process.env.ARC_PLUGIN_FROM_BLOCK
   ? BigInt(process.env.ARC_PLUGIN_FROM_BLOCK)
   : PLUGIN_DEPLOY_BLOCK;
-const DEFAULT_LOOKBACK = 50_000n;
-
-const grantedEvent = pluginAbi.find((e) => e.type === "event" && e.name === "SessionKeyAdded");
+/**
+ * Declared standalone rather than found in the ABI array.
+ *
+ * `pluginAbi.find(...)` returns the union of every entry, so viem could not tell that the logs it
+ * decodes carry `args` — the event's own shape was lost the moment it went through a `find`.
+ */
+const grantedEvent = parseAbiItem(
+  "event SessionKeyAdded(address indexed account, address indexed sessionKey, bytes32 indexed tag)",
+);
 
 /**
  * The account that granted this agent, or null if nobody has yet.
@@ -82,9 +123,12 @@ const grantedEvent = pluginAbi.find((e) => e.type === "event" && e.name === "Ses
  * account that granted it does not change. Revocation is caught by `isSessionKeyOf` below, not by
  * forgetting who the account was.
  */
-let cachedAccount = process.env.ARC_ACCOUNT ?? null;
+let cachedAccount: Address | null = (process.env.ARC_ACCOUNT as Address | undefined) ?? null;
 
-export async function findGrantingAccount(agentAddress, { keyIsNew = false } = {}) {
+export async function findGrantingAccount(
+  agentAddress: Address,
+  { keyIsNew = false }: { keyIsNew?: boolean } = {},
+): Promise<Address | null> {
   if (cachedAccount && (await stillGranted(cachedAccount, agentAddress))) return cachedAccount;
   cachedAccount = null;
 
@@ -124,10 +168,14 @@ export async function findGrantingAccount(agentAddress, { keyIsNew = false } = {
     // Newest first within the window: a key can be revoked and re-granted, and only a grant that
     // still stands counts.
     for (const log of logs.reverse()) {
-      if (await stillGranted(log.args.account, agentAddress)) {
-        cachedAccount = log.args.account;
-        writeState(agentAddress, { account: cachedAccount });
-        return cachedAccount;
+      // Indexed arguments are optional in viem's type because a log that fails to decode still
+      // arrives. Skipping one is right: a grant we cannot read is not a grant we should trust.
+      const granter = log.args.account;
+      if (granter === undefined) continue;
+      if (await stillGranted(granter, agentAddress)) {
+        cachedAccount = granter;
+        writeState(agentAddress, { account: granter });
+        return granter;
       }
     }
     if (from === floor) break;
@@ -139,7 +187,7 @@ export async function findGrantingAccount(agentAddress, { keyIsNew = false } = {
   return null;
 }
 
-function stillGranted(account, agentAddress) {
+function stillGranted(account: Address, agentAddress: Address): Promise<boolean> {
   return publicClient.readContract({
     address: SESSION_KEY_PLUGIN, abi: pluginAbi, functionName: "isSessionKeyOf",
     args: [account, agentAddress],
@@ -180,9 +228,9 @@ export const USDC_ERC20_VIEW = "0x3600000000000000000000000000000000000000";
  * is refused by the chain, and a limit read from the wrong meter reports zero against a live
  * mandate. `src/arc/mandate.ts` names the same pair as a type for the app.
  */
-export const RAIL = Object.freeze({ native: "native", erc20: "erc20" });
+export const RAIL: Readonly<Record<Rail, Rail>> = Object.freeze({ native: "native", erc20: "erc20" });
 
-export async function readAllowance(account, agentAddress) {
+export async function readAllowance(account: Address, agentAddress: Address): Promise<Allowance> {
   const [nativeInfo, range, balance, erc20Info] = await Promise.all([
     publicClient.readContract({
       address: SESSION_KEY_PLUGIN, abi: pluginAbi, functionName: "getNativeTokenSpendLimitInfo",
@@ -213,8 +261,12 @@ export async function readAllowance(account, agentAddress) {
   const now = BigInt(Math.floor(Date.now() / 1000));
 
   // Zero means "no bound" for both ends, which is how the plugin encodes an open range.
-  const expired = validUntil !== 0n && now >= validUntil;
-  const notYet = validAfter !== 0n && now < validAfter;
+  // `uint48` comes back from viem as a **number**, not a bigint. Comparing it to `0n` is always
+  // unequal, so the "no bound" case never fired: a mandate granted without an expiry read as
+  // expired, and reported its expiry as 1970. The app got this right; this file was never
+  // typechecked, which is how the two drifted apart.
+  const expired = validUntil !== 0 && now >= BigInt(validUntil);
+  const notYet = validAfter !== 0 && now < BigInt(validAfter);
   const usable = !expired && !notYet;
 
   const spendable = usable ? (remaining < balance ? remaining : balance) : 0n;
@@ -226,7 +278,7 @@ export async function readAllowance(account, agentAddress) {
     remainingWei: remaining,
     walletBalance: formatEther(balance),
     walletBalanceWei: balance,
-    expiresAt: validUntil === 0n ? null : Number(validUntil),
+    expiresAt: validUntil === 0 ? null : validUntil,
     expired,
     notYet,
     /** The real ceiling on the next payment: the smallest of limit-left and wallet balance, or zero. */
@@ -263,16 +315,18 @@ const MEMORY_PATH =
  * A newly generated key skips the history altogether: it cannot have been granted anything before
  * it existed.
  */
-function readState(agentAddress) {
+function readState(agentAddress: Address): Remembered {
   try {
-    const all = JSON.parse(readFileSync(MEMORY_PATH, "utf8"));
+    const all: unknown = JSON.parse(readFileSync(MEMORY_PATH, "utf8"));
+    if (!isRecord(all)) return { account: null, searchedThrough: null };
     const entry = all[agentAddress.toLowerCase()];
-    if (typeof entry === "string") return { account: entry, searchedThrough: null }; // older format
-    if (entry && typeof entry === "object") {
+    if (isAddress(entry)) return { account: entry, searchedThrough: null }; // older format
+    if (isRecord(entry)) {
+      const account = entry["account"];
+      const searched = entry["searchedThrough"];
       return {
-        account: /^0x[0-9a-fA-F]{40}$/.test(entry.account ?? "") ? entry.account : null,
-        searchedThrough:
-          typeof entry.searchedThrough === "string" ? BigInt(entry.searchedThrough) : null,
+        account: isAddress(account) ? account : null,
+        searchedThrough: typeof searched === "string" ? BigInt(searched) : null,
       };
     }
   } catch {
@@ -281,16 +335,19 @@ function readState(agentAddress) {
   return { account: null, searchedThrough: null };
 }
 
-function writeState(agentAddress, patch) {
+function writeState(agentAddress: Address, patch: Partial<Remembered>): void {
   try {
-    let all = {};
+    let all: Record<string, unknown> = {};
     try {
-      all = JSON.parse(readFileSync(MEMORY_PATH, "utf8"));
+      const parsed: unknown = JSON.parse(readFileSync(MEMORY_PATH, "utf8"));
+      if (isRecord(parsed)) all = parsed;
     } catch {
       // First write, or a file worth replacing.
     }
     const key = agentAddress.toLowerCase();
-    const previous = typeof all[key] === "string" ? { account: all[key] } : (all[key] ?? {});
+    const existing = all[key];
+    const previous: Record<string, unknown> =
+      isAddress(existing) ? { account: existing } : isRecord(existing) ? existing : {};
     all[key] = {
       ...previous,
       ...patch,

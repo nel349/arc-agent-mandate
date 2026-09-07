@@ -1,7 +1,88 @@
 import { randomBytes } from "node:crypto";
-import { getAddress, toHex } from "viem";
-import { arc } from "./chain.mjs";
-import { GATEWAY_WALLET, USDC_ERC20_VIEW } from "./gateway.mjs";
+import { getAddress, toHex, type Address, type Hex } from "viem";
+import type { PrivateKeyAccount } from "viem/accounts";
+
+/** What a seller advertises in a `402`, narrowed to the one shape we can pay. */
+export interface PaymentOption {
+  readonly scheme: string;
+  readonly network: string;
+  readonly asset: string;
+  readonly amount: string;
+  readonly payTo: Address;
+  readonly maxTimeoutSeconds?: number;
+  readonly extra: { readonly name: string; readonly version: string; readonly verifyingContract: string };
+}
+
+export interface Authorization {
+  readonly from: Address;
+  readonly to: Address;
+  readonly value: string;
+  readonly validAfter: string;
+  readonly validBefore: string;
+  readonly nonce: Hex;
+}
+
+export interface SignedPayment {
+  readonly authorization: Authorization;
+  readonly signature: Hex;
+}
+
+/** Whether the caller could cover the price. Refusing costs the buyer nothing. */
+export type Funding = { readonly ok: true; readonly toppedUp: bigint } | { readonly ok: false; readonly reason: string };
+
+export interface BuyRequest {
+  readonly url: string;
+  readonly method?: string;
+  readonly headers?: Record<string, string>;
+  readonly body?: BodyInit;
+  readonly agent: PrivateKeyAccount;
+  readonly ensureFunds: (needed: bigint, option: PaymentOption) => Promise<Funding>;
+}
+
+/**
+ * What the facilitator said about settling, narrowed to the part a refusal explains itself with.
+ *
+ * Deliberately not the whole body: the two error fields are the only ones a buyer can act on, and
+ * typing the rest would be inventing a schema no facilitator promises to keep.
+ */
+export interface Settlement {
+  readonly errorReason?: string;
+  readonly error?: string;
+}
+
+/**
+ * A union rather than a bag of optional fields, because the two outcomes carry different facts:
+ * a settled purchase always knows what it paid and to whom, and an unsettled one never does. Every
+ * caller has to branch on `paid` anyway, so this makes the branch produce the right shape instead
+ * of leaving each one to re-check fields the successful path always fills.
+ */
+export type BuyOutcome =
+  | { readonly paid: true; readonly response: Response; readonly amount: bigint; readonly payTo: Address }
+  | {
+      readonly paid: false;
+      readonly response: Response;
+      /** Set when we could not even try — a seller we cannot pay, or an unreadable offer. */
+      readonly problem?: string;
+      readonly amount?: bigint;
+      readonly settlement?: Settlement;
+    };
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+/** Does this advertised option have everything the Gateway scheme needs? */
+function isPayableOn(network: string, value: unknown): value is PaymentOption {
+  if (!isRecord(value) || !isRecord(value["extra"])) return false;
+  const extra = value["extra"];
+  return value["network"] === network
+    && extra["name"] === "GatewayWalletBatched"
+    && extra["version"] === "1"
+    && typeof extra["verifyingContract"] === "string"
+    && typeof value["payTo"] === "string"
+    && typeof value["amount"] === "string";
+}
+import { arc } from "./chain.ts";
+import { GATEWAY_WALLET, USDC_ERC20_VIEW } from "./gateway.ts";
 
 /**
  * Paying for a web request, in the shape sellers already speak.
@@ -19,7 +100,7 @@ import { GATEWAY_WALLET, USDC_ERC20_VIEW } from "./gateway.mjs";
  * which is why a payment costs no gas and can be worth less than a cent.
  *
  * Nothing here spends money on its own. When escrow is short it asks the caller, which is where
- * the mandate lives — see `mcp/gateway.mjs`.
+ * the mandate lives — see `mcp/gateway.ts`.
  */
 
 /** Circle's minimum: an authorisation has to stay valid long enough to be batched. Seven days. */
@@ -40,8 +121,8 @@ const AUTHORIZATION_TYPES = {
 };
 
 const b64 = {
-  decode: (value) => JSON.parse(Buffer.from(value, "base64").toString("utf8")),
-  encode: (value) => Buffer.from(JSON.stringify(value)).toString("base64"),
+  decode: (value: string): unknown => JSON.parse(Buffer.from(value, "base64").toString("utf8")),
+  encode: (value: unknown): string => Buffer.from(JSON.stringify(value)).toString("base64"),
 };
 
 /**
@@ -53,22 +134,21 @@ const b64 = {
  * error so much as a seller we cannot buy from, and saying which is which is the difference
  * between a person adding funds and a person giving up.
  */
-export function payableOption(paymentRequired) {
-  const accepts = paymentRequired?.accepts;
+export function payableOption(
+  paymentRequired: unknown,
+): { ok: true; option: PaymentOption } | { ok: false; reason: string } {
+  const accepts = isRecord(paymentRequired) ? paymentRequired["accepts"] : undefined;
   if (!Array.isArray(accepts) || accepts.length === 0) {
     return { ok: false, reason: "The seller returned 402 without saying what it accepts." };
   }
   const network = `eip155:${arc.id}`;
-  const option = accepts.find(
-    (o) =>
-      o?.network === network &&
-      o?.extra?.name === "GatewayWalletBatched" &&
-      o?.extra?.version === "1" &&
-      typeof o?.extra?.verifyingContract === "string",
-  );
+  const option = accepts.find((o): o is PaymentOption => isPayableOn(network, o));
   if (option) return { ok: true, option };
 
-  const networks = [...new Set(accepts.map((o) => o?.network).filter(Boolean))];
+  const networks = [...new Set(
+    accepts.map((o) => (isRecord(o) && typeof o["network"] === "string" ? o["network"] : null))
+      .filter((n): n is string => n !== null),
+  )];
   return {
     ok: false,
     reason:
@@ -84,7 +164,9 @@ export function payableOption(paymentRequired) {
  * the mandate — it is the only thing Gateway accepts, and the mandate binds what reached the
  * agent's escrow rather than what it signs against it.
  */
-export async function signPayment({ agent, option }) {
+export async function signPayment(
+  { agent, option }: { agent: PrivateKeyAccount; option: PaymentOption },
+): Promise<SignedPayment> {
   const now = Math.floor(Date.now() / 1000);
   const validity = Math.max(Number(option.maxTimeoutSeconds ?? 0), MIN_VALIDITY_SECONDS);
   const authorization = {
@@ -124,8 +206,10 @@ export async function signPayment({ agent, option }) {
  * is what stops this module from being able to spend: it knows how to sign a payment and nothing
  * about the account, the mandate or the budget.
  */
-export async function fetchWithPayment({ url, method = "GET", headers = {}, body, agent, ensureFunds }) {
-  const first = await fetch(url, { method, headers, body });
+export async function fetchWithPayment(
+  { url, method = "GET", headers = {}, body, agent, ensureFunds }: BuyRequest,
+): Promise<BuyOutcome> {
+  const first = await fetch(url, { method, headers, body: body ?? null });
   if (first.status !== 402) return { paid: false, response: first };
 
   const header = first.headers.get("PAYMENT-REQUIRED");
@@ -133,7 +217,7 @@ export async function fetchWithPayment({ url, method = "GET", headers = {}, body
     return { paid: false, response: first, problem: "The seller asked for payment without saying how much." };
   }
 
-  let paymentRequired;
+  let paymentRequired: unknown;
   try {
     paymentRequired = b64.decode(header);
   } catch {
@@ -153,29 +237,43 @@ export async function fetchWithPayment({ url, method = "GET", headers = {}, body
     headers: {
       ...headers,
       "Payment-Signature": b64.encode({
-        x402Version: paymentRequired.x402Version ?? 2,
+        x402Version: (isRecord(paymentRequired) ? paymentRequired["x402Version"] : undefined) ?? 2,
         scheme: option.scheme,
         network: option.network,
-        resource: paymentRequired.resource,
+        resource: isRecord(paymentRequired) ? paymentRequired["resource"] : undefined,
         accepted: option,
         payload: { authorization, signature },
       }),
     },
-    body,
+    body: body ?? null,
   });
 
   // Present on success and, more usefully, on refusal — it carries the reason the facilitator gave.
   const settled = paid.headers.get("PAYMENT-RESPONSE");
+  if (!paid.ok) {
+    const settlement = settled ? asSettlement(safely(() => b64.decode(settled))) : undefined;
+    return {
+      paid: false,
+      response: paid,
+      amount: BigInt(option.amount),
+      ...(settlement === undefined ? {} : { settlement }),
+    };
+  }
+  return { paid: true, response: paid, amount: BigInt(option.amount), payTo: option.payTo };
+}
+
+/** Keeps only the two fields we read, so an unfamiliar body degrades to "refused, no reason". */
+function asSettlement(value: unknown): Settlement | undefined {
+  if (!isRecord(value)) return undefined;
+  const reason = value["errorReason"];
+  const error = value["error"];
   return {
-    paid: paid.ok,
-    response: paid,
-    amount: BigInt(option.amount),
-    payTo: option.payTo,
-    settlement: settled ? safely(() => b64.decode(settled)) : undefined,
+    ...(typeof reason === "string" ? { errorReason: reason } : {}),
+    ...(typeof error === "string" ? { error } : {}),
   };
 }
 
-function safely(fn) {
+function safely<T>(fn: () => T): T | undefined {
   try {
     return fn();
   } catch {

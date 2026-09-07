@@ -21,7 +21,7 @@ export function Labelled({
 }: {
   readonly label: string;
   /** Revealed by the `?`. Say what a good value looks like, not what went wrong. */
-  readonly hint?: string;
+  readonly hint?: string | undefined;
   /** Sits between the label and the `?` — a validity mark, a count, a unit. */
   readonly trailing?: ReactNode;
   readonly children: ReactNode;

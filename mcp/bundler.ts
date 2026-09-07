@@ -35,7 +35,7 @@ import { http } from "viem";
  *
  * These were module-scope constants, and that quietly broke loading a `.env`: ESM hoists every
  * `import` and runs it before any statement in the importing module, so this file captured an
- * empty `process.env` before `server.mjs` had a chance to populate it. The connector then reported
+ * empty `process.env` before `server.ts` had a chance to populate it. The connector then reported
  * itself unconfigured while sitting next to a file holding exactly the values it wanted.
  *
  * It survived review because the check used to confirm the fix — reading an allowance — needs no
