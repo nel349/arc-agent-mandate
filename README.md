@@ -1,12 +1,17 @@
 # Agent Mandate
 
-**Give an AI agent an allowance instead of your credit card.**
+**An agent key that can only spend what you allowed.**
 
-Software is starting to buy things for us — data, API calls, compute. Today you either hand an
-agent your card and hope, or approve every purchase yourself, which defeats the point of having
-one. This gives it an allowance instead: *up to $50 this week, only to these payees*. The agent
-spends inside that on its own, and it cannot go over — not because it behaves, but because the
-money refuses. Revoke it with your face and it stops instantly.
+Software that does real work has to pay for things — an API call, a search, a page of data. To let
+it, you hand it something unlimited: the private key to a funded wallet, or an API key with a card
+behind it. Whoever holds that can move everything in reach, for as long as they hold it, and the
+first sign of trouble is the balance.
+
+This makes the key worth nothing on its own. The authority lives on chain instead — *up to $50 this
+week, only to these payees* — granted from your phone with Face ID. The agent spends inside it
+without asking, and cannot go past it: an over-limit payment is refused by the chain, not by the
+agent's good behaviour, so a compromised agent gets no further than an honest one. Revoke it with
+your face and it stops mid-task.
 
 ## Why we built it
 
