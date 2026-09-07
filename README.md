@@ -22,23 +22,137 @@ and we would ship it; the port and the passkey bridge are the parts anyone else 
 
 That is the intent here — **contribute the plumbing, and use the product to show it works.**
 
-## See it work
+## Run it yourself
 
-The allowance rules are **deployed on Arc testnet** at
-`0x669Dd1eDb85ABD00f74186d88124614EE81E6670`, so nothing below is a simulation.
+Everything below is on **Arc testnet** and nothing in it is simulated. The allowance rules are
+deployed at `0x669Dd1eDb85ABD00f74186d88124614EE81E6670`; the money is test USDC, and the refusals
+are real.
 
-Grant an allowance from the app, install the connector into an agent, and the agent pays for what
-it needs — bounded by the chain, refused by the chain when it asks for too much, and inert the
-moment you revoke.
+Two repositories are involved. This one is the **wallet and the agent's connector** — the buyer.
+[`arc-maze`](../arc-maze) is a paid maze on Arc — something to buy *from*. You can stop after step 5
+and have seen the whole claim; steps 6 and 7 are the fun half.
 
-Point an agent at [`mcp/`](mcp/README.md), grant it an allowance from the app, and ask it to pay
-for something. The wallet and any block explorer show the result; nothing else has to be running.
+### Before you start
 
-The parts that are already provable without any of that:
+| | |
+|---|---|
+| Node | 22.6 or newer — the tests run TypeScript directly |
+| Bun | only for `arc-maze` |
+| Foundry | only to run the Solidity tests |
+| Xcode + an iPhone or simulator | passkeys need a real Secure Enclave or a simulator with one |
+| A Circle client key | free, from [console.circle.com](https://console.circle.com) → Wallets → Modular Wallets → Client Keys |
+
+The client key is **bound to a domain**. Use the same passkey domain the app is configured with, or
+Circle refuses it with `Invalid credentials` and nothing explains why.
+
+### 1. Configure
 
 ```bash
-npm run gate     # 95 unit, 30 contract on a fork of Arc, 23 integration
+cp .env.example .env
 ```
+
+Fill in three values. They are public by design — Expo inlines them into the bundle — so they are
+not secrets, but they do have to be right.
+
+```
+EXPO_PUBLIC_CIRCLE_CLIENT_URL=https://modular-sdk.circle.com/v1/rpc/w3s/buidl
+EXPO_PUBLIC_CIRCLE_CLIENT_KEY=TEST_CLIENT_KEY:…
+EXPO_PUBLIC_CIRCLE_PASSKEY_DOMAIN=your-passkey-domain
+```
+
+### 2. Prove the rules before touching a phone
+
+```bash
+npm install
+npm run gate
+```
+
+That is the typecheck, the unit tests, the Solidity suite **against a fork of Arc with the real
+Circle account and the real EntryPoint**, and the integration tests. If this passes, the mandate
+engine works; everything after it is wiring.
+
+### 3. Make a wallet
+
+```bash
+npm run ios
+```
+
+Tap **Create a Wallet** and confirm with Face ID. That is a passkey — there is no seed phrase, and
+no key leaves the device.
+
+Then fund it with test USDC from [Circle's faucet](https://faucet.circle.com), choosing **Arc
+testnet**. A dollar is plenty; a step in the maze costs a tenth of a cent.
+
+### 4. Give an agent the connector
+
+```bash
+claude mcp add arc-mandate -- node "$PWD/mcp/server.mjs"
+```
+
+The server reads this repo's `.env` itself, so there are no secrets in your agent's config. Restart
+the agent afterwards — an MCP server is only launched at startup.
+
+Then ask it:
+
+> **you:** what's your payment address?
+
+It prints a QR code and an address. If it does not show you the QR, tell it to — the code is for
+your phone's camera and is useless sitting in tool output.
+
+### 5. Grant an allowance, and watch it bind
+
+In the app, scan that QR (or paste the address), set an amount and a number of days, and confirm
+with Face ID.
+
+Now ask the agent to spend:
+
+> **you:** check your allowance
+> **you:** pay $0.05 to 0x0000000000000000000000000000000000000dEaD
+
+Then ask for more than you granted. **The refusal happens during validation**, so it costs nothing —
+not even gas. Revoke in the app and try again: the next payment is refused at the account level, not
+by the agent agreeing to stop.
+
+### 6. Buy something real
+
+```bash
+cd ../arc-maze
+bun install
+SELLER_ADDRESS=<any address you control> bun run start
+```
+
+A maze that charges by the step. Start a run and hand the agent a paid URL:
+
+```bash
+curl -s -X POST localhost:8790/game          # free, returns a run id
+```
+
+> **you:** buy http://localhost:8790/game/<run-id>/look
+
+The agent gets a `402`, signs a payment from the escrow your mandate funded, retries, and is told
+which way the walls go. `arc-maze/README.md` has the full play-through, where an agent buys the map
+and solves the maze under a budget.
+
+### 7. Check it without trusting us
+
+Every run is replayable by a stranger, because the maze is seeded from the round id:
+
+```bash
+curl -s localhost:8790/run/<run-id>/verify
+```
+
+That rebuilds the maze and re-walks the actions, taking nothing on trust — not the ending square,
+not the step count, not the amount charged.
+
+### If something goes wrong
+
+| | |
+|---|---|
+| `Invalid credentials` from Circle | the client key is bound to a different domain than `EXPO_PUBLIC_CIRCLE_PASSKEY_DOMAIN` |
+| The agent says it has no allowance | it was granted to a different address — ask it for its address again; a new key is generated if none exists |
+| A payment says `unsupported_network` | something is pointed at Circle's **mainnet** Gateway. Arc is testnet-only today |
+| `The allowance contract is not deployed on this network` | the app is on a network other than Arc testnet |
+| Payments accepted but never arriving | the fee. Arc's base fee moves between 20 and 66 gwei and an operation at the bare estimate is accepted into the mempool and never included |
 
 ## How it works
 
