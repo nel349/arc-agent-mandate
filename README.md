@@ -76,6 +76,10 @@ That is the typecheck, the unit tests, the Solidity suite **against a fork of Ar
 Circle account and the real EntryPoint**, and the integration tests. If this passes, the mandate
 engine works; everything after it is wiring.
 
+The first run is slow and mostly silent: Foundry clones five submodules it needs, the contract
+suite installs its own dependencies, and the fork tests fetch state from Arc. Several minutes is
+normal once; after that it is seconds.
+
 ### 3. Make a wallet
 
 ```bash
@@ -216,17 +220,16 @@ recipient lists, expiry — are untouched, because they were never the broken pa
   Codex can spend inside an allowance. The agent makes its own key, shows you a public address, and
   after you grant it finds the rest by itself — it watches for the `SessionKeyAdded` event naming
   its own address. One scan, no config file. See [mcp/README.md](mcp/README.md).
-- **93 tests behind one gate.** `npm run gate` must be green before anything ships:
+- **203 tests behind one gate.** `npm run gate` must be green before anything ships:
 
   | | | |
   |---|---|---|
-  | `npm test` | 54 | parsing, encoding, the money type, mandate formatting |
-  | `npm run test:contracts` | 26 | the allowance rules, against a fork with the plugin installed on a real Circle account |
-  | `npm run test:integration` | 13 | the whole path — a signed user operation through the real EntryPoint, money moving, refusals costing nothing, revocation taking effect |
+  | `npm test` | 123 | parsing, encoding, the money type, mandate formatting, the meter the card reads |
+  | `npm run test:contracts` | 47 | the allowance rules, against a fork with the plugin installed on a real Circle account |
+  | `npm run test:integration` | 33 | the whole path — a signed user operation through the real EntryPoint, money moving, revocation taking effect, and an x402 payment checked against Circle's live facilitator |
 
-**Not built yet:** the phone screens for granting and revoking. The wallet screen is real; the
-allowance is driven from the demo and the connector above, not yet from the app. Said plainly
-because a judge will find out in thirty seconds anyway.
+  Run `test:integration` on its own. It forks live Arc, and sharing the RPC with another suite has
+  produced spurious failures with tests taking twenty times as long.
 
 ## Why Arc
 
