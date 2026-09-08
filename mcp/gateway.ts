@@ -31,6 +31,48 @@ export interface Call {
  * purchase rather than once and large.
  */
 
+/**
+ * What is *really* spendable from escrow, which is less than the chain says.
+ *
+ * A payment reaches Circle as a signature, is accepted into a batch, and lands on chain about a
+ * quarter of an hour later. Between those two moments the money is committed but the on-chain
+ * balance still counts it, so `availableBalance` overstates what the facilitator will accept — and
+ * a top-up that trusts the chain decides it has enough, declines to add anything, and the purchase
+ * is refused anyway. Measured: a $0.002 look refused against $0.008 of on-chain escrow.
+ *
+ * We are the only spender of this escrow, so we can simply remember what we claimed. When the
+ * chain figure drops, that much has settled and is no longer outstanding, which keeps the estimate
+ * from drifting upward forever.
+ *
+ * Deliberately an estimate that errs toward topping up: paying twice costs a fraction of a cent,
+ * and a refusal in the middle of a run costs the run.
+ */
+export interface EscrowLedger {
+  /** The chain's figure, less what we have claimed against it and not yet seen settle. */
+  spendable(onChain: bigint): bigint;
+  /** Called when a payment has been accepted, whether or not it has settled. */
+  claimed(amount: bigint): void;
+}
+
+export function escrowLedger(): EscrowLedger {
+  let outstanding = 0n;
+  let lastSeen: bigint | null = null;
+
+  return {
+    spendable(onChain) {
+      if (lastSeen !== null && onChain < lastSeen) {
+        const settled = lastSeen - onChain;
+        outstanding = outstanding > settled ? outstanding - settled : 0n;
+      }
+      lastSeen = onChain;
+      return onChain > outstanding ? onChain - outstanding : 0n;
+    },
+    claimed(amount) {
+      outstanding += amount;
+    },
+  };
+}
+
 /** Circle's Gateway Wallet. Same address on every chain Gateway supports. */
 export const GATEWAY_WALLET: Address = "0x0077777d7EBA4688BDeF3E311b846F25870A19B9";
 

@@ -26,7 +26,7 @@ import { loadOrCreateAgent } from "./identity.ts";
 import { findGrantingAccount, NATIVE_PER_ERC20, RAIL, readAllowance, USDC_ERC20_VIEW, type Allowance } from "./chain.ts";
 import { submitSpend } from "./spend.ts";
 import { bundlerConfigured, bundlerSetupInstructions } from "./bundler.ts";
-import { gatewayAccepting, readEscrow, topUpCalls, type Call } from "./gateway.ts";
+import { escrowLedger, gatewayAccepting, readEscrow, topUpCalls, type Call } from "./gateway.ts";
 import { fetchWithPayment, type Funding } from "./x402.ts";
 import qrcode from "qrcode-terminal";
 
@@ -298,6 +298,12 @@ interface EscrowRequest {
   readonly needed: bigint;
 }
 
+/**
+ * One ledger for the process: this connector is the only thing that spends this escrow, so what it
+ * has claimed is exactly what the chain has not caught up with yet.
+ */
+const escrow = escrowLedger();
+
 async function fundEscrow({ account, allowance, needed }: EscrowRequest): Promise<Funding> {
   if (allowance.rail !== RAIL.erc20) {
     return {
@@ -308,7 +314,9 @@ async function fundEscrow({ account, allowance, needed }: EscrowRequest): Promis
         `open web does not know who it will pay. Ask the user to grant one.`,
     };
   }
-  const held = await readEscrow(agent.address);
+  // Not the chain's figure: what Circle will actually accept, which is less by whatever we have
+  // already claimed into a batch that has not landed.
+  const held = escrow.spendable(await readEscrow(agent.address));
   if (held >= needed) return { ok: true, toppedUp: 0n };
 
   const shortfall = needed - held;
@@ -389,6 +397,10 @@ server.registerTool(
           `charged — a payment that is not settled moves nothing.`,
       );
     }
+
+    // Accepted into a batch. The chain will not show it for about a quarter of an hour, so the
+    // ledger carries it until then — otherwise the next purchase reads escrow that is already spent.
+    escrow.claimed(outcome.amount);
 
     const body = await outcome.response.text();
     return text(
