@@ -41,7 +41,7 @@ and have seen the whole claim; steps 6 and 7 are the fun half.
 
 | | |
 |---|---|
-| Node | 22.6 or newer — the tests run TypeScript directly |
+| Node | 22.18 or newer (or 23.6+, or any 24) — everything here runs TypeScript directly, and unflagged type stripping starts there. 22.6 has it behind a flag, which is not enough for `node mcp/server.ts`. |
 | Bun | only for `arc-maze` |
 | Foundry | only to run the Solidity tests |
 | Xcode + an iPhone or simulator | passkeys need a real Secure Enclave or a simulator with one |
@@ -95,8 +95,22 @@ testnet**. A dollar is plenty; a step in the maze costs a tenth of a cent.
 ### 4. Give an agent the connector
 
 ```bash
-claude mcp add arc-mandate -- node "$PWD/mcp/server.ts"
+cd /path/to/arc-agent-mandate                       # the absolute path matters, see below
+claude mcp add arc-mandate -s user -- node "$PWD/mcp/server.ts"
 ```
+
+`$PWD` is expanded by your shell, not by Claude, so running this from anywhere but the repo
+registers a path that does not exist — and the failure arrives later as `CONNECTION_CLOSED`, which
+names nothing. Check what was registered:
+
+```bash
+claude mcp list | grep arc-mandate                  # must end in .../arc-agent-mandate/mcp/server.ts
+```
+
+`-s user` matters too. Without it the server is registered in **local** scope, which is tied to the
+directory you happened to run the command in and takes precedence over every other scope — so a
+stale local entry silently shadows a correct one. If it is already wrong,
+`claude mcp remove arc-mandate -s local` and add it again.
 
 The server reads this repo's `.env` itself, so there are no secrets in your agent's config. Restart
 the agent afterwards — an MCP server is only launched at startup.
@@ -116,7 +130,7 @@ with Face ID.
 Now ask the agent to spend:
 
 > **you:** check your allowance
-> **you:** pay $0.05 to 0x0000000000000000000000000000000000000dEaD
+> **you:** pay $0.05 to 0x000000000000000000000000000000000000dEaD
 
 Then ask for more than you granted. The connector checks the limit first and answers without
 sending anything, so that refusal is free. The point is what happens if it does not: the chain

@@ -67,8 +67,14 @@ Working in this repo instead of installing the package? Point it at the file and
 block; the server reads this project's `.env` on its own:
 
 ```bash
-claude mcp add arc-mandate node "$PWD/mcp/server.ts"
+cd /path/to/arc-agent-mandate
+claude mcp add arc-mandate -s user -- node "$PWD/mcp/server.ts"
+claude mcp list | grep arc-mandate      # confirm the path; $PWD is your shell's, not ours
 ```
+
+Without `-s user` this lands in local scope, which is bound to the directory you ran it in and
+shadows every other scope. A wrong path here surfaces later as `CONNECTION_CLOSED` and names
+nothing, so it is worth the one extra line to check.
 
 ### Why you bring your own key
 
