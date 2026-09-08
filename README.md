@@ -34,7 +34,7 @@ deployed at `0x669Dd1eDb85ABD00f74186d88124614EE81E6670`; the money is test USDC
 are real.
 
 Two repositories are involved. This one is the **wallet and the agent's connector** — the buyer.
-[`arc-maze`](../arc-maze) is a paid maze on Arc — something to buy *from*. You can stop after step 5
+[`arc-maze`](https://github.com/nel349/arc-maze) is a paid maze on Arc — something to buy *from*. You can stop after step 5
 and have seen the whole claim; steps 6 and 7 are the fun half.
 
 ### Before you start
