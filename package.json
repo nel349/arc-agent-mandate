@@ -1,6 +1,7 @@
 {
   "name": "arc-agent-mandate",
   "version": "0.1.0",
+  "license": "MIT",
   "private": true,
   "main": "index.ts",
   "scripts": {
