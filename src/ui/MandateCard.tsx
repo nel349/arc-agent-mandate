@@ -3,20 +3,22 @@ import { StyleSheet, Text, View } from "react-native";
 import type { Mandate } from "../arc/mandate.ts";
 import { agentHoldingNote, expiryLabel, fractionUsed, lastUsedLabel, shortAddress, spentPercentLabel } from "./mandate-format.ts";
 import { useTheme } from "./theme-context.tsx";
+import { ArcRing } from "./ArcRing.tsx";
 import { Button } from "./Button.tsx";
 import { Surface } from "./Surface.tsx";
 import { tokens } from "./tokens.ts";
-
-/** Segments in the meter. Twenty reads as a bar and still resolves single steps at 5%. */
-const SEGMENTS = 20;
 
 /**
  * One allowance.
  *
  * What is **left** leads, because that is the figure someone checks before deciding whether to
- * step in. The meter is drawn in block characters rather than as a filled view: it is honest about
- * being a readout, it aligns with the monospace around it, and it stays legible at a glance from
- * across a desk.
+ * step in.
+ *
+ * The meter is the ring rather than the row of block characters it replaced. Both drew the same
+ * number, and the blocks drew it well — but the ring is the mark this app and the maze share, and
+ * a card carrying the brand's own shape beats a card carrying a readout that could belong to
+ * anything. Reading it costs no more: the arc is the part that is gone, and the colour changes
+ * when it is nearly all gone.
  */
 function MandateCardView({
   mandate, onRevoke, busy,
@@ -26,7 +28,6 @@ function MandateCardView({
   readonly busy: boolean;
 }) {
   const c = useTheme().color;
-  const filled = Math.round(fractionUsed(mandate) * SEGMENTS);
   const holding = agentHoldingNote(mandate.agentFloat);
 
   return (
@@ -36,25 +37,24 @@ function MandateCardView({
         <Text style={[styles.meta, { color: c.muted }]}>{expiryLabel(mandate)}</Text>
       </View>
 
-      <Text style={[styles.amount, { color: c.paper }]}>
-        {mandate.remaining.format(2)}
-        <Text style={[styles.of, { color: c.dim }]}>  of {mandate.limit.format(2)}</Text>
-      </Text>
-
-      {/* Two runs of blocks rather than twenty views: one string, one layout pass, and it cannot
-          drift out of alignment with the figures above it. */}
       {/*
-        The percentage sits on the bar, because the bar alone did not read as a bar. Empty it
-        looked like a blank box, and part-filled it gave no sense of how far along it was — with
-        the figure above counting the opposite way, since that is what remains while this fills
-        with what is spent.
+        The ring and the figures read as one object: the mark states how much is *gone*, the number
+        beside it states what is *left*. They count opposite ways on purpose — what remains is the
+        figure somebody checks before letting an agent loose, and how much is spent is the shape
+        that carries across a room — so the percentage stays, spelling out which way the arc runs.
       */}
-      <View style={styles.meterRow}>
-        <Text style={styles.meter} accessibilityLabel={`${mandate.spent.format(2)} of ${mandate.limit.format(2)} spent`}>
-          <Text style={{ color: c.signal }}>{"█".repeat(filled)}</Text>
-          <Text style={{ color: c.track }}>{"█".repeat(SEGMENTS - filled)}</Text>
-        </Text>
-        <Text style={[styles.percent, { color: c.muted }]}>{spentPercentLabel(mandate)}</Text>
+      <View style={styles.headline}>
+        <ArcRing
+          spent={fractionUsed(mandate)}
+          label={`${mandate.spent.format(2)} of ${mandate.limit.format(2)} spent`}
+        />
+        <View style={styles.figures}>
+          <Text style={[styles.amount, { color: c.paper }]}>
+            {mandate.remaining.format(2)}
+            <Text style={[styles.of, { color: c.dim }]}>  of {mandate.limit.format(2)}</Text>
+          </Text>
+          <Text style={[styles.percent, { color: c.muted }]}>{spentPercentLabel(mandate)}</Text>
+        </View>
       </View>
 
       {/*
@@ -137,25 +137,20 @@ const styles = StyleSheet.create({
     fontVariant: [...tokens.font.tabular],
   },
   of: { fontSize: tokens.font.small, fontWeight: "400", letterSpacing: 0 },
-  meterRow: {
+  headline: {
     flexDirection: "row",
-    // Baseline, not centre. `center` aligns the two *line boxes*, and these two do not carry their
-    // ink in the same place: a full block fills its box and hangs below the baseline, while digits
-    // sit on the baseline with nothing beneath. Centring the boxes therefore left the percentage
-    // riding 4pt high, measured. Text lines up with text by baseline.
-    alignItems: "baseline",
-    gap: tokens.space.sm,
+    // Centre, not baseline. The old row lined up two runs of *text* and so had to use baseline;
+    // this one pairs a drawing with a block of text, and a circle has no baseline to sit on.
+    alignItems: "center",
+    gap: tokens.space.base,
+    marginTop: tokens.space.xs,
   },
+  /** Takes the remaining width so a long figure wraps inside the card rather than pushing the ring. */
+  figures: { flex: 1 },
   percent: {
     fontFamily: tokens.font.mono,
     fontSize: tokens.font.small,
     // Digits change as the allowance is used; tabular figures keep the row from twitching.
     fontVariant: [...tokens.font.tabular],
-  },
-  meter: {
-    fontFamily: tokens.font.mono,
-    fontSize: tokens.font.body,
-    letterSpacing: tokens.font.displayTracking,
-    marginTop: tokens.space.xs,
   },
 });

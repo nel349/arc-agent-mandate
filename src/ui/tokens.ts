@@ -86,6 +86,15 @@ export const tokens = {
     markDot: 8,
     /** A disclosure chevron on a row. */
     chevron: 16,
+
+    /**
+     * The mark, where it appears.
+     *
+     * The stroke is a fraction of the diameter rather than a fixed width, so the ring keeps its
+     * weight if it is ever drawn larger — a fixed stroke on a bigger circle reads as a thin hoop,
+     * which is how a mark stops looking like the same mark.
+     */
+    ring: { card: 52, strokeRatio: 0.12 },
   },
   opacity: { disabled: 0.4 },
   font: {
