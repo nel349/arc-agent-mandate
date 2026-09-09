@@ -8,11 +8,13 @@
     "start": "expo start --dev-client",
     "ios": "expo run:ios",
     "android": "expo run:android",
-    "test": "node --experimental-transform-types --disable-warning=ExperimentalWarning --test 'src/**/*.test.ts' 'mcp/**/*.test.ts'",
+    "test": "npm run setup:contracts --silent >/dev/null 2>&1 || true; node --experimental-transform-types --disable-warning=ExperimentalWarning --test 'src/**/*.test.ts' 'mcp/**/*.test.ts'",
     "typecheck": "tsc --noEmit",
-    "test:contracts": "npm --prefix contracts install --silent && cd contracts && ARC_TESTNET_RPC_URL=${ARC_TESTNET_RPC_URL:-https://rpc.testnet.arc.network} FOUNDRY_DISABLE_NIGHTLY_WARNING=1 forge test",
+    "test:contracts": "npm run setup:contracts --silent >/dev/null 2>&1 || true; cd contracts && ARC_TESTNET_RPC_URL=${ARC_TESTNET_RPC_URL:-https://rpc.testnet.arc.network} FOUNDRY_DISABLE_NIGHTLY_WARNING=1 forge test",
     "test:integration": "node --experimental-transform-types --disable-warning=ExperimentalWarning --test integration/*.test.ts",
-    "gate": "npm run typecheck && npm test && npm run test:contracts && npm run test:integration"
+    "gate": "npm run typecheck && npm test && npm run test:contracts && npm run test:integration",
+    "prepare": "npm run setup:contracts --silent >/dev/null 2>&1 || true",
+    "setup:contracts": "git submodule update --init --recursive contracts/lib && npm --prefix contracts install --silent"
   },
   "dependencies": {
     "@circle-fin/modular-wallets-core": "^1.0.15",

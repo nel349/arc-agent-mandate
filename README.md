@@ -234,7 +234,7 @@ recipient lists, expiry — are untouched, because they were never the broken pa
   Codex can spend inside an allowance. The agent makes its own key, shows you a public address, and
   after you grant it finds the rest by itself — it watches for the `SessionKeyAdded` event naming
   its own address. One scan, no config file. See [mcp/README.md](mcp/README.md).
-- **203 tests behind one gate.** `npm run gate` must be green before anything ships:
+- **222 tests behind one gate.** `npm run gate` must be green before anything ships:
 
   | | | |
   |---|---|---|
