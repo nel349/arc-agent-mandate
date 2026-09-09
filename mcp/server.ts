@@ -120,6 +120,25 @@ server.registerTool(
 );
 
 /**
+ * One ledger for the process: this connector is the only thing that spends this escrow, so what it
+ * has claimed is exactly what the chain has not caught up with yet.
+ */
+const escrow = escrowLedger();
+
+/**
+ * The only way this file is allowed to ask what is in escrow.
+ *
+ * The chain's own figure is an overstatement for about a quarter of an hour after every payment,
+ * because a claim is committed long before the balance moves. Funding knew that; reporting did not,
+ * and told the user $0.063 was spendable when $0.039 was — measured, not imagined. A single reader
+ * is what keeps the two from drifting apart again, and `mcp/server.test.ts` fails if a second one
+ * appears.
+ */
+async function spendableEscrow(): Promise<bigint> {
+  return escrow.spendable(await readEscrow(agent.address));
+}
+
+/**
  * What is already in escrow, as one extra line.
  *
  * Not a second budget — escrow is money this allowance has *already* spent, parked where the agent
@@ -128,7 +147,7 @@ server.registerTool(
  */
 async function escrowLine(allowance: Allowance): Promise<string[]> {
   if (allowance.rail !== RAIL.erc20) return [];
-  const held = await readEscrow(agent.address);
+  const held = await spendableEscrow();
   if (held === 0n) return [];
   return [`  of which ${online(held)} is already in escrow, spendable on the web without a top-up`];
 }
@@ -298,12 +317,6 @@ interface EscrowRequest {
   readonly needed: bigint;
 }
 
-/**
- * One ledger for the process: this connector is the only thing that spends this escrow, so what it
- * has claimed is exactly what the chain has not caught up with yet.
- */
-const escrow = escrowLedger();
-
 async function fundEscrow({ account, allowance, needed }: EscrowRequest): Promise<Funding> {
   if (allowance.rail !== RAIL.erc20) {
     return {
@@ -316,7 +329,7 @@ async function fundEscrow({ account, allowance, needed }: EscrowRequest): Promis
   }
   // Not the chain's figure: what Circle will actually accept, which is less by whatever we have
   // already claimed into a batch that has not landed.
-  const held = escrow.spendable(await readEscrow(agent.address));
+  const held = await spendableEscrow();
   if (held >= needed) return { ok: true, toppedUp: 0n };
 
   const shortfall = needed - held;
@@ -432,12 +445,15 @@ server.registerTool(
     const wanted = parseUnits(amount, 6);
     if (wanted <= 0n) throw new Error("Amount must be positive.");
 
-    const held = await readEscrow(agent.address);
+    // Added to what is *spendable*, not to what the chain shows. Against the chain's figure this
+    // asks for whatever has not settled all over again, and escrow only leaves as a payment or a
+    // delayed withdrawal — so the overshoot is money locked up for no reason.
+    const held = await spendableEscrow();
     const funded = await fundEscrow({ account, allowance, needed: held + wanted });
     if (!funded.ok) return text(`Nothing was moved. ${funded.reason}`);
     return text(
       `Moved ${online(funded.toppedUp)} into the agent's escrow. It now holds ` +
-        `${online(await readEscrow(agent.address))}, spendable on the web without further approval.`,
+        `${online(await spendableEscrow())}, spendable on the web without further approval.`,
     );
   },
 );
