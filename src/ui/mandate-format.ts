@@ -107,7 +107,21 @@ export function spentPercentLabel(mandate: Mandate): string {
  * something nobody can know.
  */
 export function lastUsedLabel(mandate: Mandate, now: number = Date.now()): string {
-  if (mandate.lastUsedAt === null) return "never used";
+  if (mandate.lastUsedAt === null) {
+    /**
+     * No timestamp does not mean nothing was spent.
+     *
+     * The plugin keeps `lastUsedTime` to measure a refresh window, and writes it only when there is
+     * a `refreshInterval` to measure against. Every mandate this app grants has none, so the field
+     * stays zero for ever — and the card read "0.10 spent · never used", which is not a
+     * near-miss but a flat contradiction sitting next to the number that disproves it.
+     *
+     * Reading it off the chain another way means walking event logs for a line of small print. So
+     * this says the true thing instead: when money has moved, decline to claim *when*, rather than
+     * claim it never did.
+     */
+    return mandate.spent.isZero() ? "never used" : "";
+  }
 
   const seconds = Math.floor(now / 1000) - mandate.lastUsedAt;
   if (seconds < 90) return "used just now";

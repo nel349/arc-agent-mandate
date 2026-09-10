@@ -143,15 +143,34 @@ test("spending past the limit reads as fully spent, not more", () => {
 
 /** The clock is fixed so the wording is asserted, not the time of day. */
 const NOW = Date.UTC(2026, 8, 6, 12);
-const used = (secondsAgo: number | null) => ({
-  ...mandate("50", "10"),
+const used = (secondsAgo: number | null, spent = "10") => ({
+  ...mandate("50", spent),
   lastUsedAt: secondsAgo === null ? null : Math.floor(NOW / 1000) - secondsAgo,
 });
 
 test("an agent that has never spent says so, and does not claim to be disconnected", () => {
   // Reading the chain leaves no trace, so "never used" is all anyone can honestly say — an agent
   // that is installed and running looks the same as one that was never set up.
-  assert.equal(lastUsedLabel(used(null), NOW), "never used");
+  assert.equal(lastUsedLabel(used(null, "0"), NOW), "never used");
+});
+
+/**
+ * The contradiction this test used to assert.
+ *
+ * It called `used(null)` on a mandate that had spent 10 and expected "never used", which is how a
+ * real card came to read `0.10 spent · never used` — a claim standing next to the number that
+ * disproves it. The chain is the reason: the plugin writes `lastUsedTime` only to measure a refresh
+ * window, and every mandate this app grants has no refresh interval, so the field is zero for ever.
+ *
+ * Verified against the live mandate rather than reasoned about: `limitUsed` 101000, `lastUsedTime`
+ * 0. So when money has moved, the honest move is to decline to say *when* rather than to say it
+ * never did.
+ */
+test("money that has moved is never reported as an agent that has never spent", () => {
+  assert.equal(lastUsedLabel(used(null, "10"), NOW), "");
+  assert.equal(lastUsedLabel(used(null, "0.01"), NOW), "");
+  // And the zero case keeps its sentence, because there it is simply true.
+  assert.equal(lastUsedLabel(used(null, "0"), NOW), "never used");
 });
 
 test("recent use reads as recent", () => {

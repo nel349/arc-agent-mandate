@@ -73,8 +73,9 @@ function MandateCardView({
               activity. It cannot say whether one is running: reading leaves no trace, so an agent
               that is paired and working looks exactly like one never installed until it spends. */}
           {mandate.spent.isZero() ? "nothing spent yet" : `${mandate.spent.format(2)} spent`}
-          {" · "}
-          {lastUsedLabel(mandate)}
+          {/* Empty when the chain cannot say when, which it cannot for a mandate with no refresh
+              interval. Dropping the separator with it, so the line does not end in a dangling dot. */}
+          {lastUsedLabel(mandate) === "" ? "" : ` · ${lastUsedLabel(mandate)}`}
         </Text>
         {/*
           Almost never shown, and that is the point.
