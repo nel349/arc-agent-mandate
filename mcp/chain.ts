@@ -148,6 +148,24 @@ export async function findGrantingAccount(
     return cachedAccount;
   }
 
+  /**
+   * We remember a grant and the chain says it is gone. That is a revocation, and it is answerable
+   * without reading any history at all.
+   *
+   * Reaching the search from here was a real failure, not a slow path. A revoked agent looks
+   * exactly like an unpaired one to the code below, so every single call re-scanned every block
+   * since the last look: measured at 232,000 blocks in twenty-four windowed `eth_getLogs` requests,
+   * which exhausted the public endpoint's rate limit and returned a viem stack trace instead of an
+   * answer. The comment on `readState` predicted this shape for agents nobody had granted anything
+   * to; nobody noticed it caught revoked ones too, and revocation is the one moment this project
+   * exists to make work.
+   *
+   * The search is not skipped entirely, because the owner may have revoked one allowance and
+   * granted another from a different account. But a re-grant that matters is a recent one, so only
+   * the newest stretch is read. Nothing is lost: the next call resumes wherever this one reached.
+   */
+  const revoked = state.account !== null;
+
   const head = await publicClient.getBlockNumber();
 
   /**
@@ -188,13 +206,20 @@ export async function findGrantingAccount(
      * their order anyway: every candidate is checked against the chain before it is believed, so an
      * older grant that has since been revoked is discarded rather than returned.
      */
+    /** How far back a re-grant is worth looking for, once we know the old one is gone. */
+    const RECENT = LOG_WINDOW * 3n;
+
     const spans: readonly { readonly from: bigint; readonly to: bigint; readonly upward: boolean }[] =
       searched === null
         ? [{ from: bottom, to: head, upward: false }]
-        : [
-            ...(head > searched.high ? [{ from: searched.high, to: head, upward: true }] : []),
-            ...(searched.low > bottom ? [{ from: bottom, to: searched.low, upward: false }] : []),
-          ];
+        : revoked
+          // Known revoked: read the newest stretch only, and never walk down into history for a
+          // grant we have already watched being taken away.
+          ? [{ from: head - RECENT > searched.high ? head - RECENT : searched.high, to: head, upward: true }]
+          : [
+              ...(head > searched.high ? [{ from: searched.high, to: head, upward: true }] : []),
+              ...(searched.low > bottom ? [{ from: bottom, to: searched.low, upward: false }] : []),
+            ];
 
     /**
      * Recorded after every window rather than once at the end, which is the fix.

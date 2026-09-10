@@ -75,8 +75,35 @@ const text = (body: string) => ({ content: [{ type: "text" as const, text: body 
  * *taken away* needs no instructions at all — somebody has just decided this, on purpose, and
  * telling them to go and grant one reads as though the revoke did not register.
  */
+/**
+ * A person should never be handed a stack trace.
+ *
+ * Arc's public endpoint rate-limits, and when it did, every tool in here answered with viem's full
+ * dump: the calldata, the ABI signature, a link to the docs. That is a reasonable thing to log and
+ * a terrible thing to say to somebody who asked whether their agent could buy something.
+ */
+function unreachable(cause: unknown): string {
+  const text = cause instanceof Error ? cause.message : String(cause);
+  return /rate limit|429|too many requests/i.test(text)
+    ? "Arc's public endpoint is rate-limiting us. It clears on its own; try again shortly."
+    : "Arc's endpoint did not answer.";
+}
+
 async function requireMandate() {
-  const account = await findGrantingAccount(agent.address, { keyIsNew: created });
+  let account: Awaited<ReturnType<typeof findGrantingAccount>>;
+  try {
+    account = await findGrantingAccount(agent.address, { keyIsNew: created });
+  } catch (cause) {
+    // What is remembered still says something true, and is worth more than the failure.
+    const granter = rememberedGranter(agent.address);
+    throw new Error(
+      `${unreachable(cause)} Nothing was bought and nothing was charged.` +
+      (granter
+        ? `\n\nThe last thing known on chain is that ${granter} granted this agent and has since ` +
+          `revoked it.`
+        : ""),
+    );
+  }
   if (!account) {
     const granter = rememberedGranter(agent.address);
     throw new Error(
@@ -90,7 +117,11 @@ async function requireMandate() {
           `Face ID:\n\n    ${agent.address}\n\nThen ask me again.`,
     );
   }
-  return { account, allowance: await readAllowance(account, agent.address) };
+  try {
+    return { account, allowance: await readAllowance(account, agent.address) };
+  } catch (cause) {
+    throw new Error(`${unreachable(cause)} Nothing was bought and nothing was charged.`);
+  }
 }
 
 server.registerTool(

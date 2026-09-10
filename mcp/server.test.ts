@@ -107,3 +107,49 @@ test("what is remembered explains a lookup, and never replaces it", () => {
   assert.ok(lookup > 0 && memory > lookup,
     "the memory is consulted before the chain, which would hide a fresh grant from another account");
 });
+
+/**
+ * The revoke path, which is the moment this project exists for, and which failed the first time it
+ * was ever run against a live chain.
+ *
+ * A revoked agent looks exactly like an unpaired one to the lookup: the cached account no longer
+ * grants, so the search for *some* granting account begins. For an agent nobody has granted
+ * anything to, that search walks history, and `chain.ts` has warned about the cost of that in a
+ * comment since it was written. Nobody noticed a revoked agent takes the same path.
+ *
+ * Measured, not guessed: 232,000 blocks in twenty-four windowed `eth_getLogs` calls, which
+ * exhausted Arc's public rate limit. The owner revoked an allowance on their phone, the agent was
+ * asked to buy a step, and the answer was a viem stack trace with the calldata in it.
+ */
+test("a revoked agent does not re-read the chain's history looking for its grant", () => {
+  const chain = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "chain.ts"), "utf8");
+
+  assert.match(chain, /const revoked = state\.account !== null/,
+    "nothing distinguishes a revoked agent from one that was never granted anything");
+
+  const spans = chain.slice(chain.indexOf("const spans"), chain.indexOf("const cover"));
+  assert.match(spans, /revoked/, "the search reads the same spans whether or not a grant was revoked");
+
+  // The bound is the whole fix: a known-revoked agent reads a fixed recent stretch rather than
+  // everything since it was last looked at, which grows by 167,000 blocks a day.
+  assert.match(spans, /head - RECENT/,
+    "the revoked branch is unbounded, so it grows with every day the agent is not used");
+  assert.match(chain, /const RECENT = LOG_WINDOW \* \d+n/,
+    "the recent stretch is not defined in terms of the window it is read in");
+});
+
+/**
+ * And whatever goes wrong, a person gets a sentence.
+ *
+ * Arc's endpoint rate-limits. When it did, every tool answered with viem's full dump: calldata, ABI
+ * signature, a link to the docs. Reasonable to log, useless to read.
+ */
+test("an unreachable endpoint is explained, not dumped", () => {
+  assert.match(source, /function unreachable\(/, "nothing translates an RPC failure");
+  assert.match(source, /rate limit/i, "a rate limit is the failure that actually happens, and is not named");
+
+  const guard = source.slice(source.indexOf("async function requireMandate("), source.indexOf("if (!account)"));
+  assert.match(guard, /try \{/, "the lookup is unguarded, so viem's error reaches the person");
+  assert.match(guard, /rememberedGranter\(/,
+    "a failure discards what is already known, which is still true and still useful");
+});
