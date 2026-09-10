@@ -67,3 +67,43 @@ test("each of the three consumers goes through the reader", () => {
     assert.match(body, /spendableEscrow\(/, `${consumer} does not read escrow through the ledger`);
   }
 });
+
+/**
+ * The refusal a revoke produces, which is the moment this whole project is built around.
+ *
+ * "Nobody has granted me anything" and "what I was granted has been taken away" are one condition
+ * in the code and two different situations for whoever is reading. The connector answered both with
+ * setup instructions — the wrong thing to say at the exact moment somebody has deliberately revoked
+ * an agent with their face, because it reads as though the revoke never registered.
+ *
+ * Structural for the same reason the escrow tests above are: `requireMandate` is not exported, and
+ * what went wrong was never a function returning the wrong value. It was one message doing the work
+ * of two.
+ */
+test("a withdrawn allowance is not reported as one that never existed", () => {
+  const at = source.indexOf("async function requireMandate(");
+  assert.ok(at > 0, "requireMandate is gone");
+  const body = source.slice(at, at + 1400);
+
+  assert.match(body, /rememberedGranter\(/, "the refusal cannot tell the two cases apart");
+  assert.match(body, /withdrawn|revoked/i, "nothing in the refusal says the allowance was taken away");
+  assert.match(body, /No allowance yet/, "the never-granted case lost its setup instructions");
+});
+
+/**
+ * The remembering must not become the answer.
+ *
+ * Knowing that one account stopped granting says nothing about whether a *different* account has
+ * started. An owner who revokes one allowance and immediately grants another would be told the new
+ * one does not exist — so the chain is always searched, and the memory only explains a search that
+ * found nothing.
+ */
+test("what is remembered explains a lookup, and never replaces it", () => {
+  const at = source.indexOf("async function requireMandate(");
+  const body = source.slice(at, at + 1400);
+
+  const lookup = body.indexOf("findGrantingAccount(");
+  const memory = body.indexOf("rememberedGranter(");
+  assert.ok(lookup > 0 && memory > lookup,
+    "the memory is consulted before the chain, which would hide a fresh grant from another account");
+});

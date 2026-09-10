@@ -23,7 +23,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { encodeFunctionData, formatEther, formatUnits, isAddress, parseAbi, parseEther, parseUnits, type Address } from "viem";
 import { loadOrCreateAgent } from "./identity.ts";
-import { findGrantingAccount, NATIVE_PER_ERC20, RAIL, readAllowance, USDC_ERC20_VIEW, type Allowance } from "./chain.ts";
+import { findGrantingAccount, NATIVE_PER_ERC20, RAIL, readAllowance, rememberedGranter, USDC_ERC20_VIEW, type Allowance } from "./chain.ts";
 import { submitSpend } from "./spend.ts";
 import { bundlerConfigured, bundlerSetupInstructions } from "./bundler.ts";
 import { escrowLedger, gatewayAccepting, readEscrow, topUpCalls, type Call } from "./gateway.ts";
@@ -67,14 +67,27 @@ const usd = (wei: bigint): string => `$${formatEther(wei)}`;
 const online = (units: bigint): string => `$${formatUnits(units, 6)}`;
 const text = (body: string) => ({ content: [{ type: "text" as const, text: body }] });
 
-/** Every spending tool needs the same two facts, and neither is configured. */
+/**
+ * Every spending tool needs the same two facts, and neither is configured.
+ *
+ * The two ways of having no mandate are one condition in the code and two different situations for
+ * whoever is reading. An agent that was never paired needs setting up. An agent whose allowance was
+ * *taken away* needs no instructions at all — somebody has just decided this, on purpose, and
+ * telling them to go and grant one reads as though the revoke did not register.
+ */
 async function requireMandate() {
   const account = await findGrantingAccount(agent.address, { keyIsNew: created });
   if (!account) {
+    const granter = rememberedGranter(agent.address);
     throw new Error(
-      `No allowance yet.\n\nOpen the Agent Mandate app, paste this address into ` +
-        `"Give an agent an allowance", set a limit and how long it lasts, and confirm with ` +
-        `Face ID:\n\n    ${agent.address}\n\nThen ask me again.`,
+      granter
+        ? `The allowance was withdrawn.\n\n${granter} granted this agent and has since revoked ` +
+          `it on chain, so the wallet is closed to it and this connector will not spend. Nothing ` +
+          `was bought and nothing was charged. It can be granted again from the phone; until then ` +
+          `there is nothing to retry.`
+        : `No allowance yet.\n\nOpen the Agent Mandate app, paste this address into ` +
+          `"Give an agent an allowance", set a limit and how long it lasts, and confirm with ` +
+          `Face ID:\n\n    ${agent.address}\n\nThen ask me again.`,
     );
   }
   return { account, allowance: await readAllowance(account, agent.address) };

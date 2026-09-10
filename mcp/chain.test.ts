@@ -143,3 +143,48 @@ test("the older one-number format is read as a search that finished", async () =
     "the search did not resume where the old file said it had reached",
   );
 });
+
+/**
+ * Telling "never granted" apart from "taken away".
+ *
+ * Both are the same absence in the code — a lookup that returns nothing — and completely different
+ * sentences to a person. The connector used to answer both with "No allowance yet. Open the app and
+ * grant one", which is the wrong thing to say at the exact moment somebody has deliberately revoked
+ * an agent with their face: it reads as though the revoke never registered.
+ *
+ * Nothing else can supply this. The chain says only that the key is not a session key now; whether
+ * it ever was is precisely what the connector remembered and then threw away.
+ */
+test("the account that granted an agent is remembered after it stops granting", async () => {
+  const path = statePath();
+  const GRANTER = "0xc3BB7bc7E375f7ffA34E652F560Dc802F7A76cFa";
+  writeFileSync(path, JSON.stringify({ [AGENT.toLowerCase()]: { account: GRANTER } }));
+
+  const { rememberedGranter } = await import(`./chain.ts?remembered=${Date.now()}`);
+  assert.equal(rememberedGranter(AGENT as `0x${string}`), GRANTER);
+});
+
+test("an agent nobody ever granted anything to remembers nobody", async () => {
+  const path = statePath();
+  writeFileSync(path, JSON.stringify({}));
+
+  const { rememberedGranter } = await import(`./chain.ts?forgotten=${Date.now()}`);
+  assert.equal(rememberedGranter(AGENT as `0x${string}`), null);
+});
+
+/** The oldest file format stored a bare address. An upgrade must not lose the distinction. */
+test("a grant remembered in the oldest format is still remembered", async () => {
+  const path = statePath();
+  const GRANTER = "0xc3BB7bc7E375f7ffA34E652F560Dc802F7A76cFa";
+  writeFileSync(path, JSON.stringify({ [AGENT.toLowerCase()]: GRANTER }));
+
+  const { rememberedGranter } = await import(`./chain.ts?legacyGranter=${Date.now()}`);
+  assert.equal(rememberedGranter(AGENT as `0x${string}`), GRANTER);
+});
+
+/** A missing or unreadable state file is an ordinary state, not a failure. */
+test("no state file at all is answered rather than thrown at", async () => {
+  process.env["ARC_MANDATE_ACCOUNT_PATH"] = join(mkdtempSync(join(tmpdir(), "arc-mandate-")), "absent.json");
+  const { rememberedGranter } = await import(`./chain.ts?absent=${Date.now()}`);
+  assert.equal(rememberedGranter(AGENT as `0x${string}`), null);
+});

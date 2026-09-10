@@ -245,6 +245,27 @@ export async function findGrantingAccount(
   return null;
 }
 
+/**
+ * The account we last saw grant this agent, whether or not it still does.
+ *
+ * Only ever used to *explain* a lookup that found nothing. "Nobody has granted me anything" and
+ * "what I was granted has been taken away" are the same absence to the code and completely
+ * different sentences to a person — the first reads as "you have not set this up yet", which is
+ * exactly the wrong thing to say at the moment somebody has just deliberately revoked an agent
+ * with their face.
+ *
+ * Deliberately does **not** short-circuit the search. Remembering that an account stopped granting
+ * says nothing about whether a *different* account has started, and an owner who revokes one
+ * allowance and grants another would otherwise be told their new one does not exist.
+ *
+ * Expiry is a separate state and does not appear here: the plugin leaves an expired session key
+ * installed, so `isSessionKeyOf` stays true and the allowance is reported as expired instead.
+ * Reaching this function's caller therefore means the key was genuinely removed.
+ */
+export function rememberedGranter(agentAddress: Address): Address | null {
+  return readState(agentAddress).account;
+}
+
 function stillGranted(account: Address, agentAddress: Address): Promise<boolean> {
   return publicClient.readContract({
     address: SESSION_KEY_PLUGIN, abi: pluginAbi, functionName: "isSessionKeyOf",
