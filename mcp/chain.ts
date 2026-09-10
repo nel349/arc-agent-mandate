@@ -34,8 +34,15 @@ const isAddress = (value: unknown): value is Address =>
 /** What we remember about an agent between runs. A cache: a lookup still works without it. */
 interface Remembered {
   readonly account: Address | null;
-  /** How far back the history has already been searched, so a retry resumes rather than restarts. */
-  readonly searchedThrough: bigint | null;
+  /**
+   * The stretch of chain already read, so an interrupted search resumes rather than restarts.
+   *
+   * An interval rather than a high-water mark, and that distinction is the whole point. The search
+   * runs head-downwards, so being cut off part way leaves the *top* read and the bottom unread —
+   * which a single number cannot express without claiming the bottom was covered. Recorded as a
+   * span, progress survives whatever stopped it: a rate limit, a timeout, a closed laptop.
+   */
+  readonly searched: { readonly low: bigint; readonly high: bigint } | null;
 }
 
 /**
@@ -151,39 +158,90 @@ export async function findGrantingAccount(
    * hundreds. Otherwise resume from wherever a previous fruitless search got to, and fall back to
    * the plugin's deployment only when nothing is known, which happens once per install.
    */
-  const previouslySearched = state.searchedThrough;
-  const bottom = DEPLOY_BLOCK ?? 0n;
-  const floor = keyIsNew && previouslySearched === null
-    ? head
-    : previouslySearched !== null && previouslySearched > bottom
-      ? previouslySearched
-      : bottom;
+    const bottom = DEPLOY_BLOCK ?? 0n;
+    let searched = state.searched;
 
-  for (let to = head; to > floor; to -= LOG_WINDOW + 1n) {
-    const from = to > floor + LOG_WINDOW ? to - LOG_WINDOW : floor;
-    const logs = await publicClient.getLogs({
-      address: SESSION_KEY_PLUGIN, event: grantedEvent,
-      args: { sessionKey: agentAddress }, fromBlock: from, toBlock: to,
-    });
-    // Newest first within the window: a key can be revoked and re-granted, and only a grant that
-    // still stands counts.
-    for (const log of logs.reverse()) {
-      // Indexed arguments are optional in viem's type because a log that fails to decode still
-      // arrives. Skipping one is right: a grant we cannot read is not a grant we should trust.
-      const granter = log.args.account;
-      if (granter === undefined) continue;
-      if (await stillGranted(granter, agentAddress)) {
-        cachedAccount = granter;
-        writeState(agentAddress, { account: granter });
-        return granter;
+    // A key generated moments ago cannot have been granted anything earlier, so there is no history
+    // worth reading and the first lookup costs one request instead of hundreds.
+    if (keyIsNew && searched === null) searched = { low: head, high: head };
+
+    /**
+     * Where to read, newest first: the blocks added since the last look, then — when the bottom was
+     * never reached — onwards down towards the plugin's deployment.
+     *
+     * Two spans rather than one, because the stretch already read sits in the middle: everything
+     * above it is new and everything below it was never reached, which is exactly the shape a
+     * search cut off part way through leaves behind.
+     */
+    /**
+     * Where to read, and in which direction — and the direction is the load-bearing part.
+     *
+     * The stretch already read sits in the middle: new blocks above it, unreached history below.
+     * Each is walked *away from* what is known, so every window is adjacent to the covered span and
+     * the record stays one unbroken interval. Walking the upper span downwards from the head
+     * instead leaves a gap between the head and the known high — and a single interval cannot
+     * describe a gap, so it would have to claim the middle was read when it was not, which is how
+     * a grant sitting in it becomes invisible. That is not hypothetical: the first version of this
+     * did exactly that, and recorded the whole history as read after one window.
+     *
+     * Newest-first within a window still holds, and correctness across windows does not depend on
+     * their order anyway: every candidate is checked against the chain before it is believed, so an
+     * older grant that has since been revoked is discarded rather than returned.
+     */
+    const spans: readonly { readonly from: bigint; readonly to: bigint; readonly upward: boolean }[] =
+      searched === null
+        ? [{ from: bottom, to: head, upward: false }]
+        : [
+            ...(head > searched.high ? [{ from: searched.high, to: head, upward: true }] : []),
+            ...(searched.low > bottom ? [{ from: bottom, to: searched.low, upward: false }] : []),
+          ];
+
+    /**
+     * Recorded after every window rather than once at the end, which is the fix.
+     *
+     * Recording only on completion meant a search that could not finish remembered nothing, so the
+     * next call started from scratch and failed in the same place — and every day's blocks made it
+     * worse. Against a rate-limited endpoint that is not a slow path but a wall: the note above
+     * this function predicted "pairing simply never completes", and that is what arrived.
+     */
+    const cover = (low: bigint, high: bigint): void => {
+      searched = searched === null ? { low, high } : {
+        low: low < searched.low ? low : searched.low,
+        high: high > searched.high ? high : searched.high,
+      };
+      writeState(agentAddress, { searched });
+    };
+
+    for (const span of spans) {
+      let edge = span.upward ? span.from : span.to;
+      while (span.upward ? edge < span.to : edge > span.from) {
+        const from = span.upward
+          ? edge
+          : (edge > span.from + LOG_WINDOW ? edge - LOG_WINDOW : span.from);
+        const to = span.upward
+          ? (edge + LOG_WINDOW < span.to ? edge + LOG_WINDOW : span.to)
+          : edge;
+
+        const logs = await publicClient.getLogs({
+          address: SESSION_KEY_PLUGIN, event: grantedEvent,
+          args: { sessionKey: agentAddress }, fromBlock: from, toBlock: to,
+        });
+        for (const log of logs.reverse()) {
+          // Indexed arguments are optional in viem's type because a log that fails to decode still
+          // arrives. Skipping one is right: a grant we cannot read is not a grant we should trust.
+          const granter = log.args.account;
+          if (granter === undefined) continue;
+          if (await stillGranted(granter, agentAddress)) {
+            cachedAccount = granter;
+            writeState(agentAddress, { account: granter });
+            return granter;
+          }
+        }
+        cover(from, to);
+        edge = span.upward ? to : from;
       }
     }
-    if (from === floor) break;
-  }
 
-  // Nothing here. Record how far this got, so the next lookup reads only what the chain has added
-  // since rather than starting over — which is what made an unpaired agent slower every day.
-  writeState(agentAddress, { searchedThrough: head });
   return null;
 }
 
@@ -318,21 +376,41 @@ const MEMORY_PATH =
 function readState(agentAddress: Address): Remembered {
   try {
     const all: unknown = JSON.parse(readFileSync(MEMORY_PATH, "utf8"));
-    if (!isRecord(all)) return { account: null, searchedThrough: null };
-    const entry = all[agentAddress.toLowerCase()];
-    if (isAddress(entry)) return { account: entry, searchedThrough: null }; // older format
-    if (isRecord(entry)) {
-      const account = entry["account"];
-      const searched = entry["searchedThrough"];
-      return {
-        account: isAddress(account) ? account : null,
-        searchedThrough: typeof searched === "string" ? BigInt(searched) : null,
-      };
-    }
+      if (!isRecord(all)) return { account: null, searched: null };
+      const entry = all[agentAddress.toLowerCase()];
+      if (isAddress(entry)) return { account: entry, searched: null }; // oldest format
+      if (isRecord(entry)) {
+        const account = entry["account"];
+        return {
+          account: isAddress(account) ? account : null,
+          searched: readSearched(entry),
+        };
+      }
   } catch {
     // Absent, unreadable, or not JSON. This is a cache: a lookup still works without it.
   }
-  return { account: null, searchedThrough: null };
+  return { account: null, searched: null };
+}
+
+/**
+ * The span already read, from either shape this file has had.
+ *
+ * The previous format stored one number meaning "everything below here has been read", which is the
+ * completed case of a span — so an old file migrates without a rewrite, and an agent that upgrades
+ * mid-search keeps whatever it had got through.
+ */
+function readSearched(entry: Record<string, unknown>): Remembered["searched"] {
+  const span = entry["searched"];
+  if (isRecord(span)) {
+    const low = span["low"];
+    const high = span["high"];
+    if (typeof low === "string" && typeof high === "string") {
+      return { low: BigInt(low), high: BigInt(high) };
+    }
+  }
+  const through = entry["searchedThrough"];
+  if (typeof through === "string") return { low: DEPLOY_BLOCK ?? 0n, high: BigInt(through) };
+  return null;
 }
 
 function writeState(agentAddress: Address, patch: Partial<Remembered>): void {
@@ -350,10 +428,12 @@ function writeState(agentAddress: Address, patch: Partial<Remembered>): void {
       isAddress(existing) ? { account: existing } : isRecord(existing) ? existing : {};
     all[key] = {
       ...previous,
-      ...patch,
-      ...(patch.searchedThrough === undefined
-        ? {}
-        : { searchedThrough: String(patch.searchedThrough) }),
+        ...(patch.account === undefined ? {} : { account: patch.account }),
+        // Written as strings, because a bigint is not JSON — and taken from the patch by name
+        // rather than spread, so a bigint can never reach `JSON.stringify` and throw.
+        ...(patch.searched === undefined || patch.searched === null
+          ? {}
+          : { searched: { low: String(patch.searched.low), high: String(patch.searched.high) } }),
     };
     mkdirSync(dirname(MEMORY_PATH), { recursive: true, mode: 0o700 });
     writeFileSync(MEMORY_PATH, `${JSON.stringify(all, null, 2)}\n`, { mode: 0o600 });
