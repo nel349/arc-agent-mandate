@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { AppState } from "react-native";
 import { connectArcAccount, WebAuthnMode, type ArcAccount } from "../arc/account.ts";
 import { balanceOf } from "../arc/send.ts";
 import { Usdc } from "../arc/usdc.ts";
@@ -98,6 +99,23 @@ export function useArcAccount(): ArcWallet {
     }, BALANCE_POLL_MS);
     return () => clearInterval(timer);
   }, [account, busy]);
+
+  /**
+   * And again when the app returns, since the timer did not run while it was away.
+   *
+   * Same reason as the mandate screen's: a suspended interval is not a slow interval, it is a
+   * stopped one, so the balance on screen was as old as the last time this app was open.
+   */
+  useEffect(() => {
+    if (!account) return;
+    const watch = AppState.addEventListener("change", (next) => {
+      if (next !== "active") return;
+      void balanceOf(account.address).then(setBalance).catch(() => {
+        // Same as the poll: a missed read is not worth a message.
+      });
+    });
+    return () => watch.remove();
+  }, [account]);
 
   return { account, balance, busy, error, create, signIn, refresh };
 }

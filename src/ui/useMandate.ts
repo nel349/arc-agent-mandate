@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { AppState } from "react-native";
 import type { Address, Hash } from "viem";
 import type { ArcAccount } from "../arc/account.ts";
 import {
@@ -81,6 +82,24 @@ export function useMandate(account: ArcAccount | null): MandateScreen {
     const timer = setInterval(refresh, POLL_INTERVAL_MS);
     return () => clearInterval(timer);
   }, [account, busy, refresh]);
+
+  /**
+   * Read again the moment the app comes back, because the timer above did not run while it was away.
+   *
+   * The interval is not a clock: the platform suspends JavaScript timers in a backgrounded app, so
+   * coming back to this screen showed whatever was last read — from minutes or hours earlier — and
+   * corrected it only when the next tick eventually fired. For most screens that is a blemish. Here
+   * the stale figure is *how much an agent may still spend*, which is the one number somebody opens
+   * this app to check before deciding whether to intervene, and it was wrong for ten seconds at
+   * exactly the moment they were looking at it.
+   */
+  useEffect(() => {
+    if (!account) return;
+    const watch = AppState.addEventListener("change", (next) => {
+      if (next === "active") refresh();
+    });
+    return () => watch.remove();
+  }, [account, refresh]);
 
   /**
    * Every write follows the same shape: clear the last error, run, then re-read the chain.

@@ -95,10 +95,44 @@ export interface Fork {
 }
 
 export async function start({ mandate = 10n * 10n ** 18n, walletBalance = 500n * 10n ** 18n }: Fork = {}): Promise<Address> {
+  /**
+   * Every one of these files runs a whole forked chain, and they all use this port.
+   *
+   * `node --test` runs files concurrently by default, so they were starting on top of each other:
+   * one file's `stop()` killed the node another file was mid-test against, and the survivors
+   * reported `ECONNREFUSED` from somewhere that looked nothing like the cause. Thirteen tests
+   * cancelled, no failures, exit 1 — and green whenever the scheduling happened to be kind.
+   *
+   * The suite is serial now (`--test-concurrency=1`). This is the check that says so out loud if
+   * that ever comes undone, because the symptom otherwise points anywhere but here.
+   */
+  const alreadyThere = await publicClient.getBlockNumber().then(() => true).catch(() => false);
+  if (alreadyThere) {
+    throw new Error(
+      `Something is already serving ${RPC}. These tests each run their own forked chain on that ` +
+      `port, so two at once fight over it and kill each other. Run them serially ` +
+      `(--test-concurrency=1), or set ANVIL_PORT.`,
+    );
+  }
+
+  const complaints: string[] = [];
   anvil = spawn("anvil", ["--fork-url", ARC_RPC, "--fork-block-number", String(FORK_BLOCK),
-                          "--port", String(PORT), "--silent"], { stdio: "ignore" });
+                          "--port", String(PORT), "--silent"],
+                { stdio: ["ignore", "ignore", "pipe"] });
+  // Kept rather than discarded: a node that refuses to start explains itself here and nowhere else,
+  // and throwing that away is what made a port collision look like a network fault.
+  anvil.stderr?.on("data", (chunk: Buffer) => { complaints.push(chunk.toString()); });
+
+  let up = false;
   for (let i = 0; i < 60; i++) {
-    try { await publicClient.getBlockNumber(); break; } catch { await new Promise((r) => setTimeout(r, 500)); }
+    try { await publicClient.getBlockNumber(); up = true; break; } catch { await new Promise((r) => setTimeout(r, 500)); }
+  }
+  if (!up) {
+    // Said here rather than left to surface as ECONNREFUSED from the first call that needed it.
+    throw new Error(
+      `anvil did not answer on ${RPC} within 30s.` +
+      (complaints.length > 0 ? `\n${complaints.join("")}` : " It printed nothing."),
+    );
   }
   await rpc("anvil_setBalance", [submitter.address, "0x" + (10n ** 20n).toString(16)]);
   await rpc("anvil_setBalance", [MSCA, "0x" + walletBalance.toString(16)]);
