@@ -4,7 +4,7 @@ import { connectArcAccount, reopenArcAccount, WebAuthnMode, type ArcAccount } fr
 import { balanceOf } from "../arc/send.ts";
 import { Usdc } from "../arc/usdc.ts";
 import { canOfferExistingPasskey } from "../passkey/shim.ts";
-import { describeFailure, isCancellation, WALLET_FAILURES } from "./failure.ts";
+import { walletFailure } from "./failure.ts";
 import { isSameWallet, launchPlan, walletMemoryOf } from "./wallet-memory.ts";
 import {
   clearWalletMemory, loadWalletMemory, rememberSignedOut, saveWalletMemory, wasSignedOutOnPurpose,
@@ -75,11 +75,9 @@ export function useArcAccount(): ArcWallet {
       try {
         await work();
       } catch (cause) {
-        // One describer, shared with the mandate screen. This used to be a second, weaker copy:
-        // it read only the outermost `message`, so a reason nested in `cause` never reached it,
-        // and its cancellation check could not match what iOS actually reports — so dismissing
-        // the passkey prompt showed library prose about a failed credential request.
-        setError(describeFailure(cause, WALLET_FAILURES));
+        // One describer, shared with the mandate screen, and one rule for the wallet's paths: a
+        // closed passkey sheet says nothing, so the welcome screen stays as the person left it.
+        setError(walletFailure(cause));
       } finally {
         setBusy(false);
       }
@@ -161,13 +159,13 @@ export function useArcAccount(): ArcWallet {
             // No passkey for this app on the phone reads as a cancelled request, and so does the
             // person closing the sheet: the welcome screen is the answer, with nothing to apologise
             // for. Anything else, like Circle not answering after they chose a passkey, is said.
-            if (!isCancellation(cause)) setError(describeFailure(cause, WALLET_FAILURES));
+            setError(walletFailure(cause));
           }
         }
       } catch (cause) {
         // Reopening failed for some other reason, a network most likely. The memory is kept, so the
         // next launch tries again; this one shows the welcome screen, where the passkey still works.
-        setError(describeFailure(cause, WALLET_FAILURES));
+        setError(walletFailure(cause));
       } finally {
         setRestoring(false);
       }

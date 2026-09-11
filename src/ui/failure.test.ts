@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { HttpRequestError } from "viem";
-import { ARC_BUSY, describeFailure, isCancellation, MANDATE_FAILURES } from "./failure.ts";
+import { ARC_BUSY, describeFailure, isCancellation, MANDATE_FAILURES, walletFailure } from "./failure.ts";
 
 /**
  * The SDK wraps a failure and puts the reason in `cause`. Matching only the outer message meant
@@ -158,6 +158,34 @@ test("a dismissed or empty passkey request is a cancellation, however deeply it 
     isCancellation(new Error("outer", { cause: new Error("middle", { cause: IOS_DISMISSED }) })),
     true,
     "a cancellation two links down was missed",
+  );
+});
+
+/**
+ * The welcome screen showed "Cancelled. Nothing changed." under "Create a wallet" after the person
+ * closed the passkey sheet themselves: the launch path stayed quiet, and the buttons' path did not.
+ */
+test("the wallet screens say nothing when the passkey sheet is closed, and still say a real failure", () => {
+  assert.equal(walletFailure(new Error("signing in failed", { cause: IOS_DISMISSED })), null);
+  assert.equal(
+    walletFailure(new Error("creating a wallet failed", {
+      cause: new Error("NotAllowedError: The operation either timed out or was not allowed"),
+    })),
+    null,
+  );
+
+  const failed = new Error(
+    "Failed to request credential. (com.apple.AuthenticationServices.AuthorizationError error 1004.)",
+  );
+  assert.equal(
+    walletFailure(new Error("signing in failed", { cause: failed })),
+    "Error: Failed to request credential. (com.apple.AuthenticationServices.AuthorizationError error 1004.)",
+  );
+  assert.equal(
+    walletFailure(new Error("creating a wallet failed", {
+      cause: new Error("The RP ID is not associated with domain arc.example"),
+    })),
+    "This app is not associated with the passkey domain yet.",
   );
 });
 

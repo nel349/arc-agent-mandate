@@ -127,6 +127,18 @@ export const WALLET_FAILURES = [
    "This app is not associated with the passkey domain yet."],
 ] as const;
 
+/**
+ * What the wallet screens say when opening or creating a wallet did not finish, or nothing at all.
+ *
+ * A closed passkey sheet is the person's own answer, and the screen it leaves them on already says
+ * everything there is to say. "Cancelled. Nothing changed." belongs to an allowance that was about to
+ * change, where it reassures; on the welcome screen, under "Create a wallet", it read as a warning
+ * about nothing. So every wallet path asks this one question, and only a real failure is shown.
+ */
+export function walletFailure(cause: unknown): string | null {
+  return isCancellation(cause) ? null : describeFailure(cause, WALLET_FAILURES);
+}
+
 export function describeFailure(
   cause: unknown,
   /**
