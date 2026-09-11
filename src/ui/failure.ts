@@ -93,6 +93,17 @@ function wasCancelled(text: string): boolean {
 }
 
 /**
+ * Did an error, however deeply it was wrapped, end with the passkey prompt dismissed?
+ *
+ * The same rule `describeFailure` applies, reading the whole chain of causes, for a caller that has
+ * to decide whether to say anything at all. iOS's returning-user request reports "no passkey here"
+ * with the same code as a person closing the sheet, and both are ordinary endings.
+ */
+export function isCancellation(cause: unknown): boolean {
+  return wasCancelled(causeChain(cause).join("\n"));
+}
+
+/**
  * Failures only the allowance screen can have.
  *
  * Kept here rather than beside the hook so that every sentence a person can be shown lives in one

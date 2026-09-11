@@ -34,6 +34,18 @@ export interface ArcPasskeyNative {
     excludedCredentialIds: string[],
   ): Promise<NativeRegistration>;
   authenticate(rpId: string, challenge: string, allowedCredentialIds: string[]): Promise<NativeAssertion>;
+  /**
+   * The returning-user sign-in (iOS 16+): shows the passkey sheet only when a passkey for this app
+   * is already on the phone, and fails at once, without any sheet, when there is none.
+   *
+   * This and the three below are optional because the JavaScript can be newer than the build on
+   * the phone: a build that predates them does not have them, so callers check before calling.
+   */
+  authenticateImmediately?(rpId: string, challenge: string, allowedCredentialIds: string[]): Promise<NativeAssertion>;
+  /** The remembered wallet, in the iOS Keychain. Public values only; see `src/ui/wallet-memory.ts`. */
+  saveWalletMemory?(value: string): Promise<void>;
+  loadWalletMemory?(): Promise<string | null>;
+  clearWalletMemory?(): Promise<void>;
   registerJson(requestJson: string): Promise<string>;
   authenticateJson(requestJson: string): Promise<string>;
 }

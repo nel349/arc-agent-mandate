@@ -169,6 +169,40 @@ async function create(
   );
 }
 
+/**
+ * Whether the sign-in in progress is iOS's returning-user request.
+ *
+ * Circle builds the request options itself and passes nothing of ours through to `get`, so there
+ * is no field to carry this in. It is set only inside `withReturningUserSignIn`, for the length of
+ * one call, and read in exactly one place below.
+ */
+let returningUserOnly = false;
+
+/** True when this build can ask iOS for its returning-user sheet. False on Android and on older builds. */
+export function canOfferExistingPasskey(): boolean {
+  return Platform.OS === "ios" && typeof arcPasskey.authenticateImmediately === "function";
+}
+
+/**
+ * Runs one sign-in as iOS's returning-user request.
+ *
+ * The passkey sheet appears only if a passkey for this app is already on the phone; if there is
+ * none, the sign-in fails at once without showing anything. That is what lets the app offer an
+ * existing passkey the moment it opens after a reinstall, and never put an empty prompt in front
+ * of somebody who has not made one.
+ */
+export async function withReturningUserSignIn<T>(work: () => Promise<T>): Promise<T> {
+  if (!canOfferExistingPasskey()) {
+    throw new PasskeyShimError("this build cannot ask for an existing passkey without showing the full sheet");
+  }
+  returningUserOnly = true;
+  try {
+    return await work();
+  } finally {
+    returningUserOnly = false;
+  }
+}
+
 async function get(
   options: { publicKey: PublicKeyCredentialRequestOptions },
 ): Promise<SynthesisedCredential<AssertionResponse>> {
@@ -203,7 +237,9 @@ async function get(
     signatureB64 = json.response.signature;
     userHandleB64 = json.response.userHandle ?? "";
   } else {
-    const native = await arcPasskey.authenticate(rpId, challenge, allowedCredentialIds);
+    const native = returningUserOnly && arcPasskey.authenticateImmediately !== undefined
+      ? await arcPasskey.authenticateImmediately(rpId, challenge, allowedCredentialIds)
+      : await arcPasskey.authenticate(rpId, challenge, allowedCredentialIds);
     credentialId = native.credentialId;
     authenticatorDataB64 = native.authenticatorData;
     clientDataJSONB64 = native.clientDataJSON;

@@ -38,6 +38,7 @@ export default function AllowancesScreen() {
     [router],
   );
 
+  if (wallet.restoring) return <Opening />;
   if (wallet.account === null) return <Welcome />;
 
   const address = wallet.account.address;
@@ -193,6 +194,27 @@ function Welcome() {
             Your wallet opens with Face ID. There is no password, and nothing to write down.
           </Text>
           {wallet.error !== null && <Note tone="warn" lines={ERROR_LINES}>{wallet.error}</Note>}
+        </View>
+      </Screen>
+    </>
+  );
+}
+
+/**
+ * Between launch and the wallet: the ring and one line.
+ *
+ * Reopening a remembered wallet takes a moment, and showing the welcome screen during it put two
+ * big buttons in front of somebody who was already signed in.
+ */
+function Opening() {
+  const c = useTheme().color;
+  return (
+    <>
+      <Stack.Screen options={{ title: "" }} />
+      <Screen centered>
+        <View style={styles.welcome}>
+          <ArcRing spent={WELCOME_RING} size={tokens.size.ring.welcome} label="" />
+          <Text style={[styles.welcomeNote, { color: c.dim }]}>Opening your wallet</Text>
         </View>
       </Screen>
     </>

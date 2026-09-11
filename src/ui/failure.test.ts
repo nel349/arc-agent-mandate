@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { HttpRequestError } from "viem";
-import { ARC_BUSY, describeFailure, MANDATE_FAILURES } from "./failure.ts";
+import { ARC_BUSY, describeFailure, isCancellation, MANDATE_FAILURES } from "./failure.ts";
 
 /**
  * The SDK wraps a failure and puts the reason in `cause`. Matching only the outer message meant
@@ -143,4 +143,30 @@ test("a refusal for asking too often says Arc is busy, not that something broke"
     details: "{\"code\":-32005,\"message\":\"rate limit exceeded\"}",
   });
   assert.equal(describeFailure(new Error("reading the allowances failed", { cause: refused }), MANDATE_FAILURES), ARC_BUSY);
+});
+
+/**
+ * The launch after a reinstall asks iOS for a passkey only if one is already on the phone. When
+ * there is none, iOS ends the request with the same code as a person closing the sheet, and the
+ * app must stay quiet for both. It must not stay quiet about anything else: a person who chose their
+ * passkey and was then let down by the network needs to be told.
+ */
+test("a dismissed or empty passkey request is a cancellation, however deeply it is wrapped", () => {
+  assert.equal(isCancellation(IOS_DISMISSED), true);
+  assert.equal(isCancellation(new Error("signing in failed", { cause: IOS_DISMISSED })), true);
+  assert.equal(
+    isCancellation(new Error("outer", { cause: new Error("middle", { cause: IOS_DISMISSED }) })),
+    true,
+    "a cancellation two links down was missed",
+  );
+});
+
+test("a real failure after the passkey is not taken for a cancellation", () => {
+  const failed = new Error(
+    "Failed to request credential. (com.apple.AuthenticationServices.AuthorizationError error 1004.)",
+  );
+  assert.equal(isCancellation(new Error("signing in failed", { cause: failed })), false);
+  const network = new HttpRequestError({ url: "https://modular-sdk.circle.com/v1/rpc/w3s/buidl", status: 502 });
+  assert.equal(isCancellation(new Error("signing in failed", { cause: network })), false);
+  assert.equal(isCancellation("a string, not an error"), false);
 });
