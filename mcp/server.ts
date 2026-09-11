@@ -23,13 +23,18 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { encodeFunctionData, formatEther, formatUnits, isAddress, parseAbi, parseEther, parseUnits, type Address } from "viem";
 import { loadOrCreateAgent } from "./identity.ts";
-import { arc, findGrant, NATIVE_PER_ERC20, pairingToShow, RAIL, readAllowance, rememberedGranter, USDC_ERC20_VIEW, type Allowance, type Grant } from "./chain.ts";
+import {
+  arc, findGrant, NATIVE_PER_ERC20, pairingToShow, publicClient, RAIL, readAllowance, rememberedEscrow,
+  rememberedGranter, rememberedIdentity, rememberEscrow, rememberIdentity, USDC_ERC20_VIEW,
+  type Allowance, type Grant,
+} from "./chain.ts";
+import { setUpIdentity, type IdentityOutcome, type Submit } from "./erc8004.ts";
 import { pairingLink } from "./pairing.ts";
 import { writeQrPng } from "./pairing-image.ts";
-import { submitSpend } from "./spend.ts";
+import { REFUSED_BY_ALLOWANCE, submitSpend } from "./spend.ts";
 import { bundlerConfigured, bundlerSetupInstructions } from "./bundler.ts";
 import { escrowLedger, gatewayAccepting, readEscrow, topUpCalls, type Call } from "./gateway.ts";
-import { fetchWithPayment, type Funding } from "./x402.ts";
+import { fetchWithPayment, SELLER_WENT_QUIET, type BuyOutcome, type Funding } from "./x402.ts";
 import qrcode from "qrcode-terminal";
 
 /**
@@ -127,6 +132,9 @@ const INSTRUCTIONS = [
     "move you to another wallet, the user scans a new code from that wallet.",
   "When you say what you can spend, or what you spent, name the wallet it comes from as the tools " +
     "do, so the user can match it to their app.",
+  "check_allowance also names this agent's ERC-8004 identity, which the user's wallet owns. When a " +
+    "seller asks for your agent id, for example as ?agent= when you start, give that number: it is " +
+    "how what you earn reaches the user's wallet.",
   "When a payment is refused, tell the user the one next action the refusal names, and who does it.",
   "When a task is finished, say what it cost, and that the allowance stays until its end date and " +
     "can be revoked in the app.",
@@ -140,6 +148,8 @@ const online = (units: bigint): string => `$${formatUnits(units, 6)}`;
 const text = (body: string) => ({ content: [{ type: "text" as const, text: body }] });
 /** A wallet the way a person matches it against the app: its first and last characters. */
 const walletName = (account: Address): string => `${account.slice(0, 6)}…${account.slice(-4)}`;
+/** An amount as a person writes one: digits, with at most one decimal point. */
+const DECIMAL = /^\d+(\.\d+)?$/;
 
 /**
  * Every spending tool needs the same two facts, and neither is configured.
@@ -184,6 +194,27 @@ const pairAgain = (legacy: Address): string =>
   `get_pairing_address and show the user the new code; they scan it in the app with New allowance, ` +
   `from the wallet they want this agent to use. The old allowance can be revoked in the app.`;
 
+/**
+ * Money already moved into the agent's escrow, said when an allowance is withdrawn.
+ *
+ * Revoking stops the agent drawing on the wallet, and does not reach what earlier top-ups put in
+ * escrow: that is the agent's at Circle's Gateway, spendable by its key, or withdrawn to its own
+ * address after Circle's delay. Saying nothing let a person believe a revoke took everything back.
+ */
+async function escrowLeftBehind(): Promise<string> {
+  let held: bigint;
+  try {
+    held = await spendableEscrow();
+  } catch {
+    return "\n\nWhether the agent still holds money in escrow from earlier top-ups could not be read just now.";
+  }
+  return held === 0n
+    ? ""
+    : `\n\nThe agent still holds ${online(held)} in escrow at Circle's Gateway from earlier top-ups. ` +
+      `Revoking does not reach it: only this agent's key can spend it, or withdraw it to its own ` +
+      `address after Circle's delay.`;
+}
+
 async function requireMandate() {
   let grant: Grant;
   try {
@@ -205,7 +236,7 @@ async function requireMandate() {
         `it on chain, so the wallet is closed to it and this connector will not spend. Nothing ` +
         `was bought and nothing was charged. If the user wants this agent to carry on, they grant ` +
         `it again in the app with New allowance, scanning the code get_pairing_address shows; ` +
-        `until then there is nothing to retry.`,
+        `until then there is nothing to retry.${await escrowLeftBehind()}`,
     );
   }
   if (grant.status === "unpaired") {
@@ -272,10 +303,14 @@ server.registerTool(
 );
 
 /**
- * One ledger for the process: this connector is the only thing that spends this escrow, so what it
- * has claimed is exactly what the chain has not caught up with yet.
+ * One ledger: this connector is the only thing that spends this escrow, so what it has claimed is
+ * exactly what the chain has not caught up with yet. Kept beside the agent's key, so a restart in
+ * the quarter hour a batch takes does not forget what is still settling.
  */
-const escrow = escrowLedger();
+const escrow = escrowLedger(
+  rememberedEscrow(agent.address) ?? undefined,
+  (tally) => rememberEscrow(agent.address, tally),
+);
 
 /**
  * The only way this file is allowed to ask what is in escrow.
@@ -299,9 +334,89 @@ async function spendableEscrow(): Promise<bigint> {
  */
 async function escrowLine(allowance: Allowance): Promise<string[]> {
   if (allowance.rail !== RAIL.erc20) return [];
-  const held = await spendableEscrow();
+  let held: bigint;
+  try {
+    held = await spendableEscrow();
+  } catch (cause) {
+    return [`  escrow could not be read: ${unreachable(cause)}`];
+  }
   if (held === 0n) return [];
-  return [`  of which ${online(held)} is already in escrow, spendable on the web without a top-up`];
+  // "plus", not "of which": escrow is money the allowance already moved, so it is extra to the above.
+  return [`  plus ${online(held)} already in escrow, spendable on the web without a top-up`];
+}
+
+/**
+ * Operations from the owner's account under the allowance, read back for what they logged.
+ *
+ * Setting up an identity needs the number `register()` minted, and that is only in the logs.
+ */
+const submitFrom = (account: Address): Submit => async (calls) => {
+  const result = await submitSpend({ agent, account, calls });
+  if (!result.ok) return { ok: false, reason: result.reason };
+  const receipt = await publicClient.getTransactionReceipt({ hash: result.hash });
+  return { ok: true, logs: receipt.logs };
+};
+
+/** One setup at a time for each wallet, so two checks at once cannot register two identities. */
+const settingUp = new Map<string, Promise<IdentityOutcome>>();
+
+function identityFor(account: Address): Promise<IdentityOutcome> {
+  const key = account.toLowerCase();
+  const running = settingUp.get(key);
+  if (running !== undefined) return running;
+  const started = setUpIdentity({
+    agent,
+    owner: account,
+    remembered: rememberedIdentity(agent.address, account),
+    client: publicClient,
+    submit: submitFrom(account),
+    remember: (agentId) => rememberIdentity(agent.address, account, agentId),
+  }).finally(() => settingUp.delete(key));
+  settingUp.set(key, started);
+  return started;
+}
+
+/**
+ * The agent's ERC-8004 identity, as lines for `check_allowance`, set up first when it is missing.
+ *
+ * Said beside the allowance because that is what the agent reads before it plays anything, and the
+ * number is what it gives a seller that rewards agents. Setting one up needs an allowance that is in
+ * force and a connector that can submit, and when either is missing the line says which.
+ */
+async function identityLines(account: Address, allowance: Allowance): Promise<string[]> {
+  if (allowance.expired || allowance.notYet) return [];
+  if (!bundlerConfigured()) {
+    return [
+      "",
+      "Identity: not set up yet. This connector cannot submit operations until it has a Circle " +
+        "client key, and the first payment explains how to add one.",
+    ];
+  }
+  let outcome: IdentityOutcome;
+  try {
+    outcome = await identityFor(account);
+  } catch (cause) {
+    return ["", `Identity: could not be checked. ${unreachable(cause)}`];
+  }
+  if (!outcome.ok) {
+    return [
+      "",
+      `Identity: could not be set up (${outcome.reason}). ` +
+        (outcome.reason.startsWith(REFUSED_BY_ALLOWANCE)
+          ? "This allowance was granted before allowances let an agent set up its identity; a new " +
+            "allowance from the app does. "
+          : "") +
+        "Payments still work, but a seller that rewards an identity cannot credit this wallet yet. " +
+        "Checking again tries again.",
+    ];
+  }
+  return [
+    "",
+    `Identity: ERC-8004 agent #${outcome.agentId}, owned by wallet ${walletName(account)}` +
+      (outcome.registered ? ", set up just now." : "."),
+    `When a seller asks for your ERC-8004 agent id, for example as ?agent= when you start, give ` +
+      `${outcome.agentId}. What you earn is written to it, and a badge goes to wallet ${walletName(account)}.`,
+  ];
 }
 
 server.registerTool(
@@ -310,7 +425,9 @@ server.registerTool(
     title: "Check the remaining allowance",
     description:
       "How much this agent may still spend. Call this before promising a purchase, and after a " +
-      "refusal to see whether the limit or the payee was the problem.",
+      "refusal to see whether the limit or the payee was the problem. It also names this agent's " +
+      "ERC-8004 identity, owned by the wallet it spends from; the first time it runs for a wallet it " +
+      "sets that identity up, in two sponsored operations that move no money.",
     inputSchema: {},
   },
   async () => {
@@ -336,9 +453,10 @@ server.registerTool(
         ...(allowance.expiresAt === null
           ? []
           : [`  expires ${new Date(allowance.expiresAt * 1000).toISOString().slice(0, 16).replace("T", " ")} UTC`]),
-        // Reported separately because the chain meters it separately: the online budget does not
-        // come out of the limit above, and the two together are what this agent may spend.
+        // Escrow is money the allowance already moved to the agent, so it is extra to what is
+        // spendable above; the two together are what this agent can spend right now.
         ...(await escrowLine(allowance)),
+        ...(await identityLines(account, allowance)),
       ].join("\n"),
     );
   },
@@ -395,11 +513,14 @@ server.registerTool(
     inputSchema: {
       to: z.string().describe("Recipient address (0x…)"),
       amount: z.string().describe("Amount in USDC, as a decimal string, e.g. \"2.50\""),
-      reason: z.string().optional().describe("What this buys, shown to the user in their feed"),
+      reason: z.string().optional().describe("What this buys, said back in the reply so the user can match it to the payment"),
     },
   },
   async ({ to, amount, reason }) => {
     if (!isAddress(to)) throw new Error(`Not an address: ${to}`);
+    if (!DECIMAL.test(amount)) {
+      return text(`Nothing was sent. "${amount}" is not an amount; give it as a plain decimal, like 2.50.`);
+    }
     const value = parseEther(amount);
     if (value <= 0n) throw new Error("Amount must be positive.");
 
@@ -481,7 +602,12 @@ async function fundEscrow({ account, allowance, needed }: EscrowRequest): Promis
   }
   // Not the chain's figure: what Circle will actually accept, which is less by whatever we have
   // already claimed into a batch that has not landed.
-  const held = await spendableEscrow();
+  let held: bigint;
+  try {
+    held = await spendableEscrow();
+  } catch (cause) {
+    return { ok: false, reason: `${unreachable(cause)} Nothing was moved.` };
+  }
   if (held >= needed) return { ok: true, toppedUp: 0n };
 
   const shortfall = needed - held;
@@ -503,7 +629,12 @@ async function fundEscrow({ account, allowance, needed }: EscrowRequest): Promis
     };
   }
 
-  const accepting = await gatewayAccepting();
+  let accepting: Awaited<ReturnType<typeof gatewayAccepting>>;
+  try {
+    accepting = await gatewayAccepting();
+  } catch (cause) {
+    return { ok: false, reason: `${unreachable(cause)} Nothing was moved.` };
+  }
   if (!accepting.ok) return { ok: false, reason: accepting.reason };
 
   const result = await submitSpend({ agent, account, calls: topUpCalls(agent.address, shortfall) });
@@ -526,25 +657,40 @@ server.registerTool(
     inputSchema: {
       url: z.string().describe("The address to fetch, e.g. https://api.example.com/report"),
       method: z.string().optional().describe("HTTP method, default GET"),
-      reason: z.string().optional().describe("What this buys, shown to the user in their feed"),
+      reason: z.string().optional().describe("What this buys, said back in the reply so the user can match it to the payment"),
     },
   },
   async ({ url, method = "GET", reason }) => {
     const { account, allowance } = await requireMandate();
     let toppedUp = 0n;
 
-    const outcome = await fetchWithPayment({
-      url,
-      method,
-      agent,
-      ensureFunds: async (needed: bigint): Promise<Funding> => {
-        const funded = await fundEscrow({ account, allowance, needed });
-        if (funded.ok) toppedUp = funded.toppedUp;
-        return funded;
-      },
-    });
+    let outcome: BuyOutcome;
+    try {
+      outcome = await fetchWithPayment({
+        url,
+        method,
+        agent,
+        ensureFunds: async (needed: bigint): Promise<Funding> => {
+          const funded = await fundEscrow({ account, allowance, needed });
+          if (funded.ok) toppedUp = funded.toppedUp;
+          return funded;
+        },
+      });
+    } catch (cause) {
+      // Only asking the price can throw here. The request carrying a payment is caught inside,
+      // where whether the seller took it is unknown rather than impossible.
+      return text(
+        `Nothing was bought and nothing was spent. ${url} did not answer: ` +
+          `${cause instanceof Error ? cause.message : String(cause)}`,
+      );
+    }
 
     if (!outcome.paid) {
+      if (outcome.perhapsCharged === true && outcome.amount !== undefined) {
+        // Counted as spent until the escrow says otherwise, which errs toward topping up.
+        escrow.claimed(outcome.amount);
+        return text(outcome.problem ?? SELLER_WENT_QUIET);
+      }
       if (outcome.problem !== undefined) {
         return text(`Nothing was bought and nothing was spent. ${outcome.problem}`);
       }
@@ -568,6 +714,14 @@ server.registerTool(
     escrow.claimed(outcome.amount);
 
     const body = await outcome.response.text();
+    if (!outcome.delivered) {
+      return text(
+        `Paid ${online(outcome.amount)} to ${outcome.payTo} from the agent's escrow, but the seller ` +
+          `answered ${outcome.response.status} ${outcome.response.statusText} instead of delivering. ` +
+          `The payment was taken, so do not retry as though it was not. Tell the user, and pass on ` +
+          `what the seller said, which names the payment:\n\n${body.slice(0, 4000)}`,
+      );
+    }
     return text(
       [
         `Bought ${online(outcome.amount)} from ${outcome.payTo}${reason ? ` for ${reason}` : ""}, ` +
@@ -597,18 +751,29 @@ server.registerTool(
   },
   async ({ amount }) => {
     const { account, allowance } = await requireMandate();
+    if (!DECIMAL.test(amount)) {
+      return text(`Nothing was moved. "${amount}" is not an amount; give it as a plain decimal, like 0.50.`);
+    }
     const wanted = parseUnits(amount, 6);
     if (wanted <= 0n) throw new Error("Amount must be positive.");
 
     // Added to what is *spendable*, not to what the chain shows. Against the chain's figure this
     // asks for whatever has not settled all over again, and escrow only leaves as a payment or a
     // delayed withdrawal — so the overshoot is money locked up for no reason.
-    const held = await spendableEscrow();
+    let held: bigint;
+    try {
+      held = await spendableEscrow();
+    } catch (cause) {
+      return text(`Nothing was moved. ${unreachable(cause)}`);
+    }
     const funded = await fundEscrow({ account, allowance, needed: held + wanted });
     if (!funded.ok) return text(`Nothing was moved. ${funded.reason}`);
+    const holds = await spendableEscrow().then(online, () => null);
     return text(
-      `Moved ${online(funded.toppedUp)} from wallet ${walletName(account)} into the agent's escrow. It now holds ` +
-        `${online(await spendableEscrow())}, spendable on the web without further approval.`,
+      `Moved ${online(funded.toppedUp)} from wallet ${walletName(account)} into the agent's escrow. ` +
+        (holds === null
+          ? "Its new balance could not be read just now."
+          : `It now holds ${holds}, spendable on the web without further approval.`),
     );
   },
 );

@@ -40,12 +40,15 @@ export interface BuyRequest {
 }
 
 /**
- * What the facilitator said about settling, narrowed to the part a refusal explains itself with.
+ * What the seller reported about settling, narrowed to what a buyer acts on: whether the payment was
+ * taken, which batch it went into, and, when it was refused, why.
  *
- * Deliberately not the whole body: the two error fields are the only ones a buyer can act on, and
- * typing the rest would be inventing a schema no facilitator promises to keep.
+ * Deliberately not the whole body: typing the rest would be inventing a schema no seller promises to
+ * keep.
  */
 export interface Settlement {
+  readonly success?: boolean;
+  readonly transaction?: string;
   readonly errorReason?: string;
   readonly error?: string;
 }
@@ -57,7 +60,14 @@ export interface Settlement {
  * of leaving each one to re-check fields the successful path always fills.
  */
 export type BuyOutcome =
-  | { readonly paid: true; readonly response: Response; readonly amount: bigint; readonly payTo: Address }
+  | {
+      readonly paid: true;
+      readonly response: Response;
+      readonly amount: bigint;
+      readonly payTo: Address;
+      /** False when the seller took the payment and then failed the request. */
+      readonly delivered: boolean;
+    }
   | {
       readonly paid: false;
       readonly response: Response;
@@ -65,7 +75,20 @@ export type BuyOutcome =
       readonly problem?: string;
       readonly amount?: bigint;
       readonly settlement?: Settlement;
+      /**
+       * The seller stopped answering after it was sent a signed payment, so whether it took it is not
+       * known. Counted as spent until the escrow says otherwise, which errs toward topping up.
+       */
+      readonly perhapsCharged?: true;
     };
+
+/** Where an x402 seller reports what became of a payment it was sent. */
+const SETTLEMENT_HEADER = "PAYMENT-RESPONSE";
+
+/** What the buyer is told when the seller went quiet between being paid and answering. */
+export const SELLER_WENT_QUIET =
+  "The seller stopped answering after it was sent the payment, so whether it took it is not known. " +
+  "The agent's escrow shows it within about a quarter of an hour; check before trying again.";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
@@ -232,43 +255,59 @@ export async function fetchWithPayment(
   if (!funded.ok) return { paid: false, response: first, problem: funded.reason, amount: BigInt(option.amount) };
 
   const { authorization, signature } = await signPayment({ agent, option });
-  const paid = await fetch(url, {
-    method,
-    headers: {
-      ...headers,
-      "Payment-Signature": b64.encode({
-        x402Version: (isRecord(paymentRequired) ? paymentRequired["x402Version"] : undefined) ?? 2,
-        scheme: option.scheme,
-        network: option.network,
-        resource: isRecord(paymentRequired) ? paymentRequired["resource"] : undefined,
-        accepted: option,
-        payload: { authorization, signature },
-      }),
-    },
-    body: body ?? null,
-  });
-
-  // Present on success and, more usefully, on refusal — it carries the reason the facilitator gave.
-  const settled = paid.headers.get("PAYMENT-RESPONSE");
-  if (!paid.ok) {
-    const settlement = settled ? asSettlement(safely(() => b64.decode(settled))) : undefined;
-    return {
-      paid: false,
-      response: paid,
-      amount: BigInt(option.amount),
-      ...(settlement === undefined ? {} : { settlement }),
-    };
+  const amount = BigInt(option.amount);
+  let paid: Response;
+  try {
+    paid = await fetch(url, {
+      method,
+      headers: {
+        ...headers,
+        "Payment-Signature": b64.encode({
+          x402Version: (isRecord(paymentRequired) ? paymentRequired["x402Version"] : undefined) ?? 2,
+          scheme: option.scheme,
+          network: option.network,
+          resource: isRecord(paymentRequired) ? paymentRequired["resource"] : undefined,
+          accepted: option,
+          payload: { authorization, signature },
+        }),
+      },
+      body: body ?? null,
+    });
+  } catch {
+    // The payment went out and no answer came back, so nobody here can say whether it was taken.
+    return { paid: false, response: first, amount, perhapsCharged: true, problem: SELLER_WENT_QUIET };
   }
-  return { paid: true, response: paid, amount: BigInt(option.amount), payTo: option.payTo };
+
+  const { charged, settlement } = chargeOf(paid.ok, paid.headers.get(SETTLEMENT_HEADER));
+  if (charged) return { paid: true, delivered: paid.ok, response: paid, amount, payTo: option.payTo };
+  return { paid: false, response: paid, amount, ...(settlement === undefined ? {} : { settlement }) };
 }
 
-/** Keeps only the two fields we read, so an unfamiliar body degrades to "refused, no reason". */
+/**
+ * Whether a request sent with a payment cost the buyer, from the seller's answer.
+ *
+ * Read from the settlement the seller reports rather than from the status. A seller can take the
+ * payment and then fail the request, as the maze does when it cannot record a step it was paid for,
+ * and reading only the status told the person nothing had been charged. A seller that served without
+ * a settlement header was still paid, since it served.
+ */
+export function chargeOf(
+  ok: boolean, settlementHeader: string | null,
+): { readonly charged: boolean; readonly settlement?: Settlement } {
+  const settlement = settlementHeader === null
+    ? undefined
+    : asSettlement(safely(() => b64.decode(settlementHeader)));
+  return { charged: ok || settlement?.success === true, ...(settlement === undefined ? {} : { settlement }) };
+}
+
+/** Keeps only the fields we read, so an unfamiliar body degrades to "refused, no reason". */
 function asSettlement(value: unknown): Settlement | undefined {
   if (!isRecord(value)) return undefined;
-  const reason = value["errorReason"];
-  const error = value["error"];
+  const { success, transaction, errorReason, error } = value;
   return {
-    ...(typeof reason === "string" ? { errorReason: reason } : {}),
+    ...(typeof success === "boolean" ? { success } : {}),
+    ...(typeof transaction === "string" ? { transaction } : {}),
+    ...(typeof errorReason === "string" ? { errorReason } : {}),
     ...(typeof error === "string" ? { error } : {}),
   };
 }

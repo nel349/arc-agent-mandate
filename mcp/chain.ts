@@ -59,6 +59,24 @@ interface Remembered {
   readonly accountCode: string | null;
   /** The code the agent shows now. While it differs from `accountCode`, a grant may be on its way. */
   readonly pairing: Pairing | null;
+  /**
+   * The ERC-8004 identity this agent set up for each wallet it was paired with, keyed by wallet.
+   * Kept per wallet because the identity is the wallet's: moving to another wallet sets up another,
+   * and moving back finds the first again.
+   */
+  readonly identities: Readonly<Record<string, string>>;
+  /** What has been paid from escrow and not yet seen settle, kept so a restart does not forget it. */
+  readonly escrow: EscrowTally | null;
+}
+
+/**
+ * What the connector has paid from the agent's escrow and not yet seen settle, and the balance it
+ * last saw. See `escrowLedger` in `gateway.ts`, which keeps it; it lives here with the rest of what
+ * the agent remembers.
+ */
+export interface EscrowTally {
+  readonly outstanding: bigint;
+  readonly lastSeen: bigint | null;
 }
 
 /**
@@ -280,6 +298,33 @@ export function rememberedGranter(agentAddress: Address): Address | null {
   return readState(agentAddress).account;
 }
 
+/** The ERC-8004 identity this agent set up for a wallet, if it remembers one. The chain decides if it still stands. */
+export function rememberedIdentity(agentAddress: Address, account: Address): bigint | null {
+  const agentId = readState(agentAddress).identities[account.toLowerCase()];
+  return agentId === undefined ? null : BigInt(agentId);
+}
+
+/**
+ * The escrow tally this agent kept when it last ran.
+ *
+ * Payments reach Circle's batch about a quarter of an hour before the balance moves, and an MCP
+ * client restarts the connector whenever it reconnects. Held only in memory, the tally was lost on
+ * every restart, the escrow looked fuller than it was, and the next payment was refused.
+ */
+export function rememberedEscrow(agentAddress: Address): EscrowTally | null {
+  return readState(agentAddress).escrow;
+}
+
+export function rememberEscrow(agentAddress: Address, tally: EscrowTally): void {
+  writeState(agentAddress, { escrow: tally });
+}
+
+/** Remembers the identity set up for a wallet, beside the others this agent has set up. */
+export function rememberIdentity(agentAddress: Address, account: Address, agentId: bigint): void {
+  const { identities } = readState(agentAddress);
+  writeState(agentAddress, { identities: { ...identities, [account.toLowerCase()]: agentId.toString() } });
+}
+
 /** Whether the session key is installed on the account. Says nothing about expiry. */
 function installed(account: Address, agentAddress: Address): Promise<boolean> {
   return publicClient.readContract({
@@ -393,7 +438,7 @@ export async function readAllowance(account: Address, agentAddress: Address): Pr
 const MEMORY_PATH =
   process.env.ARC_MANDATE_ACCOUNT_PATH ?? join(homedir(), ".arc-mandate", "accounts.json");
 
-const NOTHING_KNOWN: Remembered = { account: null, accountCode: null, pairing: null };
+const NOTHING_KNOWN: Remembered = { account: null, accountCode: null, pairing: null, identities: {}, escrow: null };
 
 /**
  * What is known about one agent. A cache of the chain plus the code it showed: a lookup still works
@@ -415,12 +460,32 @@ function readState(agentAddress: Address): Remembered {
         account: isAddress(account) ? account : null,
         accountCode: typeof accountCode === "string" && isPairingCode(accountCode) ? accountCode : null,
         pairing: readPairing(entry["pairing"]),
+        identities: readIdentities(entry["identities"]),
+        escrow: readEscrowTally(entry["escrow"]),
       };
     }
   } catch {
     // Absent, unreadable, or not JSON: nothing is known yet.
   }
   return NOTHING_KNOWN;
+}
+
+/** A kept tally, or null when there is none or it is not one. Amounts are written as digits. */
+function readEscrowTally(value: unknown): EscrowTally | null {
+  if (!isRecord(value)) return null;
+  const digits = (field: unknown): bigint | null =>
+    typeof field === "string" && /^\d+$/.test(field) ? BigInt(field) : null;
+  const outstanding = digits(value["outstanding"]);
+  return outstanding === null ? null : { outstanding, lastSeen: digits(value["lastSeen"]) };
+}
+
+/** Wallet to identity number, keeping only entries that are both. */
+function readIdentities(value: unknown): Readonly<Record<string, string>> {
+  if (!isRecord(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value).filter((entry): entry is [string, string] =>
+      isAddress(entry[0]) && typeof entry[1] === "string" && /^\d+$/.test(entry[1])),
+  );
 }
 
 function readPairing(value: unknown): Pairing | null {
@@ -449,6 +514,16 @@ function writeState(agentAddress: Address, patch: Partial<Remembered>): void {
       ...previous,
       ...(patch.account === undefined ? {} : { account: patch.account }),
       ...(patch.accountCode === undefined ? {} : { accountCode: patch.accountCode }),
+      ...(patch.identities === undefined ? {} : { identities: patch.identities }),
+      // Written as digits, for the same reason as the blocks below.
+      ...(patch.escrow === undefined
+        ? {}
+        : {
+            escrow: patch.escrow === null ? null : {
+              outstanding: String(patch.escrow.outstanding),
+              lastSeen: patch.escrow.lastSeen === null ? null : String(patch.escrow.lastSeen),
+            },
+          }),
       // Blocks written as strings, because a bigint is not JSON and `JSON.stringify` throws on one.
       ...(patch.pairing === undefined
         ? {}

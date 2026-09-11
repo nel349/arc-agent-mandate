@@ -40,17 +40,34 @@ that wallet. The code is also saved as `pairing-code.png` beside the agent's key
 | | |
 |---|---|
 | `get_pairing_address` | the code to grant to: a QR carrying the agent's address and a one-time pairing code, for the app to scan, also saved as an image. Says which wallet the agent spends from, if one is paired |
-| `check_allowance` | limit, spent, remaining and what is spendable now, read from the chain |
+| `check_allowance` | limit, spent, remaining and what is spendable now, read from the chain, and the agent's ERC-8004 identity, which it sets up the first time for each wallet |
 | `pay` | send USDC to an address, within the allowance |
 | `buy` | fetch a URL and pay if it answers `402 Payment Required` (x402), topping up the agent's escrow from the allowance when it has to |
 | `top_up` | move money into the agent's escrow ahead of a run of small purchases; it counts against the same allowance |
 
 The agent cannot exceed the allowance or keep spending after you revoke, and an allowance that
-names payees cannot pay anyone else. None of that is enforced here: the account enforces it. A
+names payees cannot pay anyone else. Nor can it touch anything else in your wallet: every allowance
+is an allowlist naming the three things an agent does, paying in USDC, filling its escrow at
+Circle's Gateway, and setting up its own identity, so your other tokens and NFTs are out of its
+reach. None of that is enforced here: the account enforces it. A
 revoked or expired allowance is refused during validation, before anything runs. On the one-meter
 allowance the app grants, an over-limit payment is refused when it runs instead: no money moves,
 and the gas is Circle's sponsorship. This connector checks the limit before sending, so only a
 connector that skipped the check reaches that refusal.
+
+## The agent's identity
+
+A seller that rewards agents, like the maze, credits an ERC-8004 identity and gives its badge to the
+identity's owner. So the first time `check_allowance` runs for a wallet, the agent sets one up: it
+registers an identity from your wallet, which therefore owns it, and links its own key to it with
+its own signature. That is two operations, sponsored like its payments, and neither moves money.
+The allowance names exactly those two calls on the registry, and not the ones that would move an
+identity.
+
+`check_allowance` then reports the identity's number, and the agent gives it wherever a seller asks
+for an agent id: for the maze, `POST /game?agent=<id>`. What the agent earns is written to that
+identity, and the badge goes to your wallet. Pair the agent with another wallet and it sets up
+another identity, owned by that one.
 
 ## Configuration
 

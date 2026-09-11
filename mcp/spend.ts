@@ -50,6 +50,9 @@ export type SpendResult =
 
 type Bundler = ReturnType<typeof createBundlerClient>;
 
+/** How a refusal by the allowance begins, whether it came during validation or while running. */
+export const REFUSED_BY_ALLOWANCE = "refused by the allowance";
+
 /**
  * Submit one or more calls as a single operation, signed by the session key.
  *
@@ -65,7 +68,31 @@ type Bundler = ReturnType<typeof createBundlerClient>;
  * what is called, so that distinction is the whole difference between an agent that pays and an
  * agent that transacts.
  */
-export async function submitSpend({ agent, account, calls }: SpendRequest): Promise<SpendResult> {
+export function submitSpend(request: SpendRequest): Promise<SpendResult> {
+  return oneAtATime(() => submitNow(request));
+}
+
+/**
+ * Runs work one piece at a time, in the order it was asked for, whether or not the last piece failed.
+ *
+ * The agent's nonce is its own address, so two operations sent together land on one nonce, and the
+ * second outbids and replaces the first (see `sendWithFeeBump`). The first then waits out viem's
+ * two-minute timeout and is reported as a refused payment it never was. An agent making tool calls in
+ * parallel is ordinary, so they wait their turn here instead.
+ */
+export function serially(): <T>(work: () => Promise<T>) => Promise<T> {
+  let last: Promise<unknown> = Promise.resolve();
+  return <T>(work: () => Promise<T>): Promise<T> => {
+    const next = last.then(work);
+    // The next piece waits for this one to finish, not to succeed.
+    last = next.catch(() => undefined);
+    return next;
+  };
+}
+
+const oneAtATime = serially();
+
+async function submitNow({ agent, account, calls }: SpendRequest): Promise<SpendResult> {
   if (!bundlerConfigured()) {
     // The full walkthrough, not a list of variable names. This is the one wall a new person hits.
     return { ok: false, setup: true, reason: bundlerSetupInstructions() };
@@ -87,7 +114,7 @@ export async function submitSpend({ agent, account, calls }: SpendRequest): Prom
     const receipt = await bundler.waitForUserOperationReceipt({ hash: userOpHash });
     // A receipt only exists for an operation that ran, so a failed one was refused while running:
     // on the one-meter rail, that is where an over-limit payment is caught. No money moved.
-    if (!receipt.success) return { ok: false, reason: "refused by the allowance when it ran, so no money moved" };
+    if (!receipt.success) return { ok: false, reason: `${REFUSED_BY_ALLOWANCE} when it ran, so no money moved` };
     return { ok: true, hash: receipt.receipt.transactionHash, userOpHash };
   } catch (cause) {
     return { ok: false, reason: shortReason(cause) };
@@ -196,6 +223,6 @@ function shortReason(cause: unknown): string {
   const all = messagesIn(cause).join(" | ");
   // The mandate refusing is the one outcome a person can act on, and viem reports it as an
   // opaque AA code. Everything else is passed through as found.
-  if (/AA2[0-9]|PermissionsCheckFailed/i.test(all)) return "refused by the allowance";
+  if (/AA2[0-9]|PermissionsCheckFailed/i.test(all)) return REFUSED_BY_ALLOWANCE;
   return (all.split("\n")[0] ?? all).slice(0, 220);
 }

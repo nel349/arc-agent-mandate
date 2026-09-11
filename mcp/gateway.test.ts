@@ -76,6 +76,36 @@ test("it never reports more than nothing, however the numbers arrive", () => {
   assert.equal(ledger.spendable(0n), 0n);
 });
 
+// ---- surviving a restart ------------------------------------------------------
+
+/**
+ * An MCP client restarts the connector whenever it reconnects. With the tally in memory only, a
+ * restart inside the quarter hour a batch takes forgot what was still settling, the escrow looked
+ * fuller than it was, and the next payment was refused.
+ */
+test("a ledger started from what was remembered carries on where it stopped", () => {
+  const ledger = escrowLedger({ outstanding: USD(0.01), lastSeen: USD(0.04) });
+  assert.equal(ledger.spendable(USD(0.04)), USD(0.03), "the payment still settling was forgotten");
+  // And the batch landing is noticed across the restart, not subtracted twice.
+  assert.equal(ledger.spendable(USD(0.03)), USD(0.03));
+});
+
+test("every change to the tally is handed over to be remembered, and nothing else is", () => {
+  const kept: unknown[] = [];
+  const ledger = escrowLedger(undefined, (tally) => kept.push(tally));
+
+  ledger.spendable(USD(0.04));
+  ledger.claimed(USD(0.01));
+  ledger.spendable(USD(0.04)); // nothing moved, so nothing to remember
+  ledger.spendable(USD(0.03)); // the batch landed
+
+  assert.deepEqual(kept, [
+    { outstanding: 0n, lastSeen: USD(0.04) },
+    { outstanding: USD(0.01), lastSeen: USD(0.04) },
+    { outstanding: 0n, lastSeen: USD(0.03) },
+  ]);
+});
+
 // ---- the calls a top-up sends ------------------------------------------------
 
 test("a top-up is still an approval and a deposit, in that order", () => {

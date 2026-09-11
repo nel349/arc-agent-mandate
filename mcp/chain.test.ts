@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Address } from "viem";
@@ -33,6 +33,34 @@ function statePath(contents?: unknown): string {
 /** A fresh copy of the module, so the state path each test sets is the one it reads. */
 const load = (why: string) =>
   import(`./chain.ts?${why}=${Date.now()}-${Math.random()}`) as Promise<typeof import("./chain.ts")>;
+
+/**
+ * The escrow tally survives a restart. An MCP client restarts the connector whenever it reconnects,
+ * and a tally held in memory only forgot every payment still settling.
+ */
+test("the escrow tally is kept beside the agent's key, read back exactly, and disturbs nothing else", async () => {
+  const path = statePath({ [AGENT.toLowerCase()]: { account: OWNER, accountCode: CODE } });
+  const chain = await load("escrow");
+  assert.equal(chain.rememberedEscrow(AGENT), null);
+
+  chain.rememberEscrow(AGENT, { outstanding: 12_000n, lastSeen: 40_000n });
+  assert.deepEqual(chain.rememberedEscrow(AGENT), { outstanding: 12_000n, lastSeen: 40_000n });
+  assert.deepEqual(JSON.parse(readFileSync(path, "utf8"))[AGENT.toLowerCase()], {
+    account: OWNER, accountCode: CODE, escrow: { outstanding: "12000", lastSeen: "40000" },
+  });
+  assert.equal(chain.rememberedGranter(AGENT), OWNER);
+});
+
+/** The identity belongs to the wallet, so moving to another wallet sets up another, and back finds the first. */
+test("the identity set up for each wallet is remembered for that wallet only", async () => {
+  statePath({});
+  const chain = await load("identities");
+  chain.rememberIdentity(AGENT, OWNER, 890537n);
+  chain.rememberIdentity(AGENT, OTHER, 890538n);
+  assert.equal(chain.rememberedIdentity(AGENT, OWNER), 890537n);
+  assert.equal(chain.rememberedIdentity(AGENT, OTHER), 890538n);
+  assert.equal(chain.rememberedIdentity(AGENT, "0x0000000000000000000000000000000000000001"), null);
+});
 
 test("an agent that has never shown a code has no grant, and does not ask the chain for one", async () => {
   statePath({});

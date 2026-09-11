@@ -62,7 +62,7 @@ test("each of the three consumers goes through the reader", () => {
   for (const [consumer, marker] of [
     ["check_allowance", "async function escrowLine("],
     ["buy", "async function fundEscrow("],
-    ["top_up", "const held = await spendableEscrow();\n    const funded = await fundEscrow("],
+    ["top_up", "// Added to what is *spendable*, not to what the chain shows."],
   ] as const) {
     const at = source.indexOf(marker);
     assert.ok(at > 0, `${consumer}: could not find ${marker}`);

@@ -1,5 +1,5 @@
 import { encodeFunctionData, parseAbi, type Address, type Hex } from "viem";
-import { publicClient, USDC_ERC20_VIEW } from "./chain.ts";
+import { publicClient, USDC_ERC20_VIEW, type EscrowTally } from "./chain.ts";
 
 /** One call in a batch, as `executeWithSessionKey` takes it. */
 export interface Call {
@@ -46,6 +46,9 @@ export interface Call {
  *
  * Deliberately an estimate that errs toward topping up: paying twice costs a fraction of a cent,
  * and a refusal in the middle of a run costs the run.
+ *
+ * Remembered beside the agent's key through `remember`, because the connector restarts whenever its
+ * MCP client reconnects, and a tally held only in memory forgot every payment still settling.
  */
 export interface EscrowLedger {
   /** The chain's figure, less what we have claimed against it and not yet seen settle. */
@@ -54,21 +57,29 @@ export interface EscrowLedger {
   claimed(amount: bigint): void;
 }
 
-export function escrowLedger(): EscrowLedger {
-  let outstanding = 0n;
-  let lastSeen: bigint | null = null;
+export function escrowLedger(
+  /** Where the last run of the connector left off. */
+  start: EscrowTally = { outstanding: 0n, lastSeen: null },
+  /** Handed the tally every time it changes, so it outlives the process. */
+  remember: (tally: EscrowTally) => void = () => {},
+): EscrowLedger {
+  let outstanding = start.outstanding;
+  let lastSeen = start.lastSeen;
 
   return {
     spendable(onChain) {
+      const before = { outstanding, lastSeen };
       if (lastSeen !== null && onChain < lastSeen) {
         const settled = lastSeen - onChain;
         outstanding = outstanding > settled ? outstanding - settled : 0n;
       }
       lastSeen = onChain;
+      if (outstanding !== before.outstanding || lastSeen !== before.lastSeen) remember({ outstanding, lastSeen });
       return onChain > outstanding ? onChain - outstanding : 0n;
     },
     claimed(amount) {
       outstanding += amount;
+      remember({ outstanding, lastSeen });
     },
   };
 }
