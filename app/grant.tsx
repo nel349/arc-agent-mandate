@@ -304,6 +304,10 @@ export default function GrantScreen() {
           <Text style={[styles.doneBody, { color: c.muted }]}>
             {grantedSentence({ who, limit: terms.limit, days: terms.days })}
           </Text>
+          {/* The next step is on the other device, so the phone says so rather than going quiet. */}
+          <Text style={[styles.doneNext, { color: c.paper }]}>
+            Next, on your computer: tell your agent what to do. It can start now.
+          </Text>
         </View>
       </Screen>
     );
@@ -351,4 +355,5 @@ const styles = StyleSheet.create({
   done: { alignItems: "center", gap: tokens.space.base },
   doneTitle: { ...tokens.type.title, textAlign: "center" },
   doneBody: { ...tokens.type.body, textAlign: "center" },
+  doneNext: { ...tokens.type.headline, textAlign: "center" },
 });

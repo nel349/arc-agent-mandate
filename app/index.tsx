@@ -1,6 +1,7 @@
 import { Stack, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
-import { ActivityIndicator, Share, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Linking, Share, StyleSheet, Text, View } from "react-native";
+import { TESTNET_FAUCET_URL } from "../src/arc/chain.ts";
 import type { Activity } from "../src/arc/activity.ts";
 import { ActivityRow } from "../src/ui/ActivityRow.tsx";
 import { AgentRow } from "../src/ui/AgentRow.tsx";
@@ -73,6 +74,14 @@ export default function AllowancesScreen() {
           />
         </View>
         <Text style={[styles.address, { color: c.dim }]}>{shortAddress(address)} on Arc testnet</Text>
+        {/* Step 1 of the journey is a funded wallet. An agent can never spend more than this
+            holds, so the way to add some sits beside the figure it changes. */}
+        <Button
+          compact
+          icon="open-outline"
+          title="Get test USDC"
+          onPress={() => void Linking.openURL(TESTNET_FAUCET_URL)}
+        />
       </Surface>
 
       {wallet.error !== null && <Note tone="warn" lines={ERROR_LINES}>{wallet.error}</Note>}
@@ -85,7 +94,8 @@ export default function AllowancesScreen() {
         <Surface>
           <Text style={[styles.emptyTitle, { color: c.paper }]}>No allowances yet</Text>
           <Text style={[styles.emptyBody, { color: c.dim }]}>
-            Give an agent an allowance and it appears here, with what it has left and until when.
+            Next, on your computer: connect your agent, and it shows a code. Then tap New allowance
+            and scan it. The agent appears here, with what it has left and until when.
           </Text>
         </Surface>
       ) : (
