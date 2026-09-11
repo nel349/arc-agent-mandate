@@ -34,7 +34,7 @@ A scripted buyer and a narrated walkthrough, both against a forked Arc. They wer
 than kept.
 
 What they demonstrated — that a chain refuses a payment past its limit, and that revoking works —
-is proven far better by the 30 contract tests and 23 integration tests, which run against the same
+is proven far better by the contract and integration suites, which run against the same
 fork without a story wrapped around them. And what they could not demonstrate is the only part
 that was ever interesting: an actual agent deciding to spend. the old `agent.ts` was a function
 called `buy()`.

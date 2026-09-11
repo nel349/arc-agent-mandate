@@ -14,15 +14,16 @@ import { Usdc } from "./usdc.ts";
  *
  * A mandate is bounded authority handed from the account to a **session key** — an ordinary
  * keypair an agent holds. The agent has no standing of its own: every payment it makes is a user
- * operation the account validates against the mandate before anything moves, so exceeding the
- * limit is refused during validation and costs nothing.
+ * operation the account checks against the mandate, so exceeding the limit is refused by the chain
+ * rather than by the agent's good behaviour.
  *
  * Three things about the shape here are not arbitrary:
  *
- * - **Denominated in native USDC.** Arc's dollar is also an ERC-20 view at `0x3600…` over the
- *   same balance, and `approve` on that view creates an allowance living in the token contract
- *   rather than the session key — so it would outlive revocation. Agents are therefore denied
- *   that rail entirely, which is why `payees` never includes it. See `usdc.ts`.
+ * - **One meter, or a scoped rail.** Arc's dollar is native and also an ERC-20 view at `0x3600…`
+ *   over the same balance. A mandate with no payees meters everything, payments and escrow
+ *   `approve`s alike, on the ERC-20 view and leaves the native limit at zero
+ *   (`meterEverythingOnOneRail`). A mandate that names payees stays on the native rail, where
+ *   naming them means something. See `permissionUpdates` and `usdc.ts`.
  * - **Management is owner-only.** Granting, re-scoping and revoking each route to the account's
  *   passkey. The agent's own spending does not. That split is the product.
  * - **There is no direct-call path.** Circle's multisig implements no runtime validation, so

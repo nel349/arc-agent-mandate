@@ -60,6 +60,20 @@ function pairingCode(address: Address): Promise<string> {
   });
 }
 
+/** The code to scan and the one next step. Neither depends on reading the chain. */
+async function pairingInstructions(): Promise<string> {
+  return (
+    `SHOW EVERYTHING BELOW TO THE USER EXACTLY AS IT IS, in a fenced code block. The QR is for ` +
+    `them to scan with a phone camera; it is useless if it stays in your tool output or if its ` +
+    `lines are reflowed.\n\n` +
+    `Grant an allowance to:\n\n${await pairingCode(agent.address)}\n    ${agent.address}\n\n` +
+    `Step 3 of 5, on your phone: open the Agent Mandate app, tap New allowance, then Scan the ` +
+    `agent's code and point the camera at this one (or paste the address). Set a limit and how ` +
+    `long it lasts, and confirm with Face ID. Tell me when it is done.` +
+    `${created ? "\n\n(A new key was generated for this agent.)" : ""}`
+  );
+}
+
 /**
  * What the agent is told the moment it connects, before it has done anything.
  *
@@ -67,9 +81,9 @@ function pairingCode(address: Address): Promise<string> {
  * allowance by being refused a payment, and the person found out what to do next from whatever the
  * agent made of the refusal. Briefed up front, the agent can say the next step before it is needed.
  *
- * The five steps are the ones the maze page draws and the phone app follows, in the same words
- * (`agent-mandate/JOURNEY.md` in the planning repository keeps them in step). This program cannot
- * import the page's list, so if a title changes there it changes here.
+ * The five steps are the ones the maze page draws and the phone app follows, in the same words.
+ * This program cannot import the page's list (it lives in the maze's `src/journey.ts`), so if a
+ * title changes there it changes here, and in the app.
  */
 const INSTRUCTIONS = [
   "This connector lets you spend from your user's wallet, inside an allowance they grant from the " +
@@ -171,7 +185,18 @@ server.registerTool(
     inputSchema: {},
   },
   async () => {
-    const account = await findGrantingAccount(agent.address, { keyIsNew: created });
+    let account: Awaited<ReturnType<typeof findGrantingAccount>>;
+    try {
+      account = await findGrantingAccount(agent.address, { keyIsNew: created });
+    } catch (cause) {
+      // The code is the agent's own address, known without the chain, and it is what the user needs
+      // next. Only whether an allowance already exists could not be checked, so the reply says
+      // exactly that and shows the code anyway.
+      return text(
+        `${await pairingInstructions()}\n\n${unreachable(cause)} So whether this agent already has ` +
+          `an allowance could not be checked. If you have granted one, ask me again in a moment.`,
+      );
+    }
     if (account) {
       // Now that an allowance exists, spending is the next thing they will try — so if the
       // connector cannot reach a bundler, say so here rather than letting the first payment fail.
@@ -182,16 +207,7 @@ server.registerTool(
             : `\n\nOne thing left before it can spend.\n\n${bundlerSetupInstructions()}`),
       );
     }
-    return text(
-      `SHOW EVERYTHING BELOW TO THE USER EXACTLY AS IT IS, in a fenced code block. The QR is for ` +
-        `them to scan with a phone camera; it is useless if it stays in your tool output or if its ` +
-        `lines are reflowed.\n\n` +
-        `Grant an allowance to:\n\n${await pairingCode(agent.address)}\n    ${agent.address}\n\n` +
-        `Step 3 of 5, on your phone: open the Agent Mandate app, tap New allowance, then Scan the ` +
-        `agent's code and point the camera at this one (or paste the address). Set a limit and how ` +
-        `long it lasts, and confirm with Face ID. Tell me when it is done.` +
-        `${created ? "\n\n(A new key was generated for this agent.)" : ""}`,
-    );
+    return text(await pairingInstructions());
   },
 );
 
@@ -313,9 +329,9 @@ server.registerTool(
     title: "Pay for something",
     description:
       "Sends USDC on Arc from the user's wallet, within the allowance they granted. The limit is " +
-      "enforced by the chain, not by you: an over-limit or unapproved payment is refused during " +
-      "validation and costs nothing. Never ask the user to raise a limit mid-task — report the " +
-      "refusal and let them decide.",
+      "enforced by the chain, not by you: a payment over the allowance, or after it has been " +
+      "revoked or has expired, is refused and moves no money. Never ask the user to raise a limit " +
+      "mid-task; report the refusal and let them decide.",
     inputSchema: {
       to: z.string().describe("Recipient address (0x…)"),
       amount: z.string().describe("Amount in USDC, as a decimal string, e.g. \"2.50\""),
@@ -445,8 +461,8 @@ server.registerTool(
     description:
       "Fetches a URL and pays if it answers 402 Payment Required, using the x402 protocol. Use " +
       "this for paid APIs and paid pages rather than telling the user you cannot access them. " +
-      "The user's online budget bounds this and the chain enforces it, so an over-budget purchase " +
-      "is refused and costs nothing. Report a refusal; never ask for a bigger budget mid-task.",
+      "The same allowance bounds this and the chain enforces it, so an over-budget purchase is " +
+      "refused and moves no money. Report a refusal; never ask for a bigger budget mid-task.",
     inputSchema: {
       url: z.string().describe("The address to fetch, e.g. https://api.example.com/report"),
       method: z.string().optional().describe("HTTP method, default GET"),

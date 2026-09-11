@@ -7,9 +7,9 @@ Pod::Spec.new do |s|
   s.version        = package['version']
   s.summary        = package['description']
   s.description    = package['description']
-  s.license        = 'Apache-2.0'
+  s.license        = 'MIT'
   s.author         = 'Kuira Labs'
-  s.homepage       = 'https://github.com/kuiralabs/arc-agent-mandate'
+  s.homepage       = 'https://github.com/nel349/arc-agent-mandate'
   # Must not exceed the app target's deployment target: CocoaPods' `supports_platform?`
   # silently SKIPS a pod whose floor is higher, and Expo autolinking then reports
   # "doesn't support iOS platform" rather than failing the build. Expo's own floor is 15.1,

@@ -19,7 +19,7 @@ import {SessionKeyPlugin} from "../src/session/SessionKeyPlugin.sol";
 /// rather than Alchemy's, that its dependency resolves to the WebAuthn multisig already
 /// installed on the account, and that management is owner-gated while spending is not.
 ///
-/// See `agent-mandate/MANDATE_DESIGN.md` in the planning repo.
+/// Every change the port made, and why, is in `contracts/src/session/PORTING.md`.
 contract PortedSessionKeyPluginTest is Test {
     /// Alchemy's `IPlugin` id, built on 4337 v0.6 `UserOperation`. The plugin deployed on Arc at
     /// 0x0000003E... still advertises this, which is why it cannot serve a Circle account.

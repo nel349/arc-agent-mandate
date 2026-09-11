@@ -106,9 +106,8 @@ const LOG_WINDOW = 9_999n;
  * honest bound — and scanning past it is not merely wasteful: a node will forward the query
  * upstream and be rate-limited, which fails the whole lookup rather than returning nothing.
  *
- * Set `ARC_PLUGIN_FROM_BLOCK` to the deployment block. Without it, the search covers a recent
- * window only, which is enough for a freshly granted agent but will miss an old grant — so a
- * long-lived deployment should always set it.
+ * Defaults to the block the plugin above was deployed in, so nothing needs setting.
+ * `ARC_PLUGIN_FROM_BLOCK` is only for a connector pointed at a plugin you deployed yourself.
  */
 const DEPLOY_BLOCK = process.env.ARC_PLUGIN_FROM_BLOCK
   ? BigInt(process.env.ARC_PLUGIN_FROM_BLOCK)
@@ -169,19 +168,28 @@ export async function findGrantingAccount(
   const head = await publicClient.getBlockNumber();
 
   /**
-   * Where to stop searching downwards.
-   *
-   * A key generated moments ago cannot have been granted anything earlier, so there is no history
-   * worth reading — the floor is the head and the first lookup costs one request instead of
-   * hundreds. Otherwise resume from wherever a previous fruitless search got to, and fall back to
-   * the plugin's deployment only when nothing is known, which happens once per install.
+   * Where to stop searching downwards: the plugin's deployment, below which no grant can exist. A
+   * previous fruitless search is resumed rather than repeated.
    */
     const bottom = DEPLOY_BLOCK ?? 0n;
     let searched = state.searched;
 
-    // A key generated moments ago cannot have been granted anything earlier, so there is no history
-    // worth reading and the first lookup costs one request instead of hundreds.
-    if (keyIsNew && searched === null) searched = { low: head, high: head };
+    /**
+     * A key made in this process has no history worth reading.
+     *
+     * Nobody can grant an address before it exists, or before they have been shown it, and it is
+     * only shown after this first lookup. So everything below the newest window is recorded as read
+     * without reading it, and that one window is the only request.
+     *
+     * This used to record the head alone, which left the whole history "unread" beneath it, and the
+     * downward walk below then read all of it: about ninety `eth_getLogs` calls for the first thing a
+     * new user asks, enough to trip the public endpoint's rate limit. If the record cannot be
+     * written, each lookup in this process reads the newest window again, which still finds any
+     * grant from the last hour or so.
+     */
+    if (keyIsNew && searched === null) {
+      searched = { low: bottom, high: head - LOG_WINDOW > bottom ? head - LOG_WINDOW : bottom };
+    }
 
     /**
      * Where to read, newest first: the blocks added since the last look, then — when the bottom was

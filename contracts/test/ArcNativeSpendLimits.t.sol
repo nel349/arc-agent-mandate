@@ -11,10 +11,10 @@ import {ISessionKeyPermissionsUpdates} from "../src/session/permissions/ISession
 ///
 /// On Arc, USDC is the native token at 18 decimals *and* an ERC-20 view at `0x3600…` at 6
 /// decimals over the **same balance**. A limit on one rail alone is not a limit; limits on both
-/// make the real bound twice the number on screen. The mandate is therefore denominated in
-/// native USDC and the ERC-20 view is closed to session keys. These tests pin both halves.
-///
-/// See `agent-mandate/MANDATE_DESIGN.md`.
+/// make the real bound twice the number on screen. A mandate that names payees is therefore
+/// denominated in native USDC with the ERC-20 view closed to its session key; one that names none
+/// meters the ERC-20 view alone instead, which `ArcOneMeter.t.sol` covers. These tests pin the
+/// native half.
 contract ArcNativeSpendLimitsTest is ArcMscaHarness {
     uint256 internal constant SESSION_KEY_PK = 0xB0B;
     address internal constant PAYEE = address(0xDEAD);

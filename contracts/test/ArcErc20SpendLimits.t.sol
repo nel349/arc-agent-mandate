@@ -9,9 +9,10 @@ import {ISessionKeyPermissionsUpdates} from "../src/session/permissions/ISession
 
 /// @notice The ERC-20 spend limit, and the two ways it is weaker than the native one.
 ///
-/// The mandate does not use this path -- USDC is bounded natively and the ERC-20 view at
-/// `0x3600…` is kept off the access list entirely. This suite exists to *demonstrate* why, rather
-/// than assert it in prose, and because a future mandate over some other token would rely on it.
+/// A mandate that names no payees does use this path: the app meters everything on the ERC-20
+/// view, listed with `checkSelectors` and given a spend limit, which closes the second and third
+/// of these weaknesses (see `ArcOneMeter.t.sol`). A mandate that names payees keeps the native rail.
+/// This suite demonstrates the weaknesses rather than asserting them in prose.
 contract ArcErc20SpendLimitsTest is ArcMscaHarness {
     uint256 internal constant SESSION_KEY_PK = 0xC0FFEE;
     address internal constant TOKEN = address(0x7000);

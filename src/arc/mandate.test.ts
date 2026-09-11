@@ -152,7 +152,7 @@ test("a scoped allowance keeps the allowlist, where unnamed targets are already 
 
 test("an allowance with no payees is allowed, and bounds money and time instead", () => {
   // Requiring payees up front cannot work: an agent does not know who it will pay until it finds
-  // a service. See agent-mandate/UX_FLOW.md.
+  // a service, so an allowance with none has to be grantable.
   assert.doesNotThrow(() => buildGrantPlan(terms({ payees: [] }), true));
 });
 

@@ -61,9 +61,10 @@ alongside its real multisig and EntryPoint v0.7. On top of it:
 - **`ArcGasLimits.t.sol`** — the rewritten prefund arithmetic. The exact v0.7 charge passes and one
   wei over reverts, with and without a paymaster, and the paymaster's two gas limits are shown to
   be *counted* rather than merely parsed. Nothing else exercises this expression.
-- **`ArcNativeSpendLimits.t.sol`** — the mandate's actual bound. A new session key can spend
-  nothing until granted, the limit is a running total rather than a per-call cap, and the ERC-20
-  view at `0x3600…` is unreachable, which is what makes the native limit a real limit.
+- **`ArcNativeSpendLimits.t.sol`**: the bound on a scoped mandate, the kind that names payees. A
+  new session key can spend nothing until granted, the limit is a running total rather than a
+  per-call cap, and the ERC-20 view at `0x3600…` is unreachable, which is what makes the native
+  limit a real limit there.
 
 Three behaviours surfaced that are worth knowing before reading the tests:
 
@@ -75,20 +76,24 @@ Three behaviours surfaced that are worth knowing before reading the tests:
 3. **A zero native spend limit denies**, rather than meaning "unlimited". The engine's sentinel for
    no limit is `type(uint256).max`.
 
-- **`ArcErc20SpendLimits.t.sol`** — the rail the mandate deliberately does not use, tested to show
-  *why*. Three weaknesses relative to the native limit: the amount is enforced during execution
+- **`ArcErc20SpendLimits.t.sol`**: the ERC-20 rail's weaknesses, tested rather than asserted.
+  Three, relative to the native limit: the amount is enforced during execution
   rather than validation, so an over-limit payment is bundled and paid for before being rejected;
   the selector gate is skipped entirely unless the token was allowlisted with
   `checkSelectors = true`, leaving `transferFrom` permitted and unmetered; and a token allowlisted
   with no spend limit at all is silently unbounded.
+- **`ArcOneMeter.t.sol`**: the allowance the app actually grants. The ERC-20 view is listed with
+  `checkSelectors` and given a spend limit, and the native limit is left at zero, so one meter
+  bounds every payment and every escrow `approve`. That closes the second and third weaknesses
+  above. The first remains, which is why the connector checks the limit before sending.
 - **`ArcTimeRange.t.sol`** — expiry is not a revert. The plugin packs `validAfter`/`validUntil`
   into the validation data and the EntryPoint enforces the window, so what must be right is the
   bit layout. An unset window returns zeros, which the EntryPoint reads as no restriction — an
   expiry is something the product sets, not something a mandate gets by default.
 
-## What is not yet done
+## Deployed
 
-The plugin has not been deployed or installed outside a fork. That needs a funded deployer EOA,
-a real passkey signature for the installing user operation — which the fork tests skip by
-impersonating the EntryPoint — and an answer to whether Circle's Gas Station will sponsor an
-`installPlugin` user operation.
+On Arc testnet at `0x669Dd1eDb85ABD00f74186d88124614EE81E6670`, block 60,625,268, through
+`contracts/script/DeploySessionKeyPlugin.s.sol` at a deterministic address. The phone app installs
+it on real Circle accounts with a passkey-signed user operation, which is the only way
+`installPlugin` can be reached on these accounts (see [FINDINGS.md](../../../docs/FINDINGS.md)).

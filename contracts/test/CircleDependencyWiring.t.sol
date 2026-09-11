@@ -13,7 +13,7 @@ import {IPlugin} from "@circle/msca/6900/v0.7/interfaces/IPlugin.sol";
 /// Everything asserted here was established by reading and by direct RPC; these tests exist so a
 /// submodule bump that changes any of it fails loudly instead of at install time on-chain.
 ///
-/// See `agent-mandate/MANDATE_DESIGN.md` in the planning repo.
+/// Why the plugin needed porting at all is in `contracts/src/session/PORTING.md`.
 contract CircleDependencyWiringTest is Test {
     /// Alchemy's `IPlugin` interface id. Their plugins advertise it; Circle's do not, because
     /// Alchemy's v1.0.x interface is built on 4337 v0.6 `UserOperation` while Circle's is on v0.7

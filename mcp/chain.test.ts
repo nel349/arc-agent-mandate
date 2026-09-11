@@ -197,3 +197,47 @@ test("no state file at all is answered rather than thrown at", async () => {
   const { rememberedGranter } = await import(`./chain.ts?absent=${Date.now()}`);
   assert.equal(rememberedGranter(AGENT as `0x${string}`), null);
 });
+
+/**
+ * The first thing a new user asks is "what's your payment address?", and it was the thing that
+ * failed. A key made moments ago still walked the chain's whole history looking for a grant nobody
+ * could have made yet: about ninety `eth_getLogs` calls, which trips Arc's public rate limit, so the
+ * answer was an error instead of the QR code.
+ */
+test("a key made moments ago reads one window of the chain, not its history", async () => {
+  const path = statePath();
+
+  const asked: { fromBlock?: string; toBlock?: string }[] = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    const body = (init?.body === undefined ? {} : JSON.parse(String(init.body))) as {
+      method?: string;
+      params?: { fromBlock?: string; toBlock?: string }[];
+    };
+    if (body.method === "eth_getLogs") {
+      asked.push(body.params?.[0] ?? {});
+      // Enough to tell one read from a walk, without walking the chain if this ever regresses.
+      if (asked.length > 3) throw new Error("rate limit exceeded");
+    }
+    return original(url, init);
+  }) as typeof fetch;
+
+  const { findGrantingAccount } = await import(`./chain.ts?newKey=${Date.now()}`);
+  let found: unknown;
+  try {
+    found = await findGrantingAccount(AGENT as `0x${string}`, { keyIsNew: true });
+  } finally {
+    globalThis.fetch = original;
+  }
+
+  assert.equal(found, null);
+  assert.equal(asked.length, 1, `a new key made ${asked.length} log reads`);
+  const from = BigInt(asked[0]?.fromBlock ?? "0");
+  const to = BigInt(asked[0]?.toBlock ?? "0");
+  assert.ok(to - from <= 9_999n, "the one read was wider than a window");
+
+  // What it did not need to read is recorded as known, so the next lookup reads only new blocks.
+  const kept = read(path)[AGENT.toLowerCase()]?.searched;
+  assert.equal(kept?.low, "60625268", "the history below the window was not recorded as known");
+  assert.equal(BigInt(kept?.high ?? "0"), to);
+});

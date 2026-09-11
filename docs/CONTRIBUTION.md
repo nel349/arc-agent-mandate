@@ -25,10 +25,11 @@ approximation — a change Alchemy's own comment asked for. The permission engin
 because it was never the broken part. GPL-3.0, as the original is, with every deviation in
 `PORTING.md` so it can be reviewed rather than trusted.
 
-**Proof, not claims:** 26 contract tests run against a fork of Arc with the plugin installed on a
-real Circle account, its real WebAuthn owner plugin and the real EntryPoint. 13 integration tests
-drive signed user operations through that EntryPoint and assert money moved, refusals cost
-nothing, and revocation took effect.
+**Proof, not claims:** the contract suite runs against a fork of Arc with the plugin installed on a
+real Circle account, its real WebAuthn owner plugin and the real EntryPoint. The integration suite
+drives signed user operations through that EntryPoint and asserts that money moved, that an
+over-limit payment was refused without moving any, and that revocation took effect. Both run in
+`npm run gate`.
 
 ## 2. Circle Modular Wallets on React Native
 
@@ -54,7 +55,7 @@ inventing a pairing flow and plug into the agent people already run.
 `mcp/` is an MCP server, so Claude Code, Cursor and Codex all work the same way:
 
 ```bash
-claude mcp add arc-mandate -- node .../mcp/server.ts
+claude mcp add arc-mandate -s user -- node "$PWD/mcp/server.ts"     # from a clone of this repo
 ```
 
 The agent makes its own key, never sends it anywhere, and shows a public address. You grant to
@@ -71,7 +72,7 @@ An earlier design had the agent submit for itself, which meant funding it first 
 in its pocket afterwards that nothing could return. It also left the account paying, unbounded,
 for gas the mandate never counted.
 
-## 4. Five things the docs don't warn about
+## 4. Twelve things the docs don't warn about
 
 See [FINDINGS.md](FINDINGS.md). The dual-decimal USDC trap is the one most likely to cost someone
 real money: `balanceOf` can read zero for an account that holds funds, and a budget enforced on
@@ -103,8 +104,8 @@ than Circle's accounts use. That is the gap we closed, and connecting it to the 
 people already run is the rest of it.
 
 If ERC-7715 stabilises and Circle's accounts grow a delegation manager, the right move is to
-speak that shape rather than ours. The permission vocabulary here — a native-token allowance, a
-payee list, an expiry — was chosen to map onto it cleanly for that reason.
+speak that shape rather than ours. The permission vocabulary here (a spend limit, a payee list, an
+expiry) was chosen to map onto it cleanly for that reason.
 
 ---
 

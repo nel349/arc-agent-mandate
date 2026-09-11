@@ -26,8 +26,8 @@ export const ARC_CONTRACTS = {
   memo: "0x5294E9927c3306DcBaDb03fe70b92e01cCede505",
   /** Batches calls while preserving the original `msg.sender` in each subcall, unlike Multicall3. */
   multicall3From: "0x522fAf9A91c41c443c66765030741e4AaCe147D0",
-  /** ERC-8004 agent registries. Permissionless — see agent-mandate/PRODUCT.md on what they do
-   *  and do not guarantee before showing anything from them to a user. */
+  /** ERC-8004 agent registries. Permissionless: anyone can register an identity or write feedback
+   *  about one, so what they hold is a claim to check before any of it is shown to a user. */
   erc8004: {
     identity: "0x8004A818BFB912233c491871b3d84c89A494BD9e",
     reputation: "0x8004B663056A597Dffe9eCcC1965A193B7388713",

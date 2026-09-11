@@ -7,11 +7,11 @@ it, you hand it something unlimited: the private key to a funded wallet, or an A
 behind it. Whoever holds that can move everything in reach, for as long as they hold it, and the
 first sign of trouble is the balance.
 
-This makes the key worth nothing on its own. The authority lives on chain instead — *up to $50 this
-week, only to these payees* — granted from your phone with Face ID. The agent spends inside it
-without asking, and cannot go past it: an over-limit payment is refused by the chain, not by the
-agent's good behaviour, so a compromised agent gets no further than an honest one. Revoke it with
-your face and it stops mid-task.
+This makes the key worth nothing on its own. The authority lives on chain instead (*up to $50,
+until Friday*), granted from your phone with Face ID. The agent spends inside it without asking,
+and cannot go past it: an over-limit payment is refused by the chain, not by the agent's good
+behaviour, so a compromised agent gets no further than an honest one. Revoke it with your face and
+it stops mid-task.
 
 ## Why we built it
 
@@ -42,8 +42,8 @@ and have seen the whole claim; steps 6 and 7 are the fun half.
 | | |
 |---|---|
 | Node | 22.18 or newer (or 23.6+, or any 24) — everything here runs TypeScript directly, and unflagged type stripping starts there. 22.6 has it behind a flag, which is not enough for `node mcp/server.ts`. |
-| Bun | only for `arc-maze` |
-| Foundry | only to run the Solidity tests |
+| Bun | only to run [`arc-maze`](https://github.com/nel349/arc-maze) yourself |
+| Foundry | required: `npm run gate` runs the Solidity suite with it. Install from [getfoundry.sh](https://getfoundry.sh) |
 | Xcode + an iPhone or simulator | passkeys need a real Secure Enclave or a simulator with one |
 | A Circle client key | free, from [console.circle.com](https://console.circle.com) → Wallets → Modular Wallets → Client Keys |
 
@@ -79,6 +79,10 @@ engine works; everything after it is wiring.
 The first run is slow and mostly silent: Foundry clones five submodules it needs, the contract
 suite installs its own dependencies, and the fork tests fetch state from Arc. Several minutes is
 normal once; after that it is seconds.
+
+Arc's public RPC rate-limits, so a passing gate still prints some `429` and "rate limit exceeded"
+warnings on the way. They are the endpoint pushing back, not failures; only the final result
+counts.
 
 ### 3. Make a wallet
 
@@ -135,39 +139,39 @@ Now ask the agent to spend:
 Then ask for more than you granted. The connector checks the limit first and answers without
 sending anything, so that refusal is free. The point is what happens if it does not: the chain
 refuses the payment itself, so a modified connector that skipped the check gets no further. On the
-rail this app grants — one meter on the ERC-20 view, which is what lets the phone show a single
-number — that refusal lands at execution and costs gas, and a scoped mandate is the one that
-refuses during validation for nothing. Either way no money moves.
+rail this app grants (one meter on Arc's ERC-20 view of USDC, which is what lets the phone show a
+single number) that refusal happens when the payment runs: the operation is included and reverts,
+and its gas is paid by Circle's sponsorship, not by you. No money moves.
 
 Revoke in the app and try again: the next payment is refused at the account level, not by the agent
 agreeing to stop.
 
 ### 6. Buy something real
 
+The companion maze is live at **[arc-maze.vercel.app](https://arc-maze.vercel.app)**, and every
+step through it costs a tenth of a cent. Its front page gives the sentence to hand your agent:
+
+> **you:** Solve the maze at https://arc-maze.vercel.app/ and spend as little as you can.
+
+The agent starts a run for free, gets a `402` on its first paid call, pays from the escrow your
+allowance funds, and carries on. Each payment shows in the app as it happens. The maze's
+[README](https://github.com/nel349/arc-maze#readme) has the full play-through.
+
+To run the maze yourself instead:
+
 ```bash
-cd ../arc-maze
+git clone https://github.com/nel349/arc-maze && cd arc-maze
 bun install
-SELLER_ADDRESS=<any address you control> bun run start
+SELLER_ADDRESS=<any address you control> bun run start     # then use http://localhost:8790
 ```
-
-A maze that charges by the step. Start a run and hand the agent a paid URL:
-
-```bash
-curl -s -X POST localhost:8790/game          # free, returns a run id
-```
-
-> **you:** buy http://localhost:8790/game/<run-id>/look
-
-The agent gets a `402`, signs a payment from the escrow your mandate funded, retries, and is told
-which way the walls go. `arc-maze/README.md` has the full play-through, where an agent buys the map
-and solves the maze under a budget.
 
 ### 7. Check it without trusting us
 
-Every run is replayable by a stranger, because the maze is seeded from the round id:
+Every run is replayable by a stranger, because the maze is seeded from the round id. The run id is
+in the agent's answers and on the maze's [list of every run](https://arc-maze.vercel.app/runs):
 
 ```bash
-curl -s localhost:8790/run/<run-id>/verify
+curl -s https://arc-maze.vercel.app/run/<run-id>/verify
 ```
 
 That rebuilds the maze and re-walks the actions, taking nothing on trust — not the ending square,
@@ -191,14 +195,21 @@ own it directly; a piece called `WeightedWebauthnMultisigPlugin` does the face c
 behalf. Payments arrive as **ERC-4337 user operations**: you sign an instruction, and the account
 validates it before anything moves.
 
-An allowance is a **session key** — a second key with limited authority, which the account checks
+An allowance is a **session key**: a second key with limited authority, which the account checks
 against rules stored on-chain. Granting one installs a piece that holds those rules: a spend cap,
-a list of who may be paid, an expiry, a gas budget.
+an expiry and a gas budget, and optionally a list of who may be paid.
 
-**The refusal happens during validation, not after.** An over-limit payment never reaches
-execution, so it costs nothing — not even gas. And revoking removes the agent's authority at the
-account level in one transaction. A cancelled card still leaves recurring charges; a rotated API
-key still leaves live sessions. This leaves nothing.
+**What the chain refuses, and when.** A revoked or expired allowance is refused during validation,
+before anything runs. The app meters an allowance on one rail (see *Why Arc*), where an over-limit
+payment is refused when it runs instead: the operation is included and reverts, no money moves, and
+the gas is Circle's sponsorship rather than yours. The connector checks the limit before sending,
+so only a connector that skipped the check ever reaches that refusal.
+
+Revoking removes the agent's authority at the account level in one transaction. A cancelled card
+still leaves recurring charges; a rotated API key still leaves live sessions. What a revoke cannot
+recall is money the agent had already moved into its x402 escrow, which counted against the
+allowance when it moved. The connector moves only what the next purchase needs, unless it is asked
+to top up ahead of time.
 
 ### Why this did not already work on Arc
 
@@ -234,26 +245,37 @@ recipient lists, expiry — are untouched, because they were never the broken pa
   Codex can spend inside an allowance. The agent makes its own key, shows you a public address, and
   after you grant it finds the rest by itself — it watches for the `SessionKeyAdded` event naming
   its own address. One scan, no config file. See [mcp/README.md](mcp/README.md).
-- **222 tests behind one gate.** `npm run gate` must be green before anything ships:
+- **One gate.** `npm run gate` must be green before anything ships:
 
-  | | | |
-  |---|---|---|
-  | `npm test` | 123 | parsing, encoding, the money type, mandate formatting, the meter the card reads |
-  | `npm run test:contracts` | 47 | the allowance rules, against a fork with the plugin installed on a real Circle account |
-  | `npm run test:integration` | 33 | the whole path — a signed user operation through the real EntryPoint, money moving, revocation taking effect, and an x402 payment checked against Circle's live facilitator |
+  | | |
+  |---|---|
+  | `npm test` | parsing, encoding, the money type, mandate formatting, the meter the card reads, the connector |
+  | `npm run test:contracts` | the allowance rules, against a fork with the plugin installed on a real Circle account |
+  | `npm run test:integration` | the whole path: a signed user operation through the real EntryPoint, money moving, revocation taking effect, and an x402 payment checked against Circle's live facilitator |
 
   Run `test:integration` on its own. It forks live Arc, and sharing the RPC with another suite has
   produced spurious failures with tests taking twenty times as long.
 
 ## Why Arc
 
-On most chains a dollar is a token contract, so a spending limit means parsing calldata and
-hoping you recognised the transfer. On Arc **the dollar is the currency itself**, so "never more
-than $50" is a rule the network checks directly on the value field.
+On most chains a dollar is a token contract, and a spending limit is whatever you manage to parse
+out of calldata. On Arc **the dollar is the currency itself**, with an ERC-20 view over the same
+balance, so the account's own rules can meter it directly. The plugin supports both: a limit on the
+native value field, and a limit on the ERC-20 view.
 
-That also decided the design: the mandate is denominated in native USDC and the ERC-20 view is
-closed to agents — because `approve` creates an allowance that lives in the token contract and
-**survives revocation**, which would quietly break the one promise the product makes.
+The app grants on the ERC-20 view, because it is the only rail that covers everything an agent
+does. A direct payment and the `approve` that funds an x402 escrow both go through it, so one limit
+bounds all of it and the phone can show a single number that is the whole truth. The native limit
+is left at zero, which refuses any payment carrying value, so there is no second meter to escape
+through. `contracts/test/ArcOneMeter.t.sol` is the evidence.
+
+Two costs come with that, and neither is hidden. An over-limit payment is refused when it runs
+rather than before it runs (the gas is sponsored, and the connector checks the limit first). And
+the allowance cannot be narrowed to named payees, because on this rail the account sees the token
+contract as the target, not the recipient. The contracts also support a scoped allowance: a payee
+list on the native rail, where an over-limit payment is refused during validation and costs
+nothing. The app does not offer it yet, because an agent shopping the open web does not know who
+it will pay.
 
 ## What this contributes to Arc
 
@@ -262,8 +284,8 @@ work with Circle Modular Wallets** (the one deployed on Arc is EntryPoint v0.6 a
 v0.7 — it installs, then reverts at first use), and **Circle wallets on React Native** (App Kit is
 web-only; `docs.arc.io/integrate` lists no mobile SDK).
 
-- [docs/CONTRIBUTION.md](docs/CONTRIBUTION.md) — what we built for the ecosystem and why
-- [docs/FINDINGS.md](docs/FINDINGS.md) — five things building on Arc taught us that the docs don't
+- [docs/CONTRIBUTION.md](docs/CONTRIBUTION.md): what we built for the ecosystem and why
+- [docs/FINDINGS.md](docs/FINDINGS.md): twelve things building on Arc taught us that the docs don't
   cover, including a dual-decimal USDC trap that can read a funded account as empty
 
 ## Where to look

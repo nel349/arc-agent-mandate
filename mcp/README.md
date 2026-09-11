@@ -4,7 +4,8 @@ An MCP server, so the agent you already run — Claude Code, Cursor, Codex — c
 wallet inside limits you set on your phone and take back with your face.
 
 ```bash
-claude mcp add arc-mandate -- node /path/to/arc-agent-mandate/mcp/server.ts
+git clone https://github.com/nel349/arc-agent-mandate && cd arc-agent-mandate && npm install
+claude mcp add arc-mandate -s user -- node "$PWD/mcp/server.ts"
 ```
 
 Then, in the agent:
@@ -31,13 +32,18 @@ copy-paste back.
 
 | | |
 |---|---|
-| `get_pairing_address` | the address to grant to |
-| `check_allowance` | limit, spent, remaining — read from the chain |
-| `pay` | send USDC within the allowance |
+| `get_pairing_address` | the address to grant to, as a QR code for the app to scan |
+| `check_allowance` | limit, spent, remaining and what is spendable now, read from the chain |
+| `pay` | send USDC to an address, within the allowance |
+| `buy` | fetch a URL and pay if it answers `402 Payment Required` (x402), topping up the agent's escrow from the allowance when it has to |
+| `top_up` | move money into the agent's escrow ahead of a run of small purchases; it counts against the same allowance |
 
-The agent cannot exceed the allowance, pay someone it was not granted, or keep spending after you
-revoke. None of that is enforced here — it is enforced by the account, during validation, so a
-refused payment never even costs gas.
+The agent cannot exceed the allowance or keep spending after you revoke, and an allowance that
+names payees cannot pay anyone else. None of that is enforced here: the account enforces it. A
+revoked or expired allowance is refused during validation, before anything runs. On the one-meter
+allowance the app grants, an over-limit payment is refused when it runs instead: no money moves,
+and the gas is Circle's sponsorship. This connector checks the limit before sending, so only a
+connector that skipped the check reaches that refusal.
 
 ## Configuration
 
@@ -45,11 +51,31 @@ refused payment never even costs gas.
 |---|---|
 | `ARC_RPC_URL` | defaults to Arc testnet |
 | `ARC_SESSION_KEY_PLUGIN` | the mandate plugin |
-| `ARC_PLUGIN_FROM_BLOCK` | the plugin's deployment block. **Set this** — without it the agent only searches recent history, because `eth_getLogs` is capped at 10,000 blocks and scanning past the floor gets the whole lookup rate-limited |
+| `ARC_PLUGIN_FROM_BLOCK` | where the search for a grant stops. Defaults to the plugin's deployment block, 60,625,268; set it only for a plugin you deployed yourself |
 | `CIRCLE_CLIENT_URL`, `CIRCLE_CLIENT_KEY`, `CIRCLE_PASSKEY_DOMAIN` | the bundler the agent submits through. Arc has no public bundler, so without these a payment cannot be sent |
 | `ARC_MANDATE_KEY_PATH` | where the agent's key lives (default `~/.arc-mandate/agent.key`) |
 
 ## Installing it
+
+From a clone of this repository, which is how it installs today:
+
+```bash
+cd /path/to/arc-agent-mandate
+claude mcp add arc-mandate -s user -- node "$PWD/mcp/server.ts"
+claude mcp list | grep arc-mandate      # confirm the path; $PWD is your shell's, not ours
+```
+
+The server reads this project's `.env` on its own, so nothing secret goes into your client's
+config. Restart the client afterwards: MCP servers are launched at startup.
+
+Without `-s user` this lands in local scope, which is bound to the directory you ran it in and
+shadows every other scope. A wrong path here surfaces later as `CONNECTION_CLOSED` and names
+nothing, so it is worth the one extra line to check.
+
+### Once the package is published
+
+The connector is packaged as `@kuiralabs/arc-mandate` but is not on npm yet, so this answers 404
+until it is. Then it installs without a clone, with the values in the client's config:
 
 ```bash
 claude mcp add-json arc-mandate '{
@@ -60,21 +86,6 @@ claude mcp add-json arc-mandate '{
     "CIRCLE_PASSKEY_DOMAIN": "your-passkey-domain"
   } }'
 ```
-
-Restart the client afterwards — MCP servers are launched at startup.
-
-Working in this repo instead of installing the package? Point it at the file and drop the `env`
-block; the server reads this project's `.env` on its own:
-
-```bash
-cd /path/to/arc-agent-mandate
-claude mcp add arc-mandate -s user -- node "$PWD/mcp/server.ts"
-claude mcp list | grep arc-mandate      # confirm the path; $PWD is your shell's, not ours
-```
-
-Without `-s user` this lands in local scope, which is bound to the directory you ran it in and
-shadows every other scope. A wrong path here surfaces later as `CONNECTION_CLOSED` and names
-nothing, so it is worth the one extra line to check.
 
 ### Why you bring your own key
 

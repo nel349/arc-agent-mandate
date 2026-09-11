@@ -1,8 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 /**
  * A structural test, for a bug that unit tests could not have caught.
@@ -152,4 +155,50 @@ test("an unreachable endpoint is explained, not dumped", () => {
   assert.match(guard, /try \{/, "the lookup is unguarded, so viem's error reaches the person");
   assert.match(guard, /rememberedGranter\(/,
     "a failure discards what is already known, which is still true and still useful");
+});
+
+/**
+ * The first thing a new user asks, answered when the chain will not.
+ *
+ * "What's your payment address?" is step 4 of the path, and when Arc's public endpoint rate-limited
+ * it came back as viem's full error dump instead of the QR code, three times out of three in a
+ * fresh review. The code never needed the chain: it is the agent's own address. So a failed read
+ * must still hand over the code, and say in words what could not be checked.
+ *
+ * Run for real rather than read as source: the server is started the way an MCP client starts it,
+ * pointed at an address where nothing listens, with its key and memory in a scratch directory.
+ */
+test("the pairing code is shown even when the chain cannot be read", async () => {
+  const scratch = mkdtempSync(join(tmpdir(), "arc-mandate-pairing-"));
+  const env: Record<string, string> = {};
+  for (const [name, value] of Object.entries(process.env)) if (value !== undefined) env[name] = value;
+
+  const client = new Client({ name: "pairing-test", version: "0" });
+  await client.connect(new StdioClientTransport({
+    command: process.execPath,
+    args: [
+      "--experimental-transform-types", "--disable-warning=ExperimentalWarning",
+      join(dirname(fileURLToPath(import.meta.url)), "server.ts"),
+    ],
+    env: {
+      ...env,
+      ARC_RPC_URL: "http://127.0.0.1:9",
+      ARC_MANDATE_KEY_PATH: join(scratch, "agent.key"),
+      ARC_MANDATE_ACCOUNT_PATH: join(scratch, "accounts.json"),
+    },
+    stderr: "ignore",
+  }));
+
+  try {
+    const result = await client.callTool({ name: "get_pairing_address", arguments: {} });
+    const body = (result.content as { readonly text?: string }[]).map((part) => part.text ?? "").join("\n");
+
+    assert.notEqual(result.isError, true, "the pairing tool failed instead of answering");
+    assert.match(body, /0x[0-9a-fA-F]{40}/, "the address is missing");
+    assert.match(body, /New allowance/, "the next step is missing");
+    assert.match(body, /could not be checked/, "the reply does not say what could not be checked");
+    assert.doesNotMatch(body, /HTTP request failed|Request body|Version: viem/, "viem's dump reached the user");
+  } finally {
+    await client.close();
+  }
 });

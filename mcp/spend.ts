@@ -85,7 +85,9 @@ export async function submitSpend({ agent, account, calls }: SpendRequest): Prom
 
     const userOpHash = await sendWithFeeBump(bundler, calls);
     const receipt = await bundler.waitForUserOperationReceipt({ hash: userOpHash });
-    if (!receipt.success) return { ok: false, reason: "refused during validation" };
+    // A receipt only exists for an operation that ran, so a failed one was refused while running:
+    // on the one-meter rail, that is where an over-limit payment is caught. No money moved.
+    if (!receipt.success) return { ok: false, reason: "refused by the allowance when it ran, so no money moved" };
     return { ok: true, hash: receipt.receipt.transactionHash, userOpHash };
   } catch (cause) {
     return { ok: false, reason: shortReason(cause) };
