@@ -48,6 +48,8 @@ export default function ReceiptScreen() {
 
   const amount = activityAmount(item);
   const name = nameOf(item.agent);
+  /** The one place this receipt can be checked without taking the app's word for it. */
+  const openTransaction = () => void Linking.openURL(explorerTxUrl(item.tx));
 
   return (
     <>
@@ -64,14 +66,20 @@ export default function ReceiptScreen() {
           <DetailRow label="Agent" value={name ?? shortAddress(item.agent)} first />
           {name !== null && <DetailRow label="Address" value={shortAddress(item.agent)} data />}
           <DetailRow label="When" value={`${weekdayDayMonth(item.at)}, ${clockTime(item.at)}`} />
-          <DetailRow label="Transaction" value={shortAddress(item.tx)} data />
+          <DetailRow
+            label="Transaction"
+            value={shortAddress(item.tx)}
+            data
+            onPress={openTransaction}
+            hint="Opens this transaction on ArcScan"
+          />
         </Surface>
 
         <Text style={[styles.explained, { color: c.dim }]}>
           {item.kind === "draw" ? DRAW_EXPLAINED : KEY_EVENT_EXPLAINED[item.kind]}
         </Text>
 
-        <Button icon="open-outline" title="View on ArcScan" onPress={() => void Linking.openURL(explorerTxUrl(item.tx))} />
+        <Button icon="open-outline" title="View on ArcScan" onPress={openTransaction} />
       </Screen>
     </>
   );
