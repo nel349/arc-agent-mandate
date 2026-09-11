@@ -96,10 +96,10 @@ const styles = StyleSheet.create({
     padding: tokens.space.base,
     gap: tokens.space.xs,
   },
-  mono: { fontFamily: tokens.font.mono, fontSize: tokens.font.small },
+  mono: { fontFamily: tokens.type.data.fontFamily, fontSize: tokens.type.data.fontSize },
   logLine: {
-    fontFamily: tokens.font.mono,
-    fontSize: tokens.font.small,
+    fontFamily: tokens.type.data.fontFamily,
+    fontSize: tokens.type.caption.fontSize,
     // No fixed lineHeight. React Native scales `fontSize` with the system text setting but leaves
     // `lineHeight` alone, so a hardcoded one clips the glyphs of anyone using large text.
   },

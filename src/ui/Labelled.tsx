@@ -61,6 +61,7 @@ const styles = StyleSheet.create({
   group: { gap: tokens.space.xs },
   labelRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   trailing: { flexDirection: "row", alignItems: "center", gap: tokens.space.sm },
-  label: tokens.type.label,
-  hint: { fontFamily: tokens.font.mono, fontSize: tokens.font.small, lineHeight: tokens.font.smallLineHeight },
+  // A field's name, in sentence case: it names one control, where `section` names a group of them.
+  label: { ...tokens.type.subheadline, fontWeight: "600" },
+  hint: tokens.type.footnote,
 });

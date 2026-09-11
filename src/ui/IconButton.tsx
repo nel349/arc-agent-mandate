@@ -40,7 +40,9 @@ export function IconButton({
   readonly style?: ViewStyle;
 }) {
   const c = useTheme().color;
-  const edge = active ? c.signal : c.hairline;
+  // An open disclosure is lit in full-strength ink. It used `signal`, which is reserved for the
+  // number that matters, and a `?` being open is not that.
+  const edge = active ? c.paper : c.hairline;
 
   return (
     <Pressable
@@ -59,7 +61,7 @@ export function IconButton({
           height: size,
           backgroundColor: c.glass,
           borderColor: edge,
-          borderTopColor: active ? c.signal : c.specular,
+          borderTopColor: active ? c.paper : c.specular,
         },
         style,
       ]}
@@ -68,7 +70,7 @@ export function IconButton({
         <Ionicons
           name={icon}
           size={glyphSize(size)}
-          color={active ? c.signal : c.paper}
+          color={c.paper}
           // Collapse the font's line box onto the glyph so the flex centring above has something
           // square to centre. Without it the glyph rides high by the font's descender.
           style={{ lineHeight: glyphSize(size), includeFontPadding: false }}
@@ -79,7 +81,7 @@ export function IconButton({
           style={[
             styles.glyph,
             {
-              color: active ? c.signal : c.dim,
+              color: active ? c.paper : c.dim,
               fontSize: glyphSize(size),
               lineHeight: glyphSize(size),
             },
@@ -100,7 +102,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   glyph: {
-    fontFamily: tokens.font.mono,
     fontWeight: "700",
     textAlign: "center",
     // `lineHeight` is set per instance from `size`. It is not the centring — the flex box does

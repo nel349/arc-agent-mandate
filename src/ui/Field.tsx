@@ -19,6 +19,7 @@ import { tokens } from "./tokens.ts";
  */
 export function Field({
   label, value, onChangeText, placeholder, hint, keyboardType, problem, confirmed = false, action,
+  data = false, onDone, maxLength,
 }: {
   readonly label: string;
   readonly value: string;
@@ -33,6 +34,14 @@ export function Field({
   readonly confirmed?: boolean;
   /** A shortcut to filling this in, shown beside the label. Scanning a code, for instance. */
   readonly action?: ReactNode;
+  /**
+   * The value is compared character by character, like an address, so it is set in mono and small
+   * enough to fit one line. An amount or a count is read as a number, and gets the body size.
+   */
+  readonly data?: boolean;
+  /** Called when editing ends, for a value that is kept as soon as the person is done with it. */
+  readonly onDone?: () => void;
+  readonly maxLength?: number;
 }) {
   const c = useTheme().color;
 
@@ -54,19 +63,26 @@ export function Field({
       hint={hint}
       trailing={
         <>
-          {confirmed && !showProblem && <Text style={[styles.mark, { color: c.signal }]}>✓</Text>}
+          {confirmed && !showProblem && <Text style={[styles.mark, { color: c.good }]}>✓</Text>}
           {action}
         </>
       }
     >
       <TextInput
-        style={[styles.input, { backgroundColor: c.groundLow, borderColor: edge, color: c.paper }]}
+        style={[
+          styles.input,
+          data ? styles.dataText : styles.numberText,
+          { backgroundColor: c.groundLow, borderColor: edge, color: c.paper },
+        ]}
         value={value}
         onChangeText={change}
         placeholder={placeholder}
         placeholderTextColor={c.dim}
         keyboardType={keyboardType}
-        autoCapitalize="none"
+        onEndEditing={onDone}
+        maxLength={maxLength}
+        // Words for a name, nothing for an address or a number: capitalising "0x" would break it.
+        autoCapitalize={data || keyboardType !== undefined ? "none" : "words"}
         autoCorrect={false}
         accessibilityLabel={label}
       />
@@ -82,9 +98,11 @@ const styles = StyleSheet.create({
     borderRadius: tokens.radius.md,
     paddingHorizontal: tokens.space.base,
     minHeight: tokens.size.tapTarget,
-    fontFamily: tokens.font.mono,
-    fontSize: tokens.font.body,
   },
-  problem: { fontFamily: tokens.font.mono, fontSize: tokens.font.small },
-  mark: { fontFamily: tokens.font.mono, fontSize: tokens.font.body, fontWeight: "700" },
+  // `lineHeight` is dropped from both: on a single-line input iOS adds it above the text rather
+  // than around it, which pushes the value visibly low in its box.
+  dataText: { fontFamily: tokens.type.data.fontFamily, fontSize: tokens.type.data.fontSize },
+  numberText: { fontSize: tokens.type.body.fontSize, fontVariant: [...tokens.font.tabular] },
+  problem: tokens.type.footnote,
+  mark: tokens.type.headline,
 });

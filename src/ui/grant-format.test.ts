@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { expiryDate, grantSummary } from "./grant-format.ts";
+import { exceedsWallet, expiryDate, grantedSentence, grantSummary, windowEndLabel } from "./grant-format.ts";
 import { Usdc } from "../arc/usdc.ts";
 
 /** Fixed so the wording is asserted, not the clock. 2026-09-04T12:00:00Z. */
@@ -25,7 +25,7 @@ test("the summary names the limit, the date and the fee float", () => {
     now: NOW,
   });
   assert.match(text, /up to 20\.00 USDC/);
-  assert.match(text, /until Sep 11/);
+  assert.match(text, /until 11 Sep/);
   assert.match(text, /Nothing is transferred to the agent/);
 });
 
@@ -45,7 +45,7 @@ test("a window running into next year names the year, so the date cannot be misr
     days: 365,
     now: NOW,
   });
-  assert.match(text, /until Sep 4, 2027/);
+  assert.match(text, /until 4 Sep 2027/);
 });
 
 test("a window inside this year leaves the year off", () => {
@@ -55,4 +55,25 @@ test("a window inside this year leaves the year off", () => {
     now: NOW,
   });
   assert.doesNotMatch(text, /202\d/);
+});
+
+test("each length of allowance says the day it would end", () => {
+  // Wednesday 9 Sep 2026, local noon, so the date holds in every time zone.
+  const now = new Date(2026, 8, 10, 12).getTime();
+  assert.equal(windowEndLabel(7, now), "Ends Thu 17 Sep");
+  assert.equal(windowEndLabel(1, now), "Ends Fri 11 Sep");
+});
+
+test("a limit above what the wallet holds is flagged, and an unknown balance is not", () => {
+  assert.equal(exceedsWallet(Usdc.parse("20"), Usdc.parse("4.39")), true);
+  assert.equal(exceedsWallet(Usdc.parse("4.39"), Usdc.parse("4.39")), false);
+  assert.equal(exceedsWallet(Usdc.parse("20"), null), false);
+});
+
+test("the confirmation names who, how much and until when, and says nothing has moved", () => {
+  const now = new Date(2026, 8, 10, 12).getTime();
+  assert.equal(
+    grantedSentence({ who: "Maze runner", limit: Usdc.parse("20"), days: 7, now }),
+    "Maze runner can now spend up to 20.00 USDC until 17 Sep. Nothing has left your wallet yet.",
+  );
 });

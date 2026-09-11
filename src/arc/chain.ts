@@ -33,7 +33,28 @@ export const ARC_CONTRACTS = {
     reputation: "0x8004B663056A597Dffe9eCcC1965A193B7388713",
     validation: "0x8004Cb1BF31DAf7788923b405b754f57acEB4272",
   },
+  /**
+   * Circle's Gateway Wallet, the same address on every chain Gateway supports. An agent's purchase
+   * shows on Arc as a deposit into it, credited to the agent and paid for by the account, which is
+   * what the payments feed reads. The connector keeps its own copy in `mcp/gateway.ts`, because it
+   * is a separate program that imports nothing from the app.
+   */
+  gatewayWallet: "0x0077777d7EBA4688BDeF3E311b846F25870A19B9",
 } as const;
+
+/**
+ * Circle's faucet for test USDC, where the README already sends people, choosing Arc testnet. The
+ * first step of the journey is a funded wallet, and this is how a new one gets its first dollars.
+ */
+export const TESTNET_FAUCET_URL = "https://faucet.circle.com";
+
+/** Blockscout's path for one transaction, under the explorer viem names for this chain. */
+const EXPLORER_TX_PATH = "/tx/";
+
+/** Where a person can check a transaction for themselves, on the explorer viem lists for Arc. */
+export function explorerTxUrl(hash: string): string {
+  return `${arcTestnet.blockExplorers.default.url}${EXPLORER_TX_PATH}${hash}`;
+}
 
 /** The path segment Circle's modular RPC expects for this chain, per their own docs. */
 export const ARC_TESTNET_TRANSPORT_PATH = "arcTestnet";

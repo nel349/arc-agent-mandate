@@ -1,5 +1,6 @@
 import type { Mandate } from "../arc/mandate.ts";
 import type { Usdc } from "../arc/usdc.ts";
+import { dayMonth } from "./calendar.ts";
 
 /**
  * Turning a mandate into the words on the card.
@@ -95,6 +96,79 @@ export function spentPercentLabel(mandate: Mandate): string {
   if (percent === 0) return "<1%";
   if (percent === 100) return ">99%";
   return `${percent}%`;
+}
+
+
+/**
+ * When the allowance ends, as a date and a countdown: "12 Sep · 6 days left".
+ *
+ * The countdown alone answered "how long" but not "until when", and "6 days left" means a different
+ * day depending on when it is read. The date uses the phone's own time zone, because that is the
+ * calendar the person is holding it against.
+ */
+export function expiryLine(mandate: Mandate, now: number = Date.now()): string {
+  const countdown = expiryLabel(mandate, now);
+  if (mandate.expiresAt === undefined || countdown === "expired") return countdown;
+  return `${dayMonth(mandate.expiresAt)} · ${countdown}`;
+}
+
+/** Whether the allowance's window has closed. An allowance with no end date never has. */
+export function hasEnded(mandate: Mandate, now: number = Date.now()): boolean {
+  return mandate.expiresAt !== undefined && mandate.expiresAt <= Math.floor(now / 1000);
+}
+
+/**
+ * When the allowance ends, as the row under an agent's name says it: "Ends 17 Sep · 6 days left".
+ *
+ * A closed window says when it closed rather than a bare "expired", because the question after
+ * "is it over?" is always "since when?".
+ */
+export function endsLine(mandate: Mandate, now: number = Date.now()): string {
+  if (mandate.expiresAt === undefined) return "No end date";
+  const day = dayMonth(mandate.expiresAt);
+  return hasEnded(mandate, now) ? `Ended ${day}` : `Ends ${day} · ${expiryLabel(mandate, now)}`;
+}
+
+/**
+ * The allowance as a person would say it, under the figure on the agent's screen.
+ *
+ * Three states, three sentences, because they call for three different reactions: an open window
+ * says what may still happen, an ended one says nothing more can, and both say what already has.
+ */
+export function allowanceSentence(mandate: Mandate, now: number = Date.now()): string {
+  const spent = mandate.spent.isZero() ? "Nothing spent yet." : `${mandate.spent.format(2)} spent so far.`;
+  if (mandate.expiresAt === undefined) {
+    return `Can spend up to ${mandate.limit.format(2)} USDC, with no end date. ${spent}`;
+  }
+  const day = dayMonth(mandate.expiresAt);
+  return hasEnded(mandate, now)
+    ? `This allowance ended on ${day}, and the agent can no longer spend from it. ${spent}`
+    : `Can spend up to ${mandate.limit.format(2)} USDC until ${day}. ${spent}`;
+}
+
+/**
+ * The whole row as one sentence, for VoiceOver.
+ *
+ * A row is a ring, a name, a date and a figure, and read out one by one they are four unrelated
+ * fragments. Spoken as a sentence they are an answer.
+ */
+export function agentRowLabel(mandate: Mandate, name: string | null, now: number = Date.now()): string {
+  const who = name ?? `Agent ${shortAddress(mandate.agent)}`;
+  return `${who}. ${mandate.remaining.format(2)} USDC left of ${mandate.limit.format(2)}. ${endsLine(mandate, now)}.`;
+}
+
+/**
+ * The line under what is left: the limit it is out of, and what has gone.
+ *
+ * The figure above it counts down and the ring fills up. This line is the one that names both
+ * directions in words. The card used to put "19.89 of 20.00" beside a bare "1%", two numbers side by
+ * side that counted opposite ways, with nothing saying which was which.
+ */
+export function spentLine(mandate: Mandate): string {
+  const limit = `of a ${mandate.limit.format(2)} limit`;
+  return mandate.spent.isZero()
+    ? `${limit} · nothing spent`
+    : `${limit} · ${mandate.spent.format(2)} spent (${spentPercentLabel(mandate)})`;
 }
 
 /**

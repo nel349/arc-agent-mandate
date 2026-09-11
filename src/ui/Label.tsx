@@ -5,8 +5,9 @@ import { tokens } from "./tokens.ts";
 /**
  * A section heading.
  *
- * Small, uppercase, letterspaced — the same in every theme, because typography is structure. Only
- * the colour comes from the palette.
+ * Small, uppercase, letterspaced, in the system font: the one place uppercase survives, over a
+ * group of rows, the way iOS sets its own. The same in every theme, because typography is
+ * structure. Only the colour comes from the palette.
  *
  * `dim` is for a heading that names something already obvious from what sits under it; the default
  * is for one carrying information of its own.
@@ -16,4 +17,4 @@ export function Label({ children, dim = false }: { readonly children: string; re
   return <Text style={[styles.label, { color: dim ? c.dim : c.muted }]}>{children}</Text>;
 }
 
-const styles = StyleSheet.create({ label: tokens.type.label });
+const styles = StyleSheet.create({ label: tokens.type.section });

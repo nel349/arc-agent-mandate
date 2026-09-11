@@ -33,6 +33,14 @@ import { Usdc } from "./usdc.ts";
  *  Derived from the plugin's creation code — see `contracts/script/DeploySessionKeyPlugin.s.sol`. */
 export const SESSION_KEY_PLUGIN: Address = "0x669Dd1eDb85ABD00f74186d88124614EE81E6670";
 
+/**
+ * The block the plugin was deployed in, on Arc testnet.
+ *
+ * No grant, and so no payment under one, can be older, which makes it the honest floor for any
+ * search of the plugin's history. The connector keeps the same figure in `mcp/chain.ts`.
+ */
+export const SESSION_KEY_PLUGIN_DEPLOY_BLOCK = 60_625_268n;
+
 /** `keccak256(abi.encode(pluginManifest()))`, which `installPlugin` verifies. Fixed by the
  *  plugin's build; `mandate.test.ts` pins it against the compiled contract so a change to the
  *  plugin cannot silently leave this stale. Print it with
@@ -372,9 +380,20 @@ async function fees(account: ArcAccount) {
  * person is asked to interpret.
  */
 export async function isPluginDeployed(): Promise<boolean> {
+  if (pluginSeen) return true;
   const code = await arcPublicClient.getCode({ address: SESSION_KEY_PLUGIN });
-  return code !== undefined && code !== "0x";
+  pluginSeen = code !== undefined && code !== "0x";
+  return pluginSeen;
 }
+
+/**
+ * Remembered once seen, because a deployed contract does not un-deploy.
+ *
+ * The allowance screen asks every ten seconds, and each ask was a request against the same public
+ * rate limit the balance and the feed share, spent on a fact that cannot change back. Only a yes is
+ * kept: a network where the plugin is missing is still asked again, so deploying it is noticed.
+ */
+let pluginSeen = false;
 
 /**
  * Whether this account already carries the mandate plugin.

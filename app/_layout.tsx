@@ -1,8 +1,16 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Stack, useRouter } from "expo-router";
 import { Pressable, StyleSheet } from "react-native";
+import { AgentNamesProvider } from "../src/ui/agent-names-context.tsx";
+import { SessionProvider } from "../src/ui/session-context.tsx";
 import { ThemeProvider, useTheme } from "../src/ui/theme-context.tsx";
 import { tokens } from "../src/ui/tokens.ts";
+
+/** A bar with no fill of its own, over a screen that paints its own ground. */
+const TRANSPARENT = "transparent";
+
+/** The receipt's resting height, as a fraction of the screen: the figure and its four rows. */
+const RECEIPT_HEIGHT = 0.62;
 
 /** Sized from the shared control scale, so it matches the `?` controls in content. */
 const HEADER_ICON = Math.round(tokens.size.control.header * tokens.size.glyphScale);
@@ -33,14 +41,21 @@ const styles = StyleSheet.create({
 });
 
 /**
- * The provider wraps the navigator so a palette change reaches every screen at once, including the
- * headers — which are drawn by the navigator rather than by us, and would otherwise stay on
- * whichever theme the app started in.
+ * The providers wrap the navigator so every screen, including the headers the navigator draws,
+ * reads one palette, one wallet and one set of agent names.
+ *
+ * The session sits above the navigator rather than inside a screen because the app now has more
+ * than one: the list, an agent's own screen and the grant sheet all show the same account, and a
+ * wallet held by one screen's state is a wallet the next screen cannot see.
  */
 export default function RootLayout() {
   return (
     <ThemeProvider>
-      <Navigator />
+      <SessionProvider>
+        <AgentNamesProvider>
+          <Navigator />
+        </AgentNamesProvider>
+      </SessionProvider>
     </ThemeProvider>
   );
 }
@@ -53,7 +68,10 @@ function Navigator() {
       screenOptions={{
         headerStyle: { backgroundColor: c.groundMid },
         headerTintColor: c.paper,
+        headerTitleStyle: { color: c.paper },
+        headerLargeTitleStyle: { color: c.paper },
         headerShadowVisible: false,
+        headerLargeTitleShadowVisible: false,
         contentStyle: { backgroundColor: c.groundMid },
       }}
     >
@@ -61,8 +79,16 @@ function Navigator() {
         name="index"
         options={{
           title: "Allowances",
-          // Settings is occasional, so it belongs in the chrome rather than in the content. A tab
-          // bar would spend a permanent third of the screen on something opened once a month.
+          // A large title, as Apple asks of a top-level screen, over the screen's own lit ground.
+          // Transparent so the gradient runs to the top edge; iOS draws its own scroll edge
+          // effect once content passes beneath the bar.
+          headerLargeTitleEnabled: true,
+          headerTransparent: true,
+          // Both cleared, or the bar keeps the ground colour from `screenOptions` and draws a
+          // darker band across the top of the gradient.
+          headerStyle: { backgroundColor: TRANSPARENT },
+          headerLargeStyle: { backgroundColor: TRANSPARENT },
+          // Settings is occasional, so it belongs in the chrome rather than in the content.
           /**
            * A view, because the native option is not available here.
            *
@@ -76,7 +102,7 @@ function Navigator() {
            * capsule around header items, and a second one of ours inside it reads as a box within
            * a box. `IconButton` is not reused here for exactly that reason — it brings its own
            * ring and its own centring, both of which the system is already providing. See
-           * `headerButton` below for which axis belongs to whom.
+           * `headerButton` above for which axis belongs to whom.
            *
            * `hitSlop` restores the touch target the glyph is too small to fill on its own.
            */
@@ -96,6 +122,32 @@ function Navigator() {
               />
             </Pressable>
           ),
+        }}
+      />
+      {/* Pushed: drilling into one item of the list. Its title is the agent's name, set by the
+          screen once it knows it. */}
+      <Stack.Screen
+        name="agent/[address]"
+        options={{
+          title: "",
+          headerTransparent: true,
+          headerStyle: { backgroundColor: TRANSPARENT },
+          headerBackTitle: "Allowances",
+        }}
+      />
+      {/* Full screen, drawing its own bar: a flow of several steps, as Kuira's send is, and as
+          Apple places a multi-step task. Each step takes the whole screen, and the bar's Cancel
+          and Back are the ways out. */}
+      <Stack.Screen name="grant" options={{ presentation: "fullScreenModal", headerShown: false }} />
+      <Stack.Screen name="activity" options={{ title: "Activity", headerBackTitle: "Back" }} />
+      {/* Half height: a receipt is a glance at one row, with the list still showing above it. */}
+      <Stack.Screen
+        name="receipt"
+        options={{
+          presentation: "formSheet",
+          sheetAllowedDetents: [RECEIPT_HEIGHT, 1],
+          sheetGrabberVisible: true,
+          title: "",
         }}
       />
       <Stack.Screen name="settings" options={{ title: "Settings" }} />

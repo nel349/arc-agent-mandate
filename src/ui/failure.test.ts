@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { describeFailure, MANDATE_FAILURES } from "./failure.ts";
+import { HttpRequestError } from "viem";
+import { ARC_BUSY, describeFailure, MANDATE_FAILURES } from "./failure.ts";
 
 /**
  * The SDK wraps a failure and puts the reason in `cause`. Matching only the outer message meant
@@ -133,4 +134,13 @@ test("the web and Android shapes of cancellation are recognised too", () => {
       `${message} was not recognised`,
     );
   }
+});
+
+test("a refusal for asking too often says Arc is busy, not that something broke", () => {
+  const refused = new HttpRequestError({
+    url: "https://rpc.testnet.arc.network/",
+    status: 429,
+    details: "{\"code\":-32005,\"message\":\"rate limit exceeded\"}",
+  });
+  assert.equal(describeFailure(new Error("reading the allowances failed", { cause: refused }), MANDATE_FAILURES), ARC_BUSY);
 });

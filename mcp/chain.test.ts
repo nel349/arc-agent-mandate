@@ -19,7 +19,16 @@ import { join } from "node:path";
  * for ever, because nothing goes back to check. These tests are mostly about that.
  */
 
-const AGENT = "0x3535816e967Ad2B6271dfadf9138fb07eAB161Ce";
+/**
+ * An address no account has ever granted, so every search in this file finds nothing and has to
+ * record how far it got, which is what these tests are about.
+ *
+ * It was the real agent's address, and the tests passed only while nobody had granted it anything
+ * recently. Once it was granted again on 09-10, the interrupted search found the grant in its first
+ * window, returned it, and recorded the granter instead of a stretch; the test failed on the live
+ * chain's state rather than on the code. A never-granted address keeps the precondition true.
+ */
+const AGENT = "0x000000000000000000000000000000000000dEaD";
 
 /** A state file of its own per test, so none of them can see another's. */
 function statePath(): string {

@@ -45,9 +45,7 @@ const styles = StyleSheet.create({
     paddingLeft: tokens.space.md,
     paddingVertical: tokens.space.xs,
   },
-  text: {
-    fontFamily: tokens.font.mono,
-    fontSize: tokens.font.small,
-    lineHeight: tokens.font.smallLineHeight,
-  },
+  // A sentence, so the system font. It was mono, which made the one line meant to be read in full
+  // the hardest one on the screen to read.
+  text: tokens.type.footnote,
 });

@@ -8,6 +8,11 @@
  * Structural values — spacing, radii, type scale — are **not** part of a theme. A theme that can
  * change spacing is a second layout in disguise, and the second one is always the one nobody
  * tested.
+ *
+ * **The meaning colours are the web's.** `signal`, `untested` and `good` carry the values the maze
+ * draws in `arc-maze/src/web/brand.ts`, so the number that matters is the same orange on the phone
+ * and on the page. The phone used to spend lime on it, and a lime ring closing all the way round is
+ * how Apple marks a goal met — which is the opposite of an allowance running out.
  */
 
 export interface Palette {
@@ -31,8 +36,12 @@ export interface Palette {
   readonly glass: string;
   readonly specular: string;
   readonly hairline: string;
-  /** Means *live*, and nothing else — the pulse and the filled part of a meter. */
+  /** **The number that matters**: nearly out of allowance, where the agent is. Never decoration. */
   readonly signal: string;
+  /** Allowed but not yet spent. Established's opposite, on every surface that shows both. */
+  readonly untested: string;
+  /** It landed: a payment settled, an address that checks out. */
+  readonly good: string;
   /** The unfilled part of a meter: present, but clearly not spent. */
   readonly track: string;
   /** A refusal. Shared across themes on purpose: it is the one event that should never blend in. */
@@ -55,35 +64,43 @@ export interface Theme {
 
 export type ThemeId = "machine" | "arc";
 
-/** Warm charcoal, acid lime. Reads as equipment rather than software. */
+/** Warm charcoal, the web's own ground. Reads as equipment rather than software. */
 const machine: Theme = {
   id: "machine",
   name: "Machine",
-  note: "Warm charcoal, lime status",
+  note: "Warm charcoal, as on the web",
   color: {
-    groundHigh: "#24242A",
-    groundMid: "#141417",
-    groundLow: "#0A0A0C",
-    paper: "#E9E6DF",
+    groundHigh: "#1F1D1A",
+    groundMid: "#12110F",
+    groundLow: "#0A0908",
+    paper: "#EAE7DE",
     muted: "#B6AFA2",
     dim: "#999389",
     glass: "rgba(236, 232, 224, 0.045)",
     specular: "rgba(255, 252, 244, 0.30)",
     hairline: "rgba(236, 232, 224, 0.10)",
-    signal: "#C7F04A",
-    track: "#2A2A2E",
+    signal: "#E8874A",
+    untested: "#7AA6D8",
+    good: "#6BBF8F",
+    track: "#2A2824",
     warn: "#E8B44A",
-    actionFill: "#E9E6DF",
-    actionText: "#111013",
+    actionFill: "#EAE7DE",
+    actionText: "#12110F",
     blurTint: "dark",
   },
 };
 
-/** Arc's own navy and blue. Belongs to the ecosystem at a glance. */
+/**
+ * Arc's own navy. Belongs to the ecosystem at a glance.
+ *
+ * The meaning colours are shared with Machine, lifted slightly to hold their contrast on navy. Arc
+ * blue moves to the primary action, where it is identity rather than information — as a signal it
+ * sat too close to `untested` to tell apart.
+ */
 const arc: Theme = {
   id: "arc",
   name: "Arc",
-  note: "Deep navy, Arc blue status",
+  note: "Deep navy, Arc blue actions",
   color: {
     groundHigh: "#1D3350",
     groundMid: "#0F1E33",
@@ -94,7 +111,9 @@ const arc: Theme = {
     glass: "rgba(198, 222, 255, 0.055)",
     specular: "rgba(232, 244, 255, 0.30)",
     hairline: "rgba(198, 222, 255, 0.12)",
-    signal: "#5FBFFF",
+    signal: "#F0925A",
+    untested: "#8DB8EC",
+    good: "#72C89A",
     track: "#1E3049",
     warn: "#E8B44A",
     actionFill: "#5FBFFF",

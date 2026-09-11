@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { agentHoldingNote, expiryLabel, fractionUsed, lastUsedLabel, shortAddress, spentPercentLabel } from "./mandate-format.ts";
+import { agentHoldingNote, agentRowLabel, allowanceSentence, endsLine, expiryLabel, expiryLine, hasEnded, fractionUsed, lastUsedLabel, shortAddress, spentLine, spentPercentLabel } from "./mandate-format.ts";
 import { Usdc } from "../arc/usdc.ts";
 import type { Mandate } from "../arc/mandate.ts";
 
@@ -191,4 +191,89 @@ test("and it changes at the exact second, not a second either side", () => {
   assert.equal(lastUsedLabel(used(60 * 59), NOW), "used 59 min ago");
   assert.equal(lastUsedLabel(used(3600), NOW), "used 1h ago", "an hour exactly is an hour");
   assert.equal(lastUsedLabel(used(3600 * 48), NOW), "used 2 days ago");
+});
+
+/**
+ * Every figure on the card says what it is.
+ *
+ * The card showed "19.89 of 20.00" beside a bare "1%": what is left, next to what is spent, counting
+ * opposite ways with nothing to say which. And "6 days left" answered how long but not until when.
+ */
+test("the line under the headline names the limit and what has gone, in words", () => {
+  assert.equal(spentLine(mandate("20", "0.1")), "of a 20.00 limit · 0.10 spent (1%)");
+});
+
+test("an untouched allowance says nothing has been spent rather than 0.00 and 0%", () => {
+  assert.equal(spentLine(mandate("20", "0")), "of a 20.00 limit · nothing spent");
+});
+
+test("the expiry gives the day as well as the countdown", () => {
+  // Noon UTC on the 12th is the 12th in every time zone from UTC-11 to UTC+11.
+  const at = Math.floor(NOW / 1000) + 6 * 86_400;
+  assert.equal(expiryLine(mandate("20", "0", at), NOW), "12 Sep · 6 days left");
+});
+
+test("an expired or open-ended allowance says so without inventing a date", () => {
+  assert.equal(expiryLine(mandate("20", "0", Math.floor(NOW / 1000) - 60), NOW), "expired");
+  assert.equal(expiryLine(mandate("20", "0"), NOW), "no expiry");
+});
+
+test("an allowance ends on its date, with the countdown beside it", () => {
+  // Local noon on both days, so the date reads the same in every time zone the test runs in.
+  const now = new Date(2026, 8, 11, 12).getTime();
+  const ends = mandate("20", "0", new Date(2026, 8, 17, 12).getTime() / 1000);
+  assert.equal(endsLine(ends, now), "Ends 17 Sep · 6 days left");
+  assert.equal(hasEnded(ends, now), false);
+});
+
+test("a closed window says when it closed, not a bare expired", () => {
+  const now = new Date(2026, 8, 11, 12).getTime();
+  const ended = mandate("20", "20", new Date(2026, 8, 9, 12).getTime() / 1000);
+  assert.equal(endsLine(ended, now), "Ended 9 Sep");
+  assert.equal(hasEnded(ended, now), true);
+});
+
+test("an allowance with no end date never ends", () => {
+  const open = mandate("20", "0");
+  assert.equal(endsLine(open), "No end date");
+  assert.equal(hasEnded(open), false);
+});
+
+test("a row reads out as one sentence, named or not", () => {
+  const now = new Date(2026, 8, 11, 12).getTime();
+  const row = mandate("20", "0.28", new Date(2026, 8, 17, 12).getTime() / 1000);
+  assert.equal(
+    agentRowLabel(row, "Maze runner", now),
+    "Maze runner. 19.72 USDC left of 20.00. Ends 17 Sep · 6 days left.",
+  );
+  assert.match(agentRowLabel(row, null, now), /^Agent 0x11111111…1111111\. 19\.72 USDC left/);
+});
+
+test("the agent screen says what may still happen, and what already has", () => {
+  const now = new Date(2026, 8, 11, 12).getTime();
+  const until = new Date(2026, 8, 17, 12).getTime() / 1000;
+  assert.equal(
+    allowanceSentence(mandate("20", "0.28", until), now),
+    "Can spend up to 20.00 USDC until 17 Sep. 0.28 spent so far.",
+  );
+  assert.equal(
+    allowanceSentence(mandate("20", "0", until), now),
+    "Can spend up to 20.00 USDC until 17 Sep. Nothing spent yet.",
+  );
+});
+
+test("an ended allowance says nothing more can be spent", () => {
+  const now = new Date(2026, 8, 11, 12).getTime();
+  const ended = mandate("20", "5", new Date(2026, 8, 9, 12).getTime() / 1000);
+  assert.equal(
+    allowanceSentence(ended, now),
+    "This allowance ended on 9 Sep, and the agent can no longer spend from it. 5.00 spent so far.",
+  );
+});
+
+test("an allowance with no end date says so", () => {
+  assert.equal(
+    allowanceSentence(mandate("5", "0")),
+    "Can spend up to 5.00 USDC, with no end date. Nothing spent yet.",
+  );
 });

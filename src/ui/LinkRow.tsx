@@ -10,6 +10,11 @@ import { tokens } from "./tokens.ts";
  * Extracted at the second one. The first copy was fine; a second would have been two places to
  * remember when the row's border, height or chevron changes, and rows are exactly the thing that
  * quietly drifts apart.
+ *
+ * **The row's layout sits on an inner view, not on the `Pressable`.** `Link asChild` hands the
+ * pressable its props through a merge that did not keep an array style intact, so the row lost
+ * `flexDirection` and the chevron dropped under the text on every row in Settings. An inner view
+ * is out of the merge's reach.
  */
 export function LinkRow({
   href, name, note, hint,
@@ -25,17 +30,14 @@ export function LinkRow({
 
   return (
     <Link href={href} asChild>
-      <Pressable
-        style={[styles.row, { borderColor: c.hairline }]}
-        accessibilityRole="link"
-        accessibilityLabel={name}
-        accessibilityHint={hint}
-      >
-        <View style={styles.labels}>
-          <Text style={[styles.name, { color: c.paper }]}>{name}</Text>
-          <Text style={[styles.note, { color: c.dim }]}>{note}</Text>
+      <Pressable accessibilityRole="link" accessibilityLabel={name} accessibilityHint={hint}>
+        <View style={styles.row}>
+          <View style={styles.labels}>
+            <Text style={[styles.name, { color: c.paper }]}>{name}</Text>
+            <Text style={[styles.note, { color: c.dim }]}>{note}</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={tokens.size.chevron} color={c.dim} />
         </View>
-        <Ionicons name="chevron-forward" size={tokens.size.chevron} color={c.dim} />
       </Pressable>
     </Link>
   );
@@ -48,8 +50,9 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: tokens.space.md,
     minHeight: tokens.size.tapTarget,
+    paddingVertical: tokens.space.xs,
   },
-  labels: { flex: 1, gap: tokens.space.xs },
-  name: { fontFamily: tokens.font.mono, fontSize: tokens.font.body },
-  note: { fontFamily: tokens.font.mono, fontSize: tokens.font.small },
+  labels: { flex: 1, gap: 2 },
+  name: tokens.type.body,
+  note: tokens.type.footnote,
 });

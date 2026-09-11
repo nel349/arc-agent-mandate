@@ -1,7 +1,7 @@
 import { memo } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import type { Mandate } from "../arc/mandate.ts";
-import { agentHoldingNote, expiryLabel, fractionUsed, lastUsedLabel, shortAddress, spentPercentLabel } from "./mandate-format.ts";
+import { agentHoldingNote, expiryLine, fractionUsed, lastUsedLabel, shortAddress, spentLine } from "./mandate-format.ts";
 import { useTheme } from "./theme-context.tsx";
 import { ArcRing } from "./ArcRing.tsx";
 import { Button } from "./Button.tsx";
@@ -29,12 +29,23 @@ function MandateCardView({
 }) {
   const c = useTheme().color;
   const holding = agentHoldingNote(mandate.agentFloat);
+  // The chain only records a last-used time for mandates with a refresh interval, and "never used"
+  // would repeat the "nothing spent" already on the line above.
+  const lastUsed = mandate.lastUsedAt === null ? "" : lastUsedLabel(mandate);
 
   return (
     <Surface>
+      {/* Each value under a word saying what it is. A hex string on its own is not recognisable as
+          an agent, and a countdown on its own does not say what is counting down. */}
       <View style={styles.row}>
-        <Text style={[styles.meta, { color: c.muted }]}>{shortAddress(mandate.agent)}</Text>
-        <Text style={[styles.meta, { color: c.muted }]}>{expiryLabel(mandate)}</Text>
+        <View>
+          <Text style={[styles.cap, { color: c.dim }]}>Agent</Text>
+          <Text style={[styles.address, { color: c.muted }]}>{shortAddress(mandate.agent)}</Text>
+        </View>
+        <View style={styles.end}>
+          <Text style={[styles.cap, { color: c.dim }]}>Expires</Text>
+          <Text style={[styles.meta, { color: c.muted }]}>{expiryLine(mandate)}</Text>
+        </View>
       </View>
 
       {/*
@@ -51,46 +62,23 @@ function MandateCardView({
         <View style={styles.figures}>
           <Text style={[styles.amount, { color: c.paper }]}>
             {mandate.remaining.format(2)}
-            <Text style={[styles.of, { color: c.dim }]}>  of {mandate.limit.format(2)}</Text>
+            <Text style={[styles.of, { color: c.dim }]}>  USDC left</Text>
           </Text>
-          <Text style={[styles.percent, { color: c.muted }]}>{spentPercentLabel(mandate)}</Text>
+          <Text style={[styles.percent, { color: c.muted }]}>{spentLine(mandate)}</Text>
         </View>
       </View>
 
       {/*
-        A bar needs saying what it measures, and this one especially: the figure above is what is
-        **left**, while the bar fills with what has been **spent**, so the number counts down as
-        the bar fills up. Unlabelled and at zero it reads as an empty box rather than a meter —
-        which is exactly how it was read.
-
-        The float is here for a different reason: granting sends the agent this money, and until
-        it appeared on the card the only trace of the transfer was a wallet balance that had
-        quietly gone down.
+        Only when there is something the lines above have not already said: a real "last used"
+        time, or an agent holding money it should not. The spend itself is on the line above now,
+        and repeating it here was the second of two places saying the same figure.
       */}
-      <View style={styles.row}>
-        <Text style={[styles.meta, { color: c.dim }]}>
-          {/* What was spent, and when — the only two things the chain can say about an agent's
-              activity. It cannot say whether one is running: reading leaves no trace, so an agent
-              that is paired and working looks exactly like one never installed until it spends. */}
-          {mandate.spent.isZero() ? "nothing spent yet" : `${mandate.spent.format(2)} spent`}
-          {/* Empty when the chain cannot say when, which it cannot for a mandate with no refresh
-              interval. Dropping the separator with it, so the line does not end in a dangling dot. */}
-          {lastUsedLabel(mandate) === "" ? "" : ` · ${lastUsedLabel(mandate)}`}
-        </Text>
-        {/*
-          Almost never shown, and that is the point.
-
-          Nothing is transferred to an agent: it hands its operations to a bundler and the
-          paymaster covers them, so an allowance is authority and never a pot of money. A holding
-          is an anomaly — left from when grants sent a submission float, or sent by hand — and
-          belongs on screen rather than being discovered as a wallet that shrank.
-
-          `agentHoldingNote` decides when there is anything to say. Dust below the cost of
-          returning it is not raised: it once rendered as "agent holds 0.00", an alarm about
-          nothing, with no action available even if it had been real.
-        */}
-        {holding !== null && <Text style={[styles.meta, { color: c.warn }]}>{holding}</Text>}
-      </View>
+      {lastUsed !== "" || holding !== null ? (
+        <View style={styles.row}>
+          <Text style={[styles.meta, { color: c.dim }]}>{lastUsed}</Text>
+          {holding !== null ? <Text style={[styles.meta, { color: c.warn }]}>{holding}</Text> : null}
+        </View>
+      ) : null}
 
       {/* Right-aligned and sized to itself. Taking an allowance back is the one thing you can do
           to a card, but it is not what the screen is for, and a column of full-width Revokes
@@ -124,20 +112,14 @@ export const MandateCard = memo(MandateCardView, (a, b) =>
 
 const styles = StyleSheet.create({
   actions: { alignItems: "flex-end" },
+  end: { alignItems: "flex-end" },
+  /** The word over a value. */
+  cap: tokens.type.caption,
   row: { flexDirection: "row", justifyContent: "space-between", alignItems: "baseline" },
-  meta: {
-    fontFamily: tokens.font.mono,
-    fontSize: tokens.font.small,
-    letterSpacing: tokens.font.labelTracking,
-  },
-  amount: {
-    fontFamily: tokens.font.mono,
-    fontSize: tokens.font.title,
-    fontWeight: "700",
-    letterSpacing: tokens.font.titleTracking,
-    fontVariant: [...tokens.font.tabular],
-  },
-  of: { fontSize: tokens.font.small, fontWeight: "400", letterSpacing: 0 },
+  meta: tokens.type.footnote,
+  address: tokens.type.data,
+  amount: { ...tokens.type.title, fontVariant: [...tokens.font.tabular] },
+  of: { ...tokens.type.subheadline, fontWeight: "400", letterSpacing: 0 },
   headline: {
     flexDirection: "row",
     // Centre, not baseline. The old row lined up two runs of *text* and so had to use baseline;
@@ -149,8 +131,7 @@ const styles = StyleSheet.create({
   /** Takes the remaining width so a long figure wraps inside the card rather than pushing the ring. */
   figures: { flex: 1 },
   percent: {
-    fontFamily: tokens.font.mono,
-    fontSize: tokens.font.small,
+    ...tokens.type.footnote,
     // Digits change as the allowance is used; tabular figures keep the row from twitching.
     fontVariant: [...tokens.font.tabular],
   },

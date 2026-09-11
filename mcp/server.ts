@@ -60,7 +60,37 @@ function pairingCode(address: Address): Promise<string> {
   });
 }
 
-const server = new McpServer({ name: "arc-mandate", version: "0.1.0" });
+/**
+ * What the agent is told the moment it connects, before it has done anything.
+ *
+ * Without it the agent learned the person's path one refusal at a time: it found out there was no
+ * allowance by being refused a payment, and the person found out what to do next from whatever the
+ * agent made of the refusal. Briefed up front, the agent can say the next step before it is needed.
+ *
+ * The five steps are the ones the maze page draws and the phone app follows, in the same words
+ * (`agent-mandate/JOURNEY.md` in the planning repository keeps them in step). This program cannot
+ * import the page's list, so if a title changes there it changes here.
+ */
+const INSTRUCTIONS = [
+  "This connector lets you spend from your user's wallet, inside an allowance they grant from the " +
+    "Agent Mandate app on their phone. The chain enforces the limit; you cannot exceed it.",
+  "",
+  "The path, in five steps, the same words the app and the maze page use:",
+  "1. Get the app, and add test USDC (their phone).",
+  "2. Connect your agent (their laptop). You are connected, so this one is done.",
+  "3. Scan to grant (their phone): New allowance, then Scan the agent's code.",
+  "4. Tell your agent to play (their laptop): they give you the task.",
+  "5. Watch it spend, revoke any time (their phone).",
+  "",
+  "Before any paid call, call check_allowance. If there is no allowance, call get_pairing_address, " +
+    "show the user its code once, and wait for them to say it is done; then check once. Do not " +
+    "show the code again unless they ask.",
+  "When a payment is refused, tell the user the one next action the refusal names, and who does it.",
+  "When a task is finished, say what it cost, and that the allowance stays until its end date and " +
+    "can be revoked in the app.",
+].join("\n");
+
+const server = new McpServer({ name: "arc-mandate", version: "0.1.0" }, { instructions: INSTRUCTIONS });
 
 const usd = (wei: bigint): string => `$${formatEther(wei)}`;
 /** Escrow and the online budget are both ERC-20 scale — six decimals, not eighteen. */
@@ -110,11 +140,12 @@ async function requireMandate() {
       granter
         ? `The allowance was withdrawn.\n\n${granter} granted this agent and has since revoked ` +
           `it on chain, so the wallet is closed to it and this connector will not spend. Nothing ` +
-          `was bought and nothing was charged. It can be granted again from the phone; until then ` +
-          `there is nothing to retry.`
-        : `No allowance yet.\n\nOpen the Agent Mandate app, paste this address into ` +
-          `"Give an agent an allowance", set a limit and how long it lasts, and confirm with ` +
-          `Face ID:\n\n    ${agent.address}\n\nThen ask me again.`,
+          `was bought and nothing was charged. If the user wants this agent to carry on, they grant ` +
+          `it again in the app with New allowance; until then there is nothing to retry.`
+        : `No allowance yet.\n\nStep 3 of 5, on the user's phone: in the Agent Mandate app, tap ` +
+          `New allowance, then Scan the agent's code, set a limit and how long, and confirm with ` +
+          `Face ID. The code is this agent's address; get_pairing_address shows it as a QR:\n\n` +
+          `    ${agent.address}\n\nWait for the user to say it is done, then check once.`,
     );
   }
   try {
@@ -156,9 +187,10 @@ server.registerTool(
         `them to scan with a phone camera; it is useless if it stays in your tool output or if its ` +
         `lines are reflowed.\n\n` +
         `Grant an allowance to:\n\n${await pairingCode(agent.address)}\n    ${agent.address}\n\n` +
-        `Open the Agent Mandate app, scan that code — or paste the address — into ` +
-        `"Give an agent an allowance", choose an amount and how long it lasts, and confirm with ` +
-        `Face ID.${created ? "\n\n(A new key was generated for this agent.)" : ""}`,
+        `Step 3 of 5, on your phone: open the Agent Mandate app, tap New allowance, then Scan the ` +
+        `agent's code and point the camera at this one (or paste the address). Set a limit and how ` +
+        `long it lasts, and confirm with Face ID. Tell me when it is done.` +
+        `${created ? "\n\n(A new key was generated for this agent.)" : ""}`,
     );
   },
 );
@@ -301,7 +333,7 @@ server.registerTool(
     if (allowance.expired) {
       return text(
         `Refused before sending: this allowance expired. Nothing was spent. Ask the user to grant ` +
-          `a new one from the app — the amount is not the problem, the window closed.`,
+          `a new one in the app with New allowance. The amount is not the problem; the window closed.`,
       );
     }
     if (value > allowance.spendableWei) {

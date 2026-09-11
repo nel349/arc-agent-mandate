@@ -33,11 +33,12 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Scan an agent's pairing code so you can grant it an allowance. The camera is used only for that, and nothing is recorded.",
+          "cameraPermission": "Scan an agent's pairing code to give it an allowance. The app reads only the code and records nothing.",
           "microphonePermission": false,
           "recordAudioAndroid": false
         }
       ]
-    ]
+    ],
+    "icon": "./assets/icon.png"
   }
 }

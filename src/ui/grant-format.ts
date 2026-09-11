@@ -1,4 +1,5 @@
 import type { Usdc } from "../arc/usdc.ts";
+import { dayMonth, weekdayDayMonth } from "./calendar.ts";
 
 /**
  * Saying, in one sentence, what is about to be authorised.
@@ -15,27 +16,54 @@ import type { Usdc } from "../arc/usdc.ts";
  */
 
 /**
- * Hoisted: building a formatter costs real time, and these are rebuilt on every keystroke
- * otherwise.
+ * The date in the same form as every other date on screen, "17 Sep", with the year added only when
+ * it is not this one.
  *
- * Two of them, because a custom window can run past December. "Sep 11" is the right amount of
- * detail for next week and genuinely ambiguous a year out, and a date that says the wrong year to
- * someone authorising money is worse than a slightly longer one.
+ * It used to be `Intl`'s "Sep 17" while the list and the agent's screen said "17 Sep", so one
+ * allowance was described two ways a tap apart. The year still matters: a custom window can run
+ * past December, and a date that says the wrong year to someone authorising money is worse than a
+ * slightly longer one.
  */
-const WHEN = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
-const WHEN_WITH_YEAR = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
-
-/** Only spell the year out when it is not the year the person is reading this in. */
 function formatExpiry(until: Date, now: number): string {
-  return until.getFullYear() === new Date(now).getFullYear()
-    ? WHEN.format(until)
-    : WHEN_WITH_YEAR.format(until);
+  const day = dayMonth(Math.floor(until.getTime() / 1000));
+  return until.getFullYear() === new Date(now).getFullYear() ? day : `${day} ${until.getFullYear()}`;
 }
 
 /** The date an allowance lapses, or `null` when it is open-ended. */
 export function expiryDate(days: number | null, now: number = Date.now()): Date | null {
   if (days === null || !Number.isFinite(days) || days <= 0) return null;
   return new Date(now + Math.round(days * 86_400_000));
+}
+
+/**
+ * What a window of days means on the calendar, beside each choice: "Ends Thu 17 Sep".
+ *
+ * People hold an allowance's length as a day it stops rather than a count, so each row says the
+ * day. The date is the phone's own, like every other date on screen.
+ */
+export function windowEndLabel(days: number, now: number = Date.now()): string {
+  const until = expiryDate(days, now);
+  return until === null ? "No end date" : `Ends ${weekdayDayMonth(Math.floor(until.getTime() / 1000))}`;
+}
+
+/**
+ * Whether an allowance is larger than what the wallet holds right now.
+ *
+ * Not refused. An allowance is authority, not money set aside, and the wallet may be topped up
+ * later. But an agent can only spend what is actually there when it pays, so a limit above the
+ * balance is worth saying out loud before it is granted rather than discovered as a refusal.
+ */
+export function exceedsWallet(limit: Usdc, balance: Usdc | null): boolean {
+  return balance !== null && limit.compare(balance) > 0;
+}
+
+/** The confirmation once it has landed, naming who, how much and until when. */
+export function grantedSentence(
+  { who, limit, days, now = Date.now() }: { readonly who: string; readonly limit: Usdc; readonly days: number; readonly now?: number },
+): string {
+  const until = expiryDate(days, now);
+  const window = until === null ? "with no end date" : `until ${formatExpiry(until, now)}`;
+  return `${who} can now spend up to ${limit.format(2)} USDC ${window}. Nothing has left your wallet yet.`;
 }
 
 export function grantSummary({
@@ -49,7 +77,7 @@ export function grantSummary({
   const window = until === null ? "with no expiry date" : `until ${formatExpiry(until, now)}`;
   return (
     `This agent can spend up to ${limit.format(2)} USDC ${window}, and nothing beyond it. ` +
-    `Nothing is transferred to the agent — it can only draw on this allowance, and you can take ` +
+    `Nothing is transferred to the agent. It can only draw on this allowance, and you can take ` +
     `it back at any time.`
   );
 }

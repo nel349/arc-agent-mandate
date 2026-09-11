@@ -1,5 +1,9 @@
 import { useState } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
+import type { Activity } from "../src/arc/activity.ts";
+import { ActivityRow } from "../src/ui/ActivityRow.tsx";
+import { activityRowText } from "../src/ui/activity-format.ts";
+import { AgentRow } from "../src/ui/AgentRow.tsx";
 import { Button } from "../src/ui/Button.tsx";
 import { ChoiceRow } from "../src/ui/ChoiceRow.tsx";
 import { Field } from "../src/ui/Field.tsx";
@@ -138,7 +142,7 @@ export default function PreviewScreen() {
           onChangeText={setTyped}
           placeholder="type here"
           hint="Edit this one to watch the border and the message change."
-          problem={typed.length > 0 && typed.length < 4 ? "Keep going — at least four characters." : null}
+          problem={typed.length > 0 && typed.length < 4 ? "Keep going. At least four characters." : null}
           confirmed={typed.length >= 4}
         />
       </Surface>
@@ -156,6 +160,28 @@ export default function PreviewScreen() {
         <Button title="Use an Existing Passkey" onPress={NOOP} />
         <Button tier="solid" title="Working" onPress={NOOP} busy />
         <Button tier="solid" title="Not Ready" onPress={NOOP} disabled />
+      </Surface>
+
+      <Label>Agent rows · named, unnamed, nearly out, ended</Label>
+      <Surface style={styles.group}>
+        <AgentRow mandate={HALF_SPENT} name="Maze runner" onPress={NOOP} first />
+        <AgentRow mandate={FRESH} name={null} onPress={NOOP} first={false} />
+        <AgentRow mandate={NEARLY_SPENT} name="Research agent" onPress={NOOP} first={false} />
+        <AgentRow mandate={EXPIRED} name="Old scraper" onPress={NOOP} first={false} />
+      </Surface>
+
+      <Label>Activity rows · across agents, then one agent</Label>
+      <Surface style={styles.group}>
+        {ACTIVITY.map((item, index) => {
+          const text = activityRowText(item, { name: index === 0 ? "Maze runner" : null, withAgent: true, underDayHeading: false });
+          return <ActivityRow key={item.tx} item={item} text={text} onPress={NOOP} first={index === 0} />;
+        })}
+      </Surface>
+      <Surface style={styles.group}>
+        {ACTIVITY.map((item, index) => {
+          const text = activityRowText(item, { name: null, withAgent: false, underDayHeading: false });
+          return <ActivityRow key={item.tx} item={item} text={text} onPress={NOOP} first={index === 0} />;
+        })}
       </Surface>
 
       <Label>Mandate card</Label>
@@ -225,8 +251,29 @@ const WITH_DUST = sample("50", "10", NOW_SECONDS() + 3 * 86_400, Usdc.parse("0.5
 const BARELY_SPENT = sample("50", "0.01", NOW_SECONDS() + 5 * 86_400);
 const NEARLY_SPENT = sample("50", "49.99", NOW_SECONDS() + 86_400);
 
+/**
+ * One of each kind of row, offsets from now like the cards, with the real draw's amount and
+ * transaction from Arc on 09-10 so the receipt link goes somewhere true.
+ */
+const FEED_AGENT = "0x3535816e967Ad2B6271dfadf9138fb07eAB161Ce";
+const ACTIVITY: readonly Activity[] = [
+  {
+    kind: "draw", agent: FEED_AGENT, amount: Usdc.parse("0.001"), at: NOW_SECONDS() - 120, block: 61_444_111n,
+    tx: "0xa358110f8d264214723dd48a578bd84e6fe0880eedf7600861be58130069d6d3", logIndex: 4,
+  },
+  {
+    kind: "granted", agent: FEED_AGENT, amount: null, at: NOW_SECONDS() - 86_400, block: 61_300_000n,
+    tx: `0x${"2".repeat(64)}`, logIndex: 0,
+  },
+  {
+    kind: "revoked", agent: FEED_AGENT, amount: null, at: NOW_SECONDS() - 3 * 86_400, block: 61_000_000n,
+    tx: `0x${"3".repeat(64)}`, logIndex: 0,
+  },
+];
+
 const styles = StyleSheet.create({
   page: { flex: 1 },
   content: { padding: tokens.space.lg, gap: tokens.space.md },
   cards: { gap: tokens.space.md },
+  group: { padding: 0, gap: 0, overflow: "hidden" },
 });

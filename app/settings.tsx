@@ -38,9 +38,12 @@ export default function SettingsScreen() {
               accessibilityLabel={`${option.name}. ${option.note}`}
               style={[styles.row, { borderColor: c.hairline }]}
             >
+              {/* Ground, action, signal: the colours that differ between the themes, and the one
+                  they share. Both now carry the same orange, so a swatch showing only that could no
+                  longer tell them apart. */}
               <View style={styles.swatch}>
                 <View style={[styles.chip, { backgroundColor: option.color.groundMid }]} />
-                <View style={[styles.chip, { backgroundColor: option.color.paper }]} />
+                <View style={[styles.chip, { backgroundColor: option.color.actionFill }]} />
                 <View style={[styles.chip, { backgroundColor: option.color.signal }]} />
               </View>
 
@@ -51,8 +54,10 @@ export default function SettingsScreen() {
 
               {/* A filled dot rather than a tick: it echoes the live indicator, and reads at the
                   same glance distance as the swatches beside it. */}
-              <View style={[styles.mark, { borderColor: active ? c.signal : c.hairline }]}>
-                {active && <View style={[styles.markOn, { backgroundColor: c.signal }]} />}
+              {/* Full-strength ink, not `signal`: which palette is chosen is not the number that
+                  matters, and spending the orange here would teach the eye to ignore it. */}
+              <View style={[styles.mark, { borderColor: active ? c.paper : c.hairline }]}>
+                {active && <View style={[styles.markOn, { backgroundColor: c.paper }]} />}
               </View>
             </Pressable>
           );
@@ -71,7 +76,7 @@ export default function SettingsScreen() {
           though the two were peers; here it is where someone goes looking for it and nowhere
           near where someone is trying to give an agent money. */}
       <Surface>
-        <Label>Diagnostics</Label>
+        <Label>For developers</Label>
         <LinkRow
           href="/dev"
           name="Developer harness"
@@ -103,9 +108,9 @@ const styles = StyleSheet.create({
   swatch: { flexDirection: "row", gap: 3 },
   chip: { ...tokens.size.swatch, borderRadius: tokens.radius.sm },
   labels: { flex: 1, gap: 2 },
-  name: { fontSize: tokens.font.body, fontWeight: "600" },
-  note: { fontSize: tokens.font.small },
-  value: { fontFamily: tokens.font.mono, fontSize: tokens.font.small },
+  name: tokens.type.body,
+  note: tokens.type.footnote,
+  value: tokens.type.body,
   mark: {
     width: tokens.size.mark, height: tokens.size.mark,
     borderRadius: tokens.radius.pill, borderWidth: tokens.border.hairline,

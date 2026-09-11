@@ -35,17 +35,37 @@ export const tokens = {
   border: { hairline: 1 },
 
   /**
-   * Shared type roles. Typography is structure, not palette — the same label reads the same in
-   * every theme, only its colour changes. Defined once here because it was defined five times
-   * across the screens, and five copies of a rule is four chances to drift.
+   * Type roles, named after Apple's text styles and sized at their default Dynamic Type size.
+   *
+   * **Words in the system font, data in mono.** Everything used to be uppercase Menlo, so a
+   * heading, a field label, a button and a sentence all looked alike and nothing on a screen
+   * ranked above anything else. Mono is now kept for what a person compares character by
+   * character — an address, a hash — which is the same rule the web follows.
+   *
+   * React Native scales these with the reader's text size setting, so they are starting points
+   * rather than fixed sizes. A layout that only works at the default size does not work.
    */
   type: {
-    label: {
-      fontFamily: "Menlo",
-      fontSize: 12,
-      letterSpacing: 1,
-      textTransform: "uppercase",
-    },
+    /** The one figure a screen is about: what an agent has left. */
+    hero: { fontSize: 44, fontWeight: "700", letterSpacing: -1 },
+    /**
+     * An amount being typed, as Kuira's send wizard sets it: very large and very light, so the
+     * number is the whole screen and still reads as something in progress rather than a total.
+     */
+    amountEntry: { fontSize: 60, fontWeight: "200", letterSpacing: -1 },
+    largeTitle: { fontSize: 34, fontWeight: "700", letterSpacing: 0.4 },
+    title: { fontSize: 22, fontWeight: "700", letterSpacing: -0.3 },
+    headline: { fontSize: 17, fontWeight: "600" },
+    body: { fontSize: 17, lineHeight: 22 },
+    callout: { fontSize: 16, lineHeight: 21 },
+    subheadline: { fontSize: 15, lineHeight: 20 },
+    footnote: { fontSize: 13, lineHeight: 18 },
+    caption: { fontSize: 12, lineHeight: 16 },
+    /** Over a group of rows. The only uppercase left, and it earns it by being small. */
+    section: { fontSize: 13, fontWeight: "600", letterSpacing: 0.5, textTransform: "uppercase" },
+    button: { fontSize: 17, fontWeight: "600" },
+    /** An address or a hash. Small enough that a whole address fits one line at the phone's width. */
+    data: { fontFamily: "Menlo", fontSize: 13, lineHeight: 18 },
   },
 
   size: {
@@ -58,8 +78,11 @@ export const tokens = {
 
     /** Round controls, named by where they appear rather than by their number. */
     control: {
-      /** The `?` beside a field label. Small enough not to compete with the label it sits by. */
-      hint: 22,
+      /**
+       * The `?` beside a field label. Apple's smallest visible control, so it does not compete with
+       * the label it sits by; `hitSlop` takes the touch area to 44.
+       */
+      hint: 28,
       /** A navigation bar button. */
       header: 40,
       /**
@@ -68,7 +91,12 @@ export const tokens = {
        * back up to 44.
        */
       pill: 34,
+      /** A full-width preset under an amount, Kuira's button height, so a thumb cannot miss it. */
+      preset: 54,
     },
+
+    /** The bar a full-screen step draws for itself: back, title and one action, as Kuira's wizard does. */
+    topBar: 56,
 
     /**
      * How much of a round control its glyph fills.
@@ -86,6 +114,8 @@ export const tokens = {
     markDot: 8,
     /** A disclosure chevron on a row. */
     chevron: 16,
+    /** A glyph before a button's title. */
+    buttonIcon: 20,
 
     /**
      * The mark, where it appears.
@@ -94,24 +124,12 @@ export const tokens = {
      * weight if it is ever drawn larger — a fixed stroke on a bigger circle reads as a thin hoop,
      * which is how a mark stops looking like the same mark.
      */
-    ring: { card: 52, strokeRatio: 0.12 },
+    ring: { row: 44, card: 52, review: 120, hero: 176, welcome: 120, strokeRatio: 0.12 },
   },
-  opacity: { disabled: 0.4 },
+  opacity: { disabled: 0.4, pressed: 0.7 },
   font: {
+    /** For `type.data` and nowhere else. */
     mono: "Menlo",
-    small: 11,
-    smallLineHeight: 16,
-    label: 12,
-    labelTracking: 1,
-    body: 13,
-    title: 17,
-    display: 32,
-    /**
-     * Negative tracking for large figures. Digits set at display size look loose with default
-     * spacing, and a balance is the one number on the screen that has to read as a unit.
-     */
-    displayTracking: -1,
-    titleTracking: -0.4,
     /**
      * Figures that change while you watch them.
      *

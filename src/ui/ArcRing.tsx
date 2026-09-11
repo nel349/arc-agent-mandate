@@ -11,6 +11,12 @@ import { tokens } from "./tokens.ts";
  * exhausted one are the two states somebody opens the app to tell apart, and they are opposite
  * pictures rather than two similar ones.
  *
+ * **Two colours, established and untested.** The part still allowed is drawn in `untested`, the
+ * part spent in ink, and the spent arc turns `signal` near the end. An untouched allowance used to
+ * be a dark hoop that read as a placeholder still loading; now it is a whole ring of what the agent
+ * may still do. An allowance whose window has closed is drawn in the track colour throughout,
+ * because nothing on it can be spent any more.
+ *
  * The same shape the web draws on every page of the maze. Neither can import the other — separate
  * repositories — so what they share is the rule in `ring-geometry.ts` and the note in `BRAND.md`.
  *
@@ -19,13 +25,18 @@ import { tokens } from "./tokens.ts";
  * directory with JSX in it is reachable by the unit suite.
  */
 export function ArcRing({
-  spent, size = tokens.size.ring.card, label,
+  spent, size = tokens.size.ring.card, label, ended = false,
 }: {
   /** Nought to one. Values outside that, and non-finite ones, are clamped rather than trusted. */
   readonly spent: number;
   readonly size?: number;
-  /** What the ring is saying, for anyone who cannot see it. */
+  /**
+   * What the ring is saying, for anyone who cannot see it. Empty when the ring sits inside
+   * something that already says it, such as a row with its own sentence, so it is not read twice.
+   */
   readonly label: string;
+  /** The window has closed: drawn without colour, since none of it can be spent. */
+  readonly ended?: boolean;
 }) {
   const c = useTheme().color;
 
@@ -35,12 +46,17 @@ export function ArcRing({
   const stroke = BOX * tokens.size.ring.strokeRatio;
   const radius = (BOX - stroke) / 2;
   const ring = ringGeometry(spent, radius);
+  const arcColour = ended ? c.dim : ring.warning ? c.signal : c.paper;
 
   return (
-    <Svg width={size} height={size} viewBox={`0 0 ${BOX} ${BOX}`} accessibilityLabel={label}>
+    <Svg
+      width={size} height={size} viewBox={`0 0 ${BOX} ${BOX}`}
+      accessible={label.length > 0}
+      {...(label.length > 0 ? { accessibilityLabel: label } : {})}
+    >
       <Circle
         cx={BOX / 2} cy={BOX / 2} r={radius}
-        fill="none" stroke={c.track} strokeWidth={stroke}
+        fill="none" stroke={ended ? c.track : c.untested} strokeWidth={stroke}
       />
       {/*
         Rotated so the arc starts at twelve o'clock. An SVG arc otherwise begins at three, which
@@ -55,8 +71,7 @@ export function ArcRing({
           <Circle
             cx={BOX / 2} cy={BOX / 2} r={radius}
             fill="none"
-            // The colour reserved for the number that matters arrives here and nowhere earlier.
-            stroke={ring.warning ? c.signal : c.paper}
+            stroke={arcColour}
             strokeWidth={stroke}
             strokeLinecap={ring.fraction >= 1 ? "butt" : "round"}
             strokeDasharray={[ring.drawn, ring.circumference]}

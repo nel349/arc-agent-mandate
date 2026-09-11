@@ -1,3 +1,5 @@
+import { isRateLimited } from "../arc/client.ts";
+
 /**
  * Turning a failure into a sentence someone holding a phone can act on.
  *
@@ -97,6 +99,12 @@ function wasCancelled(text: string): boolean {
  * module. Domain rules are *data*; which set applies is the caller's business, but the words are
  * not scattered across the app.
  */
+/**
+ * What a refusal for asking too often says. It names the cause as Arc's, because it is, and says
+ * nothing needs doing, because nothing does: the next read is already scheduled.
+ */
+export const ARC_BUSY = "Arc is busy right now. The figures will catch up in a few seconds.";
+
 export const MANDATE_FAILURES = [
   [/returned no data|is not a contract/i, "The allowance contract is not deployed on this network yet."],
   [/PermissionsCheckFailed|AA2[0-9]/i, "The account refused this. The allowance may have been used up or revoked."],
@@ -124,13 +132,17 @@ export function describeFailure(
   // Dismissing a prompt is a normal outcome, not a fault, and `console.error` puts a red box and a
   // stack trace on the screen for it — which reads as something being broken when nothing is.
   const report = "[mandate] " + chain.map((m, i) => `${"  ".repeat(i)}${i > 0 ? "caused by " : ""}${m}`).join("\n");
+  // A busy public endpoint is not a fault in this app either, and a red box on the phone says it is.
+  const busy = isRateLimited(cause);
   if (wasCancelled(raw)) console.log(report);
+  else if (busy) console.warn(report);
   else console.error(report);
 
   if (/insufficient|exceeds balance/i.test(raw)) {
     return "Not enough USDC in the wallet to cover this.";
   }
   if (wasCancelled(raw)) return "Cancelled. Nothing changed.";
+  if (busy) return ARC_BUSY;
 
   for (const [pattern, message] of domainRules) {
     if (pattern.test(raw)) return message;

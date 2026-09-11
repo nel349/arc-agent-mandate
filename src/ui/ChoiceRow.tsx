@@ -112,14 +112,13 @@ const styles = StyleSheet.create({
   row: { flexDirection: "row", flexWrap: "wrap", gap: tokens.space.sm },
   pill: {
     height: tokens.size.control.pill,
-    paddingHorizontal: tokens.space.base,
+    // Sized so a row of three presets and Custom fits the phone's width at the default text size.
+    // At `base` padding with callout type, "Custom" wrapped onto a line of its own.
+    paddingHorizontal: tokens.space.md,
     borderRadius: tokens.radius.pill,
     borderWidth: tokens.border.hairline,
     alignItems: "center",
     justifyContent: "center",
   },
-  pillText: {
-    fontFamily: tokens.font.mono,
-    fontSize: tokens.font.body,
-  },
+  pillText: { fontSize: tokens.type.subheadline.fontSize, fontVariant: [...tokens.font.tabular] },
 });

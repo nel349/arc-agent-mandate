@@ -24,9 +24,24 @@ declare const __DEV__: boolean;
 /** Slow enough to be unhurried on a chain that settles in under a second. */
 const POLL_INTERVAL_MS = 10_000;
 
+/**
+ * Which action is running, and for which agent.
+ *
+ * `busy` alone could not say, so every button bound to it spun at once: tap one of two buttons and
+ * both showed a spinner, and a grant still landing in the background put a spinner on an agent's
+ * Revoke that nobody had touched. A button spins when *its* action is the one running, and every
+ * other button is simply unavailable until it lands.
+ */
+export interface PendingAction {
+  readonly kind: "grant" | "revoke" | "change";
+  readonly agent: Address;
+}
+
 export interface MandateScreen {
   readonly mandates: readonly Mandate[];
+  /** Something is running. For whether *this* button's action is, see `pending`. */
   readonly busy: boolean;
+  readonly pending: PendingAction | null;
   /** Set when the last action failed. Cleared when the next one starts. */
   readonly error: string | null;
   /**
@@ -45,8 +60,19 @@ export interface MandateScreen {
 
 export function useMandate(account: ArcAccount | null): MandateScreen {
   const [mandates, setMandates] = useState<readonly Mandate[]>([]);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState<PendingAction | null>(null);
+  const busy = pending !== null;
+  /**
+   * Two kinds of failure, kept apart because they end differently.
+   *
+   * A failed **read** is over the moment a later read succeeds, so the next good poll clears it. It
+   * used to share one slot with actions and was never cleared, so a single refused poll left
+   * "Arc is busy" on the screen for as long as the app stayed open. A failed **action** — a grant or
+   * a revoke the person asked for — stays until they try something else, because a passing poll
+   * says nothing about whether the thing they asked for happened.
+   */
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [readError, setReadError] = useState<string | null>(null);
   const [ready, setReady] = useState<boolean | null>(null);
 
   const refresh = useCallback(() => {
@@ -59,8 +85,9 @@ export function useMandate(account: ArcAccount | null): MandateScreen {
         ]);
         setReady(deployed);
         setMandates(live);
+        setReadError(null);
       } catch (cause) {
-        setError(describeFailure(cause, MANDATE_FAILURES));
+        setReadError(describeFailure(cause, MANDATE_FAILURES));
       }
     })();
   }, [account]);
@@ -122,6 +149,8 @@ export function useMandate(account: ArcAccount | null): MandateScreen {
   const perform = useCallback(
     (
       label: string,
+      /** What is running, so only its own button shows it. */
+      action: PendingAction,
       run: (account: ArcAccount) => Promise<readonly Hash[]>,
       /**
        * Run only once the operation has actually landed.
@@ -133,8 +162,8 @@ export function useMandate(account: ArcAccount | null): MandateScreen {
       onDone?: () => void,
     ) => {
       if (!account || busy) return;
-      setError(null);
-      setBusy(true);
+      setActionError(null);
+      setPending(action);
       void (async () => {
         try {
           const hashes = await run(account);
@@ -147,9 +176,9 @@ export function useMandate(account: ArcAccount | null): MandateScreen {
           refresh();
           onDone?.();
         } catch (cause) {
-          setError(describeFailure(cause, MANDATE_FAILURES));
+          setActionError(describeFailure(cause, MANDATE_FAILURES));
         } finally {
-          setBusy(false);
+          setPending(null);
         }
       })();
     },
@@ -158,13 +187,18 @@ export function useMandate(account: ArcAccount | null): MandateScreen {
 
   const grant = useCallback(
     (terms: MandateTerms, onGranted?: () => void) =>
-      perform("granted an allowance", async (a) => [(await grantMandate(a, terms)).grant], onGranted),
+      perform(
+        "granted an allowance",
+        { kind: "grant", agent: terms.agent },
+        async (a) => [(await grantMandate(a, terms)).grant],
+        onGranted,
+      ),
     [perform],
   );
 
   const revoke = useCallback(
     (agent: Address, onRevoked?: () => void) =>
-      perform("revoked an allowance", async (a) => [await revokeMandate(a, agent)], onRevoked),
+      perform("revoked an allowance", { kind: "revoke", agent }, async (a) => [await revokeMandate(a, agent)], onRevoked),
     [perform],
   );
 
@@ -177,20 +211,21 @@ export function useMandate(account: ArcAccount | null): MandateScreen {
     (agent: Address, limit: Usdc) => {
       const mandate = mandates.find((m) => m.agent === agent);
       if (!mandate) {
-        setError(`no mandate for ${agent}`);
+        setActionError(`no mandate for ${agent}`);
         return;
       }
       // The rail comes from the mandate rather than a default, because the two are metered
       // separately: setting the wrong one leaves the real limit untouched and adds a second meter
       // beside it, so a change meant to narrow the mandate would widen it instead.
-      perform("changed an allowance", async (a) => [
+      perform("changed an allowance", { kind: "change", agent }, async (a) => [
         await updateMandate(a, { agent, limit, rail: mandate.rail }),
       ]);
     },
     [mandates, perform],
   );
 
-  return { mandates, busy, error, ready, grant, revoke, changeLimit, refresh };
+  // The action's failure first: it is the one the person is waiting on.
+  return { mandates, busy, pending, error: actionError ?? readError, ready, grant, revoke, changeLimit, refresh };
 }
 
 
