@@ -17,6 +17,7 @@ import { Surface } from "../src/ui/Surface.tsx";
 import { WizardTopBar } from "../src/ui/WizardTopBar.tsx";
 import { cleanAgentName, MAX_AGENT_NAME } from "../src/ui/agent-names.ts";
 import { useAgentNames } from "../src/ui/agent-names-context.tsx";
+import { entryFromScan, entryFromText, mandateTermsFor } from "../src/ui/grant-entry.ts";
 import { exceedsWallet, grantedSentence, grantSummary, windowEndLabel } from "../src/ui/grant-format.ts";
 import { readGrantTerms } from "../src/ui/grant-terms.ts";
 import { feelSuccess } from "../src/ui/haptics.ts";
@@ -57,6 +58,11 @@ export default function GrantScreen() {
 
   const [step, setStep] = useState<Step>("agent");
   const [agent, setAgent] = useState("");
+  /**
+   * The one-time code the agent's QR carried, written into the grant so the agent can tell this
+   * allowance from any other granted to its address. Null when the address was typed.
+   */
+  const [pairing, setPairing] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [amount, setAmount] = useState("");
   const [days, setDays] = useState<string>(DEFAULT_DAYS);
@@ -100,6 +106,13 @@ export default function GrantScreen() {
 
   const canGrant = terms !== null && !wallet.busy && !mandate.busy && mandate.ready === true;
 
+  /** Typed or pasted. The agent's whole link carries its pairing code; a bare address does not. */
+  const enterAgent = useCallback((typed: string) => {
+    const entry = entryFromText(typed);
+    setAgent(entry.agent);
+    setPairing(entry.pairing);
+  }, []);
+
   const back = useCallback(() => {
     const previous = ORDER[ORDER.indexOf(step) - 1];
     if (step === "done" || previous === undefined) router.back();
@@ -118,13 +131,7 @@ export default function GrantScreen() {
     if (terms === null) return;
     const chosenName = cleanAgentName(name);
     mandate.grant(
-      {
-        agent: terms.agent,
-        limit: terms.limit,
-        payees: [],
-        expiresAt: Math.floor(Date.now() / 1000) + Math.round(terms.days * 86_400),
-        label: "agent",
-      },
+      mandateTermsFor(terms, pairing, Date.now()),
       // Runs when the grant has landed, not when it was asked for. The name is kept only then, so
       // a cancelled Face ID does not leave a name behind for an agent that was never granted.
       () => {
@@ -133,7 +140,7 @@ export default function GrantScreen() {
         if (open.current) setStep("done");
       },
     );
-  }, [terms, name, mandate, rename]);
+  }, [terms, name, pairing, mandate, rename]);
 
   const bar = (action?: { title: string; enabled: boolean; onPress: () => void }) => (
     <WizardTopBar title={TITLES[step]} onBack={back} closes={step === "agent" || step === "done"} {...(action ? { action } : {})} />
@@ -145,8 +152,10 @@ export default function GrantScreen() {
         <ScanModal
           visible={scanning}
           onClose={() => setScanning(false)}
-          onScanned={(address) => {
-            setAgent(address);
+          onScanned={(scanned) => {
+            const entry = entryFromScan(scanned);
+            setAgent(entry.agent);
+            setPairing(entry.pairing);
             setScanning(false);
             feelSuccess();
           }}
@@ -160,9 +169,9 @@ export default function GrantScreen() {
             <Field
               label="Agent address"
               value={agent}
-              onChangeText={setAgent}
+              onChangeText={enterAgent}
               placeholder="0x…"
-              hint="Your agent prints its address, with a code to scan, the first time it runs."
+              hint="Scan your agent's code. The link it prints can be pasted here too."
               problem={problems.agent}
               confirmed={agentReady}
               data
@@ -176,6 +185,9 @@ export default function GrantScreen() {
               maxLength={MAX_AGENT_NAME}
             />
           </Surface>
+          {agentReady && pairing === null && (
+            <Note>An agent using the Arc Mandate connector will not use this allowance. Scan its code instead.</Note>
+          )}
         </Screen>
       </>
     );

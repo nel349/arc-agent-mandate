@@ -123,13 +123,16 @@ Then ask it:
 
 > **you:** what's your payment address?
 
-It prints a QR code and an address. If it does not show you the QR, tell it to — the code is for
-your phone's camera and is useless sitting in tool output.
+It prints a QR code and an address. If it does not show you the QR, tell it to: the code is for
+your phone's camera and is useless sitting in tool output. The code carries a one-time pairing code
+that ties the allowance you grant to this agent, and it is also saved as
+`~/.arc-mandate/pairing-code.png`.
 
 ### 5. Grant an allowance, and watch it bind
 
-In the app, scan that QR (or paste the address), set an amount and a number of days, and confirm
-with Face ID.
+In the app, scan that QR (or paste the link the agent prints), set an amount and a number of days,
+and confirm with Face ID. An address typed on its own carries no pairing code, and the agent will
+not use an allowance granted that way.
 
 Now ask the agent to spend:
 
@@ -243,8 +246,9 @@ recipient lists, expiry — are untouched, because they were never the broken pa
   budgets — running against Circle's real deployed account contracts.
 - **A connector for agents you already run** (`mcp/`). One install line and Claude Code, Cursor or
   Codex can spend inside an allowance. The agent makes its own key, shows you a public address, and
-  after you grant it finds the rest by itself — it watches for the `SessionKeyAdded` event naming
-  its own address. One scan, no config file. See [mcp/README.md](mcp/README.md).
+  after you grant it finds the rest by itself: it watches for the `SessionKeyAdded` event naming
+  its own address and carrying the one-time pairing code its QR showed, so a grant from anyone else
+  is not used. One scan, no config file. See [mcp/README.md](mcp/README.md).
 - **One gate.** `npm run gate` must be green before anything ships:
 
   | | |

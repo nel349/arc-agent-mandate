@@ -8,6 +8,7 @@ import { ARC_CONTRACTS } from "./chain.ts";
 // Type-only: erased at runtime, so this file never loads the passkey shim.
 import type { ArcAccount } from "./account.ts";
 import { Usdc } from "./usdc.ts";
+import { pairingTag } from "../../mcp/pairing.ts";
 
 /**
  * Granting, reading and revoking a mandate.
@@ -150,6 +151,12 @@ export interface MandateTerms {
   readonly expiresAt?: number;
   /** Optional label, surfaced by `readMandate`. */
   readonly label?: string;
+  /**
+   * The one-time code the agent's QR carried, when the grant came from scanning it. Written into the
+   * grant's tag, which is how the agent tells this grant from any other made to its address; a grant
+   * without it is not used by the Arc Mandate connector.
+   */
+  readonly pairing?: string;
 }
 
 export interface Mandate {
@@ -506,7 +513,11 @@ export function buildGrantPlan(
   }
 
   const updates = permissionUpdates(terms);
-  const tag = keccak256(toHex(terms.label ?? "mandate"));
+  // A grant made by scanning the agent's code carries its pairing code, which is how the agent tells
+  // it from any other grant to its address. One made from a typed address carries the label.
+  const tag = terms.pairing !== undefined
+    ? pairingTag(terms.pairing)
+    : keccak256(toHex(terms.label ?? "mandate"));
 
   const management: Hex = pluginInstalled
     ? encodeFunctionData({

@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -5,6 +6,7 @@ import {
   createPublicClient, defineChain, formatEther, http, parseAbi, parseAbiItem,
   type Address,
 } from "viem";
+import { isPairingCode, pairingTag } from "./pairing.ts";
 
 /** Which meter bounds a mandate. Named so the two strings cannot be spelled wrong in four places. */
 export type Rail = "native" | "erc20";
@@ -31,41 +33,45 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const isAddress = (value: unknown): value is Address =>
   typeof value === "string" && /^0x[0-9a-fA-F]{40}$/.test(value);
 
-/** What we remember about an agent between runs. A cache: a lookup still works without it. */
+/**
+ * A pairing code the agent has shown, and how far the chain has been read for a grant carrying it.
+ *
+ * No grant can carry a code before the code was shown, so where it was shown is the floor of the
+ * search, and a search never walks the chain's history. The floor used to be the plugin's deployment
+ * block for every lookup, which is how the first thing a new user asked could cost ninety requests.
+ */
+interface Pairing {
+  readonly code: string;
+  /** The head when the code was first shown. Null when the chain could not be read at the time. */
+  readonly shownAt: bigint | null;
+  /** The last block read for its grant, so an interrupted search resumes rather than restarts. */
+  readonly searchedTo: bigint | null;
+}
+
+/** What we remember about an agent between runs. */
 interface Remembered {
+  /** The wallet whose grant this agent spends from. */
   readonly account: Address | null;
   /**
-   * The stretch of chain already read, so an interrupted search resumes rather than restarts.
-   *
-   * An interval rather than a high-water mark, and that distinction is the whole point. The search
-   * runs head-downwards, so being cut off part way leaves the *top* read and the bottom unread —
-   * which a single number cannot express without claiming the bottom was covered. Recorded as a
-   * span, progress survives whatever stopped it: a rate limit, a timeout, a closed laptop.
+   * The pairing code that wallet's grant carried. Null for a wallet remembered from before grants
+   * carried one, which counts as no pairing at all: see `findGrant`.
    */
-  readonly searched: { readonly low: bigint; readonly high: bigint } | null;
+  readonly accountCode: string | null;
+  /** The code the agent shows now. While it differs from `accountCode`, a grant may be on its way. */
+  readonly pairing: Pairing | null;
 }
 
 /**
  * Everything the agent needs to know about the chain, discovered rather than configured.
  *
  * The agent is told nothing at pairing time except that it was granted something. It finds the
- * account that granted it by watching for `SessionKeyAdded` naming its own address — the event's
- * `sessionKey` argument is indexed, which is what makes a single scan enough and spares the user
+ * account that granted it by watching for `SessionKeyAdded` naming its own address and carrying its
+ * pairing code. Both arguments are indexed, which is what makes one query enough and spares the user
  * a second round trip.
  */
 export const ARC_RPC = process.env.ARC_RPC_URL ?? "https://rpc.testnet.arc.network";
 export const SESSION_KEY_PLUGIN =
   process.env.ARC_SESSION_KEY_PLUGIN ?? "0x669Dd1eDb85ABD00f74186d88124614EE81E6670";
-
-/**
- * The block the plugin was deployed in, so a search has a floor that is true rather than recent.
- *
- * No grant can predate it. Shipped as a constant because the default without one was a rolling
- * 50,000-block window, and Arc produces **167,669 blocks a day** at roughly half a second each —
- * so a grant became unfindable about seven hours after it was made. That is not a corner case;
- * it is every agent, by the next morning.
- */
-const PLUGIN_DEPLOY_BLOCK = 60_625_268n;
 
 /**
  * Arc, described rather than just dialled.
@@ -95,23 +101,20 @@ export const pluginAbi = parseAbi([
 ]);
 
 /**
- * The RPC caps `eth_getLogs` at 10,000 blocks, so scanning from genesis is not an option — it
- * fails outright rather than returning less. Grants are recent by nature, so the search walks
- * backwards from the head a window at a time.
+ * The RPC caps `eth_getLogs` at 10,000 blocks, so a search is read a window at a time. It fails
+ * outright past the cap rather than returning less, and a node forwards an oversized query upstream
+ * to be rate-limited, which fails the whole lookup.
  */
 const LOG_WINDOW = 9_999n;
 
 /**
- * The floor for the search. No grant can predate the plugin's deployment, so that block is the
- * honest bound — and scanning past it is not merely wasteful: a node will forward the query
- * upstream and be rate-limited, which fails the whole lookup rather than returning nothing.
+ * How far back to look when the chain could not be read at the moment the code was shown.
  *
- * Defaults to the block the plugin above was deployed in, so nothing needs setting.
- * `ARC_PLUGIN_FROM_BLOCK` is only for a connector pointed at a plugin you deployed yourself.
+ * A grant follows its code within minutes, so three windows, a few hours on Arc, is a generous
+ * stand-in for the block the code would have been shown at.
  */
-const DEPLOY_BLOCK = process.env.ARC_PLUGIN_FROM_BLOCK
-  ? BigInt(process.env.ARC_PLUGIN_FROM_BLOCK)
-  : PLUGIN_DEPLOY_BLOCK;
+const RECENT = LOG_WINDOW * 3n;
+
 /**
  * Declared standalone rather than found in the ABI array.
  *
@@ -123,183 +126,162 @@ const grantedEvent = parseAbiItem(
 );
 
 /**
- * The account that granted this agent, or null if nobody has yet.
+ * A wallet named by hand in `ARC_ACCOUNT`, which takes the place of pairing.
  *
- * Cached once found: a long-lived agent should not re-scan the chain on every call, and the
- * account that granted it does not change. Revocation is caught by `isSessionKeyOf` below, not by
- * forgetting who the account was.
+ * For someone who points the connector at their own wallet deliberately. It is still checked against
+ * the chain before every use.
  */
-let cachedAccount: Address | null = (process.env.ARC_ACCOUNT as Address | undefined) ?? null;
+const configured = process.env.ARC_ACCOUNT;
+const PINNED: Address | null = isAddress(configured) ? configured : null;
 
-export async function findGrantingAccount(
-  agentAddress: Address,
-  { keyIsNew = false }: { keyIsNew?: boolean } = {},
-): Promise<Address | null> {
-  if (cachedAccount && (await stillGranted(cachedAccount, agentAddress))) return cachedAccount;
-  cachedAccount = null;
+/** Where this agent's spending comes from, or why there is none. */
+export type Grant =
+  /** A grant carrying this agent's code, still installed. It may have expired: the allowance says. */
+  | { readonly status: "granted"; readonly account: Address }
+  /** The wallet this agent was paired with has revoked it. */
+  | { readonly status: "withdrawn"; readonly account: Address }
+  /**
+   * No grant carries this agent's code. `legacy` is a wallet remembered from before grants carried
+   * one: it may hold a live allowance, but nothing ties it to this agent's owner, so it is not
+   * spent from.
+   */
+  | { readonly status: "unpaired"; readonly legacy: Address | null };
 
-  // Always re-checked against the chain before use: a remembered grant may have been revoked while
-  // the agent was not running, and acting on a stale one would fail at validation with a confusing
-  // reason rather than an honest "nobody has granted me anything".
+/**
+ * The pairing code to show, issuing a fresh one when there is none or the current one has been used.
+ *
+ * The same code is shown every time until a grant carrying it is found, so asking twice does not
+ * spoil a code already on somebody's screen. Once one has been used, the next one shown is new, and a
+ * grant carrying it moves the agent to that wallet: showing the code again is how an owner switches.
+ */
+export async function pairingToShow(agentAddress: Address): Promise<string> {
   const state = readState(agentAddress);
-  if (state.account && (await stillGranted(state.account, agentAddress))) {
-    cachedAccount = state.account;
-    return cachedAccount;
+  if (state.pairing !== null && state.pairing.code !== state.accountCode) return state.pairing.code;
+
+  const code = randomBytes(16).toString("hex");
+  let shownAt: bigint | null = null;
+  try {
+    shownAt = await publicClient.getBlockNumber({ cacheTime: 0 });
+  } catch {
+    // Unknown for now. The first search that can read the head sets a floor just below it.
   }
-
-  /**
-   * We remember a grant and the chain says it is gone. That is a revocation, and it is answerable
-   * without reading any history at all.
-   *
-   * Reaching the search from here was a real failure, not a slow path. A revoked agent looks
-   * exactly like an unpaired one to the code below, so every single call re-scanned every block
-   * since the last look: measured at 232,000 blocks in twenty-four windowed `eth_getLogs` requests,
-   * which exhausted the public endpoint's rate limit and returned a viem stack trace instead of an
-   * answer. The comment on `readState` predicted this shape for agents nobody had granted anything
-   * to; nobody noticed it caught revoked ones too, and revocation is the one moment this project
-   * exists to make work.
-   *
-   * The search is not skipped entirely, because the owner may have revoked one allowance and
-   * granted another from a different account. But a re-grant that matters is a recent one, so only
-   * the newest stretch is read. Nothing is lost: the next call resumes wherever this one reached.
-   */
-  const revoked = state.account !== null;
-
-  const head = await publicClient.getBlockNumber();
-
-  /**
-   * Where to stop searching downwards: the plugin's deployment, below which no grant can exist. A
-   * previous fruitless search is resumed rather than repeated.
-   */
-    const bottom = DEPLOY_BLOCK ?? 0n;
-    let searched = state.searched;
-
-    /**
-     * A key made in this process has no history worth reading.
-     *
-     * Nobody can grant an address before it exists, or before they have been shown it, and it is
-     * only shown after this first lookup. So everything below the newest window is recorded as read
-     * without reading it, and that one window is the only request.
-     *
-     * This used to record the head alone, which left the whole history "unread" beneath it, and the
-     * downward walk below then read all of it: about ninety `eth_getLogs` calls for the first thing a
-     * new user asks, enough to trip the public endpoint's rate limit. If the record cannot be
-     * written, each lookup in this process reads the newest window again, which still finds any
-     * grant from the last hour or so.
-     */
-    if (keyIsNew && searched === null) {
-      searched = { low: bottom, high: head - LOG_WINDOW > bottom ? head - LOG_WINDOW : bottom };
-    }
-
-    /**
-     * Where to read, newest first: the blocks added since the last look, then — when the bottom was
-     * never reached — onwards down towards the plugin's deployment.
-     *
-     * Two spans rather than one, because the stretch already read sits in the middle: everything
-     * above it is new and everything below it was never reached, which is exactly the shape a
-     * search cut off part way through leaves behind.
-     */
-    /**
-     * Where to read, and in which direction — and the direction is the load-bearing part.
-     *
-     * The stretch already read sits in the middle: new blocks above it, unreached history below.
-     * Each is walked *away from* what is known, so every window is adjacent to the covered span and
-     * the record stays one unbroken interval. Walking the upper span downwards from the head
-     * instead leaves a gap between the head and the known high — and a single interval cannot
-     * describe a gap, so it would have to claim the middle was read when it was not, which is how
-     * a grant sitting in it becomes invisible. That is not hypothetical: the first version of this
-     * did exactly that, and recorded the whole history as read after one window.
-     *
-     * Newest-first within a window still holds, and correctness across windows does not depend on
-     * their order anyway: every candidate is checked against the chain before it is believed, so an
-     * older grant that has since been revoked is discarded rather than returned.
-     */
-    /** How far back a re-grant is worth looking for, once we know the old one is gone. */
-    const RECENT = LOG_WINDOW * 3n;
-
-    const spans: readonly { readonly from: bigint; readonly to: bigint; readonly upward: boolean }[] =
-      searched === null
-        ? [{ from: bottom, to: head, upward: false }]
-        : revoked
-          // Known revoked: read the newest stretch only, and never walk down into history for a
-          // grant we have already watched being taken away.
-          ? [{ from: head - RECENT > searched.high ? head - RECENT : searched.high, to: head, upward: true }]
-          : [
-              ...(head > searched.high ? [{ from: searched.high, to: head, upward: true }] : []),
-              ...(searched.low > bottom ? [{ from: bottom, to: searched.low, upward: false }] : []),
-            ];
-
-    /**
-     * Recorded after every window rather than once at the end, which is the fix.
-     *
-     * Recording only on completion meant a search that could not finish remembered nothing, so the
-     * next call started from scratch and failed in the same place — and every day's blocks made it
-     * worse. Against a rate-limited endpoint that is not a slow path but a wall: the note above
-     * this function predicted "pairing simply never completes", and that is what arrived.
-     */
-    const cover = (low: bigint, high: bigint): void => {
-      searched = searched === null ? { low, high } : {
-        low: low < searched.low ? low : searched.low,
-        high: high > searched.high ? high : searched.high,
-      };
-      writeState(agentAddress, { searched });
-    };
-
-    for (const span of spans) {
-      let edge = span.upward ? span.from : span.to;
-      while (span.upward ? edge < span.to : edge > span.from) {
-        const from = span.upward
-          ? edge
-          : (edge > span.from + LOG_WINDOW ? edge - LOG_WINDOW : span.from);
-        const to = span.upward
-          ? (edge + LOG_WINDOW < span.to ? edge + LOG_WINDOW : span.to)
-          : edge;
-
-        const logs = await publicClient.getLogs({
-          address: SESSION_KEY_PLUGIN, event: grantedEvent,
-          args: { sessionKey: agentAddress }, fromBlock: from, toBlock: to,
-        });
-        for (const log of logs.reverse()) {
-          // Indexed arguments are optional in viem's type because a log that fails to decode still
-          // arrives. Skipping one is right: a grant we cannot read is not a grant we should trust.
-          const granter = log.args.account;
-          if (granter === undefined) continue;
-          if (await stillGranted(granter, agentAddress)) {
-            cachedAccount = granter;
-            writeState(agentAddress, { account: granter });
-            return granter;
-          }
-        }
-        cover(from, to);
-        edge = span.upward ? to : from;
-      }
-    }
-
-  return null;
+  writeState(agentAddress, { pairing: { code, shownAt, searchedTo: null } });
+  return code;
 }
 
 /**
- * The account we last saw grant this agent, whether or not it still does.
+ * Which wallet this agent may spend from, decided by the chain and the code it showed.
  *
- * Only ever used to *explain* a lookup that found nothing. "Nobody has granted me anything" and
+ * Only a grant carrying the agent's pairing code counts, and of those the first one made wins, so a
+ * copy made after the owner's grant cannot displace it. A grant carrying a newer code replaces the
+ * remembered wallet, because showing a new code and scanning it is how an owner switches on purpose;
+ * but not when that grant is already unusable and the remembered one still works. A live allowance
+ * is never given up for an expired or revoked one.
+ *
+ * Always read from the chain rather than trusted from memory: a remembered grant may have been
+ * revoked while the agent was not running.
+ */
+export async function findGrant(agentAddress: Address): Promise<Grant> {
+  if (PINNED !== null) {
+    return (await installed(PINNED, agentAddress))
+      ? { status: "granted", account: PINNED }
+      : { status: "withdrawn", account: PINNED };
+  }
+
+  const state = readState(agentAddress);
+  const paired = state.account !== null && state.accountCode !== null ? state.account : null;
+  const pending = state.pairing !== null && state.pairing.code !== state.accountCode ? state.pairing : null;
+
+  if (pending !== null) {
+    const granter = await firstGrantCarrying(agentAddress, pending);
+    if (granter !== null) {
+      const fresh = await grantState(granter, agentAddress);
+      const keepPaired = paired !== null && fresh !== "live" && (await grantState(paired, agentAddress)) === "live";
+      if (!keepPaired) {
+        writeState(agentAddress, { account: granter, accountCode: pending.code });
+        return fresh === "removed"
+          ? { status: "withdrawn", account: granter }
+          : { status: "granted", account: granter };
+      }
+    }
+  }
+
+  if (paired !== null) {
+    return (await installed(paired, agentAddress))
+      ? { status: "granted", account: paired }
+      : { status: "withdrawn", account: paired };
+  }
+  return { status: "unpaired", legacy: state.account };
+}
+
+/**
+ * The first wallet to grant this agent with the code it showed, or null if none has yet.
+ *
+ * Read forwards from where the code was shown, a window at a time and oldest first, so the first
+ * grant made is the first found. Progress is recorded after every window, so a search cut off by a
+ * rate limit resumes where it stopped instead of starting again and failing in the same place.
+ */
+async function firstGrantCarrying(agentAddress: Address, pairing: Pairing): Promise<Address | null> {
+  // The head as it is now, never viem's copy from up to four seconds ago. A grant made just after one
+  // check was otherwise past the end of the next search, and "grant, then check once" came back as
+  // the old wallet; found on a fork, in integration/pairing.test.ts.
+  const head = await publicClient.getBlockNumber({ cacheTime: 0 });
+  let shownAt = pairing.shownAt;
+  if (shownAt === null) {
+    shownAt = head > RECENT ? head - RECENT : 0n;
+    writeState(agentAddress, { pairing: { ...pairing, shownAt } });
+  }
+  const tag = pairingTag(pairing.code);
+
+  let from = pairing.searchedTo === null ? shownAt : pairing.searchedTo + 1n;
+  while (from <= head) {
+    const to = from + LOG_WINDOW < head ? from + LOG_WINDOW : head;
+    const logs = await publicClient.getLogs({
+      address: SESSION_KEY_PLUGIN, event: grantedEvent,
+      args: { sessionKey: agentAddress, tag }, fromBlock: from, toBlock: to,
+    });
+    // In the order they happened, so the first grant carrying the code is the one returned.
+    for (const log of logs) {
+      // Indexed arguments are optional in viem's type because a log that fails to decode still
+      // arrives. Skipping one is right: a grant we cannot read is not a grant we should trust.
+      if (log.args.account !== undefined) return log.args.account;
+    }
+    writeState(agentAddress, { pairing: { code: pairing.code, shownAt, searchedTo: to } });
+    from = to + 1n;
+  }
+  return null;
+}
+
+/** Whether a wallet's grant to this agent can be spent now, has lapsed, or is gone. */
+type GrantState = "live" | "unusable" | "removed";
+
+async function grantState(account: Address, agentAddress: Address): Promise<GrantState> {
+  if (!(await installed(account, agentAddress))) return "removed";
+  // An expired grant leaves the session key installed, so installation alone says it is healthy.
+  const [validAfter, validUntil] = await publicClient.readContract({
+    address: SESSION_KEY_PLUGIN, abi: pluginAbi, functionName: "getKeyTimeRange",
+    args: [account, agentAddress],
+  });
+  const now = Math.floor(Date.now() / 1000);
+  // Zero means "no bound" at either end; see `readAllowance`.
+  const expired = validUntil !== 0 && now >= validUntil;
+  const notYet = validAfter !== 0 && now < validAfter;
+  return expired || notYet ? "unusable" : "live";
+}
+
+/**
+ * The wallet this agent was last paired with, whether or not it still grants.
+ *
+ * Only ever used to *explain* a lookup that could not be made. "Nobody has granted me anything" and
  * "what I was granted has been taken away" are the same absence to the code and completely
- * different sentences to a person — the first reads as "you have not set this up yet", which is
- * exactly the wrong thing to say at the moment somebody has just deliberately revoked an agent
- * with their face.
- *
- * Deliberately does **not** short-circuit the search. Remembering that an account stopped granting
- * says nothing about whether a *different* account has started, and an owner who revokes one
- * allowance and grants another would otherwise be told their new one does not exist.
- *
- * Expiry is a separate state and does not appear here: the plugin leaves an expired session key
- * installed, so `isSessionKeyOf` stays true and the allowance is reported as expired instead.
- * Reaching this function's caller therefore means the key was genuinely removed.
+ * different sentences to a person.
  */
 export function rememberedGranter(agentAddress: Address): Address | null {
   return readState(agentAddress).account;
 }
 
-function stillGranted(account: Address, agentAddress: Address): Promise<boolean> {
+/** Whether the session key is installed on the account. Says nothing about expiry. */
+function installed(account: Address, agentAddress: Address): Promise<boolean> {
   return publicClient.readContract({
     address: SESSION_KEY_PLUGIN, abi: pluginAbi, functionName: "isSessionKeyOf",
     args: [account, agentAddress],
@@ -403,7 +385,7 @@ export async function readAllowance(account: Address, agentAddress: Address): Pr
 
 
 /**
- * Where the discovered account is kept, beside the agent's key.
+ * Where what the agent knows is kept, beside the agent's key.
  *
  * Keyed by agent address, so a machine that has run more than one agent does not hand the wrong
  * account to whichever started last.
@@ -411,60 +393,43 @@ export async function readAllowance(account: Address, agentAddress: Address): Pr
 const MEMORY_PATH =
   process.env.ARC_MANDATE_ACCOUNT_PATH ?? join(homedir(), ".arc-mandate", "accounts.json");
 
+const NOTHING_KNOWN: Remembered = { account: null, accountCode: null, pairing: null };
+
 /**
- * What is known about one agent: the account that granted it, and how far the chain has been
- * searched for that grant.
+ * What is known about one agent. A cache of the chain plus the code it showed: a lookup still works
+ * without it, but a pairing code lost here has to be shown and scanned again.
  *
- * The second half is what keeps an unpaired agent usable. Searching is head-downwards and stops at
- * the first hit, so an agent that *has* been granted something is cheap to resolve. One that has
- * **not** finds nothing and therefore walks the entire history, every single call — and Arc mints
- * 167,669 blocks a day against a 10,000-block cap on `eth_getLogs`. Measured against the live
- * chain: eight requests today, twenty-four tomorrow, and five hundred within a month, by which
- * point the very first thing a new user does exceeds their client's timeout and pairing simply
- * never completes.
- *
- * So a search that finds nothing records how far it got, and the next one resumes from there.
- * A newly generated key skips the history altogether: it cannot have been granted anything before
- * it existed.
+ * Older files hold a bare address, or an account with the stretch of chain a search had read. Both
+ * are from before grants carried a pairing code, so they read as a wallet with no pairing.
  */
 function readState(agentAddress: Address): Remembered {
   try {
     const all: unknown = JSON.parse(readFileSync(MEMORY_PATH, "utf8"));
-      if (!isRecord(all)) return { account: null, searched: null };
-      const entry = all[agentAddress.toLowerCase()];
-      if (isAddress(entry)) return { account: entry, searched: null }; // oldest format
-      if (isRecord(entry)) {
-        const account = entry["account"];
-        return {
-          account: isAddress(account) ? account : null,
-          searched: readSearched(entry),
-        };
-      }
+    if (!isRecord(all)) return NOTHING_KNOWN;
+    const entry = all[agentAddress.toLowerCase()];
+    if (isAddress(entry)) return { ...NOTHING_KNOWN, account: entry }; // oldest format
+    if (isRecord(entry)) {
+      const account = entry["account"];
+      const accountCode = entry["accountCode"];
+      return {
+        account: isAddress(account) ? account : null,
+        accountCode: typeof accountCode === "string" && isPairingCode(accountCode) ? accountCode : null,
+        pairing: readPairing(entry["pairing"]),
+      };
+    }
   } catch {
-    // Absent, unreadable, or not JSON. This is a cache: a lookup still works without it.
+    // Absent, unreadable, or not JSON: nothing is known yet.
   }
-  return { account: null, searched: null };
+  return NOTHING_KNOWN;
 }
 
-/**
- * The span already read, from either shape this file has had.
- *
- * The previous format stored one number meaning "everything below here has been read", which is the
- * completed case of a span — so an old file migrates without a rewrite, and an agent that upgrades
- * mid-search keeps whatever it had got through.
- */
-function readSearched(entry: Record<string, unknown>): Remembered["searched"] {
-  const span = entry["searched"];
-  if (isRecord(span)) {
-    const low = span["low"];
-    const high = span["high"];
-    if (typeof low === "string" && typeof high === "string") {
-      return { low: BigInt(low), high: BigInt(high) };
-    }
-  }
-  const through = entry["searchedThrough"];
-  if (typeof through === "string") return { low: DEPLOY_BLOCK ?? 0n, high: BigInt(through) };
-  return null;
+function readPairing(value: unknown): Pairing | null {
+  if (!isRecord(value)) return null;
+  const code = value["code"];
+  if (typeof code !== "string" || !isPairingCode(code)) return null;
+  const block = (field: unknown): bigint | null =>
+    typeof field === "string" && /^\d+$/.test(field) ? BigInt(field) : null;
+  return { code, shownAt: block(value["shownAt"]), searchedTo: block(value["searchedTo"]) };
 }
 
 function writeState(agentAddress: Address, patch: Partial<Remembered>): void {
@@ -482,18 +447,22 @@ function writeState(agentAddress: Address, patch: Partial<Remembered>): void {
       isAddress(existing) ? { account: existing } : isRecord(existing) ? existing : {};
     all[key] = {
       ...previous,
-        ...(patch.account === undefined ? {} : { account: patch.account }),
-        // Written as strings, because a bigint is not JSON — and taken from the patch by name
-        // rather than spread, so a bigint can never reach `JSON.stringify` and throw.
-        ...(patch.searched === undefined || patch.searched === null
-          ? {}
-          : { searched: { low: String(patch.searched.low), high: String(patch.searched.high) } }),
+      ...(patch.account === undefined ? {} : { account: patch.account }),
+      ...(patch.accountCode === undefined ? {} : { accountCode: patch.accountCode }),
+      // Blocks written as strings, because a bigint is not JSON and `JSON.stringify` throws on one.
+      ...(patch.pairing === undefined
+        ? {}
+        : {
+            pairing: patch.pairing === null ? null : {
+              code: patch.pairing.code,
+              shownAt: patch.pairing.shownAt === null ? null : String(patch.pairing.shownAt),
+              searchedTo: patch.pairing.searchedTo === null ? null : String(patch.pairing.searchedTo),
+            },
+          }),
     };
     mkdirSync(dirname(MEMORY_PATH), { recursive: true, mode: 0o700 });
     writeFileSync(MEMORY_PATH, `${JSON.stringify(all, null, 2)}\n`, { mode: 0o600 });
   } catch {
-    // Losing this costs a slower lookup next time and nothing else.
+    // Losing this costs a slower lookup next time, or a code shown again.
   }
 }
-
-

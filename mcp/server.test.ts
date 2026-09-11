@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -83,14 +83,31 @@ test("each of the three consumers goes through the reader", () => {
  * what went wrong was never a function returning the wrong value. It was one message doing the work
  * of two.
  */
-test("a withdrawn allowance is not reported as one that never existed", () => {
+/** The body of `requireMandate`, to the brace that closes it. */
+const requireMandateBody = (): string => {
   const at = source.indexOf("async function requireMandate(");
   assert.ok(at > 0, "requireMandate is gone");
-  const body = source.slice(at, at + 1400);
+  return source.slice(at, source.indexOf("\n}\n", at));
+};
 
-  assert.match(body, /rememberedGranter\(/, "the refusal cannot tell the two cases apart");
+test("a withdrawn allowance is not reported as one that never existed", () => {
+  const body = requireMandateBody();
+
+  assert.match(body, /rememberedGranter\(/, "a failed lookup forgets what is already known");
   assert.match(body, /withdrawn|revoked/i, "nothing in the refusal says the allowance was taken away");
-  assert.match(body, /No allowance yet/, "the never-granted case lost its setup instructions");
+  assert.match(body, /NO_ALLOWANCE/, "the never-granted case lost its setup instructions");
+  assert.match(source, /No allowance yet/, "the never-granted case lost its setup instructions");
+});
+
+/**
+ * A wallet remembered from before grants carried a pairing code may still hold a live allowance,
+ * and nothing ties it to this agent's owner. Telling the person to "grant one" would read as though
+ * the allowance they can see in their app did not exist; they are told to scan once instead.
+ */
+test("a wallet paired before pairing codes is asked to scan once, not told nothing was granted", () => {
+  const body = requireMandateBody();
+  assert.match(body, /grant\.legacy/, "a legacy wallet is answered the same as no wallet at all");
+  assert.match(source, /needs pairing once more/, "the legacy case does not say what to do");
 });
 
 /**
@@ -102,43 +119,35 @@ test("a withdrawn allowance is not reported as one that never existed", () => {
  * found nothing.
  */
 test("what is remembered explains a lookup, and never replaces it", () => {
-  const at = source.indexOf("async function requireMandate(");
-  const body = source.slice(at, at + 1400);
+  const body = requireMandateBody();
 
-  const lookup = body.indexOf("findGrantingAccount(");
+  const lookup = body.indexOf("findGrant(");
   const memory = body.indexOf("rememberedGranter(");
   assert.ok(lookup > 0 && memory > lookup,
     "the memory is consulted before the chain, which would hide a fresh grant from another account");
 });
 
 /**
- * The revoke path, which is the moment this project exists for, and which failed the first time it
- * was ever run against a live chain.
+ * The history walk, which failed every time it met a live chain.
  *
- * A revoked agent looks exactly like an unpaired one to the lookup: the cached account no longer
- * grants, so the search for *some* granting account begins. For an agent nobody has granted
- * anything to, that search walks history, and `chain.ts` has warned about the cost of that in a
- * comment since it was written. Nobody noticed a revoked agent takes the same path.
+ * The search for a grant used to start at the plugin's deployment, so an agent nobody had granted
+ * yet, and a revoked one, read everything since: measured at 232,000 blocks in twenty-four windowed
+ * `eth_getLogs` calls, which exhausted Arc's public rate limit, so a revoke answered with a viem
+ * stack trace. A grant now has to carry the pairing code the agent showed, and nothing can carry a
+ * code before it was shown, so that block is the floor and the history is never read.
  *
- * Measured, not guessed: 232,000 blocks in twenty-four windowed `eth_getLogs` calls, which
- * exhausted Arc's public rate limit. The owner revoked an allowance on their phone, the agent was
- * asked to buy a step, and the answer was a viem stack trace with the calldata in it.
+ * Structural because what matters is that the old floor cannot come back; `chain.test.ts` checks the
+ * behaviour against a chain.
  */
-test("a revoked agent does not re-read the chain's history looking for its grant", () => {
+test("the search for a grant never reads further back than the code it is looking for", () => {
   const chain = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "chain.ts"), "utf8");
 
-  assert.match(chain, /const revoked = state\.account !== null/,
-    "nothing distinguishes a revoked agent from one that was never granted anything");
-
-  const spans = chain.slice(chain.indexOf("const spans"), chain.indexOf("const cover"));
-  assert.match(spans, /revoked/, "the search reads the same spans whether or not a grant was revoked");
-
-  // The bound is the whole fix: a known-revoked agent reads a fixed recent stretch rather than
-  // everything since it was last looked at, which grows by 167,000 blocks a day.
-  assert.match(spans, /head - RECENT/,
-    "the revoked branch is unbounded, so it grows with every day the agent is not used");
+  assert.doesNotMatch(chain, /DEPLOY_BLOCK/, "a search floor at the plugin's deployment is back");
+  const search = chain.slice(chain.indexOf("async function firstGrantCarrying("));
+  assert.match(search, /pairing\.searchedTo === null \? shownAt/,
+    "the search does not start where the code was shown");
   assert.match(chain, /const RECENT = LOG_WINDOW \* \d+n/,
-    "the recent stretch is not defined in terms of the window it is read in");
+    "the stand-in for an unknown floor is not defined in terms of the window it is read in");
 });
 
 /**
@@ -151,7 +160,7 @@ test("an unreachable endpoint is explained, not dumped", () => {
   assert.match(source, /function unreachable\(/, "nothing translates an RPC failure");
   assert.match(source, /rate limit/i, "a rate limit is the failure that actually happens, and is not named");
 
-  const guard = source.slice(source.indexOf("async function requireMandate("), source.indexOf("if (!account)"));
+  const guard = source.slice(source.indexOf("async function requireMandate("), source.indexOf('grant.status === "withdrawn"'));
   assert.match(guard, /try \{/, "the lookup is unguarded, so viem's error reaches the person");
   assert.match(guard, /rememberedGranter\(/,
     "a failure discards what is already known, which is still true and still useful");
@@ -189,15 +198,32 @@ test("the pairing code is shown even when the chain cannot be read", async () =>
     stderr: "ignore",
   }));
 
-  try {
+  const ask = async (): Promise<{ readonly body: string; readonly isError: unknown }> => {
     const result = await client.callTool({ name: "get_pairing_address", arguments: {} });
     const body = (result.content as { readonly text?: string }[]).map((part) => part.text ?? "").join("\n");
+    return { body, isError: result.isError };
+  };
+  const LINK = /ethereum:0x[0-9a-fA-F]{40}@\d+\?pairing=([0-9a-f]{32})/;
 
-    assert.notEqual(result.isError, true, "the pairing tool failed instead of answering");
-    assert.match(body, /0x[0-9a-fA-F]{40}/, "the address is missing");
-    assert.match(body, /New allowance/, "the next step is missing");
-    assert.match(body, /could not be checked/, "the reply does not say what could not be checked");
-    assert.doesNotMatch(body, /HTTP request failed|Request body|Version: viem/, "viem's dump reached the user");
+  try {
+    // First ask: no code has been shown yet, so there is no grant to look for and nothing to read.
+    const first = await ask();
+    assert.notEqual(first.isError, true, "the pairing tool failed instead of answering");
+    assert.match(first.body, /0x[0-9a-fA-F]{40}/, "the address is missing");
+    // The code the phone scans carries the pairing code the grant has to repeat, and the same code
+    // is saved beside the key so it can be scanned again without asking.
+    assert.match(first.body, LINK, "the link carries no pairing code");
+    assert.ok(existsSync(join(scratch, "pairing-code.png")), "the code was not saved as an image");
+    assert.match(first.body, /New allowance/, "the next step is missing");
+    assert.doesNotMatch(first.body, /HTTP request failed|Request body|Version: viem/, "viem's dump reached the user");
+
+    // Second ask: now there is a grant to look for, and the chain will not answer. The code is still
+    // shown, the same one, and the reply says what could not be checked.
+    const second = await ask();
+    assert.notEqual(second.isError, true, "the pairing tool failed instead of answering");
+    assert.match(second.body, /could not be checked/, "the reply does not say what could not be checked");
+    assert.equal(second.body.match(LINK)?.[1], first.body.match(LINK)?.[1], "asking again spoiled the code");
+    assert.doesNotMatch(second.body, /HTTP request failed|Request body|Version: viem/, "viem's dump reached the user");
   } finally {
     await client.close();
   }

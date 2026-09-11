@@ -11,7 +11,7 @@ claude mcp add arc-mandate -s user -- node "$PWD/mcp/server.ts"
 Then, in the agent:
 
 > **you:** what's your payment address?
-> **agent:** *(calls `get_pairing_address`)* → `0x1f94…F107`
+> **agent:** *(calls `get_pairing_address`)* → a QR code, with `0x1f94…F107` under it
 >
 > — you grant it $10 in the app, with Face ID —
 >
@@ -23,16 +23,23 @@ Then, in the agent:
 The agent generates its own key on first run and **never sends it anywhere**. A mandate is granted
 to an *address*, so only a public value moves, and only from the agent to you.
 
-After you grant, the agent finds the rest by itself: it watches for `SessionKeyAdded` naming its
-own address, which tells it which account authorised it. That argument is indexed in the event,
-which is what makes a single scan enough — there is no second round trip, no config file, and no
-copy-paste back.
+Granting needs nothing but that address, and the address is public, so the agent does not take the
+first grant it finds. Its code also carries a one-time pairing code, and the app writes a hash of
+it into the grant. After you grant, the agent asks the chain for the `SessionKeyAdded` event naming
+its own address and carrying its code. Both are indexed in the event, which is what makes a single
+scan enough: no second round trip, no config file, and no copy-paste back.
+
+A grant made any other way, by a stranger or from an address typed on its own, carries no code the
+agent is waiting for, and is not used. The first grant carrying a code wins, so a copy made after
+yours cannot take its place. Every answer about spending names the wallet it comes from, so you can
+match it to the app. To move the agent to another wallet, ask it for its code again and scan it from
+that wallet. The code is also saved as `pairing-code.png` beside the agent's key.
 
 ## Tools
 
 | | |
 |---|---|
-| `get_pairing_address` | the address to grant to, as a QR code for the app to scan |
+| `get_pairing_address` | the code to grant to: a QR carrying the agent's address and a one-time pairing code, for the app to scan, also saved as an image. Says which wallet the agent spends from, if one is paired |
 | `check_allowance` | limit, spent, remaining and what is spendable now, read from the chain |
 | `pay` | send USDC to an address, within the allowance |
 | `buy` | fetch a URL and pay if it answers `402 Payment Required` (x402), topping up the agent's escrow from the allowance when it has to |
@@ -51,9 +58,9 @@ connector that skipped the check reaches that refusal.
 |---|---|
 | `ARC_RPC_URL` | defaults to Arc testnet |
 | `ARC_SESSION_KEY_PLUGIN` | the mandate plugin |
-| `ARC_PLUGIN_FROM_BLOCK` | where the search for a grant stops. Defaults to the plugin's deployment block, 60,625,268; set it only for a plugin you deployed yourself |
 | `CIRCLE_CLIENT_URL`, `CIRCLE_CLIENT_KEY`, `CIRCLE_PASSKEY_DOMAIN` | the bundler the agent submits through. Arc has no public bundler, so without these a payment cannot be sent |
-| `ARC_MANDATE_KEY_PATH` | where the agent's key lives (default `~/.arc-mandate/agent.key`) |
+| `ARC_MANDATE_KEY_PATH` | where the agent's key lives (default `~/.arc-mandate/agent.key`). The code image is saved beside it |
+| `ARC_ACCOUNT` | a wallet to spend from without pairing, for a connector you point at your own wallet by hand. Still checked against the chain before every use |
 
 ## Installing it
 
@@ -106,7 +113,7 @@ That is the whole developer setup. Everything after it is scanning.
 
 ## Using it
 
-Ask the agent for its address. It prints a code.
+Ask the agent for its address. It prints a code, and saves it as an image beside its key.
 
 Scan the code in the app, choose an amount and how long it lasts, confirm with Face ID.
 

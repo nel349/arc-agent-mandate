@@ -4,7 +4,7 @@ import { Linking, Modal, Pressable, StyleSheet, Text, View } from "react-native"
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button } from "./Button.tsx";
 import { Note } from "./Note.tsx";
-import { pairedAddress } from "./pairing.ts";
+import { readPairingLink, type ScannedAgent } from "./pairing.ts";
 import { tokens } from "./tokens.ts";
 import { useTheme } from "./theme-context.tsx";
 
@@ -45,8 +45,11 @@ export function ScanModal({
 }: {
   readonly visible: boolean;
   readonly onClose: () => void;
-  /** Called with a valid address. The modal does not close itself; the owner decides. */
-  readonly onScanned: (address: `0x${string}`) => void;
+  /**
+   * Called with the agent's address, and its pairing code when the code carries one. The modal does
+   * not close itself; the owner decides.
+   */
+  readonly onScanned: (scanned: ScannedAgent) => void;
 }) {
   return (
     <Modal
@@ -86,7 +89,7 @@ function Viewfinder({
 }: {
   readonly camera: NonNullable<typeof camera>;
   readonly onClose: () => void;
-  readonly onScanned: (address: `0x${string}`) => void;
+  readonly onScanned: (scanned: ScannedAgent) => void;
 }) {
   const c = useTheme().color;
   const insets = useSafeAreaInsets();
@@ -99,15 +102,15 @@ function Viewfinder({
 
   const onBarcode = useCallback(({ data }: { data: string }) => {
     if (handled.current) return;
-    const address = pairedAddress(data);
-    if (address === null) {
+    const scanned = readPairingLink(data);
+    if (scanned === null) {
       // Not latched: the next frame may hold something readable, and someone sweeping a camera
       // across a screen should not have to close and reopen after one bad read.
-      setProblem(`That code is not an agent address. It read "${data.slice(0, 24)}…".`);
+      setProblem(`That is not an agent's code. It read "${data.slice(0, 24)}…".`);
       return;
     }
     handled.current = true;
-    onScanned(address);
+    onScanned(scanned);
   }, [onScanned]);
 
   // Permission is unknown for a moment on first open. Showing anything here makes it look like

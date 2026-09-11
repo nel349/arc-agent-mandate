@@ -7,6 +7,7 @@ import {
   SESSION_KEY_PLUGIN_MANIFEST_HASH, type MandateTerms,
 } from "./mandate.ts";
 import { Usdc } from "./usdc.ts";
+import { pairingTag } from "../../mcp/pairing.ts";
 
 /**
  * These two constants are the SDK's only hard links to the deployed contract. If either drifts,
@@ -71,6 +72,22 @@ test("the install payload we send decodes as the shape the plugin's onInstall re
   assert.equal(updates.length, 1, "one key, one list of permission updates");
   assert.ok(updates[0] !== undefined && updates[0].length > 0,
     "a key installed with no permissions can spend nothing, which is not what a grant means");
+});
+
+/**
+ * The agent spends only from a grant carrying the pairing code its QR showed. A grant that dropped
+ * the code would be ignored, and the person would see an allowance the agent never uses.
+ */
+test("a grant made from the agent's code carries its pairing code as the tag", async () => {
+  const { decodeFunctionData, parseAbi } = await import("viem");
+  const abi = parseAbi(["function addSessionKey(address sessionKey, bytes32 tag, bytes[] permissionUpdates)"]);
+  const code = "0123456789abcdef0123456789abcdef";
+
+  const scanned = decodeFunctionData({ abi, data: buildGrantPlan(terms({ pairing: code }), true).management });
+  assert.equal(scanned.args[1], pairingTag(code));
+
+  const typed = decodeFunctionData({ abi, data: buildGrantPlan(terms({ label: "agent" }), true).management });
+  assert.notEqual(typed.args[1], pairingTag(code), "a grant with no code carried one anyway");
 });
 
 test("the first grant installs the plugin; later ones only add a key", async () => {

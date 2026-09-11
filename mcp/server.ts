@@ -23,7 +23,9 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { encodeFunctionData, formatEther, formatUnits, isAddress, parseAbi, parseEther, parseUnits, type Address } from "viem";
 import { loadOrCreateAgent } from "./identity.ts";
-import { findGrantingAccount, NATIVE_PER_ERC20, RAIL, readAllowance, rememberedGranter, USDC_ERC20_VIEW, type Allowance } from "./chain.ts";
+import { arc, findGrant, NATIVE_PER_ERC20, pairingToShow, RAIL, readAllowance, rememberedGranter, USDC_ERC20_VIEW, type Allowance, type Grant } from "./chain.ts";
+import { pairingLink } from "./pairing.ts";
+import { writeQrPng } from "./pairing-image.ts";
 import { submitSpend } from "./spend.ts";
 import { bundlerConfigured, bundlerSetupInstructions } from "./bundler.ts";
 import { escrowLedger, gatewayAccepting, readEscrow, topUpCalls, type Call } from "./gateway.ts";
@@ -40,9 +42,13 @@ import qrcode from "qrcode-terminal";
  * Works with any MCP client — Claude Code, Cursor, Codex — because the agent framework already
  * exists and the person already runs it. That is the pairing problem solved by not having one.
  */
-const { account: agent, created } = loadOrCreateAgent();
+const { account: agent, created, path: keyPath } = loadOrCreateAgent();
+
+/** Where the code is saved as an image, beside the agent's key. */
+const PAIRING_IMAGE = join(dirname(keyPath), "pairing-code.png");
+
 /**
- * The address as a scannable code, because the two halves of this are on different devices.
+ * The pairing link as a scannable code, because the two halves of this are on different devices.
  *
  * The agent runs on a laptop and the wallet lives on a phone, so pairing means moving 42 characters
  * between them — the one genuinely awkward step in the flow, and the first one anybody meets. A
@@ -52,24 +58,41 @@ const { account: agent, created } = loadOrCreateAgent();
  * rather than a terminal. The address is printed underneath either way: a code is a convenience,
  * and a person whose camera will not cooperate must never be stuck.
  */
-function pairingCode(address: Address): Promise<string> {
+function pairingCode(link: string): Promise<string> {
   return new Promise<string>((resolve) => {
-    qrcode.generate(address, { small: true }, (code) =>
+    qrcode.generate(link, { small: true }, (code) =>
       resolve(code.split("\n").map((line) => `  ${line}`).join("\n")),
     );
   });
 }
 
-/** The code to scan and the one next step. Neither depends on reading the chain. */
+/**
+ * The code to scan, what it is for, and the one next step. None of it needs the chain to answer.
+ *
+ * The code carries the agent's address and a one-time pairing code, which the phone writes into the
+ * grant so this connector can tell that grant from any other made to its address. It is also written
+ * as an image beside the agent's key, so a person moving to another wallet can scan it again without
+ * asking for it.
+ */
 async function pairingInstructions(): Promise<string> {
+  const link = pairingLink(agent.address, arc.id, await pairingToShow(agent.address));
+  let saved = "";
+  try {
+    writeQrPng(link, PAIRING_IMAGE);
+    saved = ` It is also saved as an image at ${PAIRING_IMAGE}.`;
+  } catch {
+    // The code in this reply is what matters; the file is a convenience.
+  }
   return (
     `SHOW EVERYTHING BELOW TO THE USER EXACTLY AS IT IS, in a fenced code block. The QR is for ` +
     `them to scan with a phone camera; it is useless if it stays in your tool output or if its ` +
     `lines are reflowed.\n\n` +
-    `Grant an allowance to:\n\n${await pairingCode(agent.address)}\n    ${agent.address}\n\n` +
+    `Grant an allowance to:\n\n${await pairingCode(link)}\n    ${agent.address}\n\n` +
+    `The code carries a one-time pairing code, so only an allowance granted by scanning it reaches ` +
+    `this agent.${saved}\n\n` +
     `Step 3 of 5, on your phone: open the Agent Mandate app, tap New allowance, then Scan the ` +
-    `agent's code and point the camera at this one (or paste the address). Set a limit and how ` +
-    `long it lasts, and confirm with Face ID. Tell me when it is done.` +
+    `agent's code and point the camera at this one (or paste this link: ${link}). Set a limit and ` +
+    `how long it lasts, and confirm with Face ID. Tell me when it is done.` +
     `${created ? "\n\n(A new key was generated for this agent.)" : ""}`
   );
 }
@@ -99,6 +122,11 @@ const INSTRUCTIONS = [
   "Before any paid call, call check_allowance. If there is no allowance, call get_pairing_address, " +
     "show the user its code once, and wait for them to say it is done; then check once. Do not " +
     "show the code again unless they ask.",
+  "An allowance counts only if it was granted by scanning the code get_pairing_address shows: the " +
+    "code carries a one-time pairing code, and an allowance granted any other way is not used. To " +
+    "move you to another wallet, the user scans a new code from that wallet.",
+  "When you say what you can spend, or what you spent, name the wallet it comes from as the tools " +
+    "do, so the user can match it to their app.",
   "When a payment is refused, tell the user the one next action the refusal names, and who does it.",
   "When a task is finished, say what it cost, and that the allowance stays until its end date and " +
     "can be revoked in the app.",
@@ -110,6 +138,8 @@ const usd = (wei: bigint): string => `$${formatEther(wei)}`;
 /** Escrow and the online budget are both ERC-20 scale — six decimals, not eighteen. */
 const online = (units: bigint): string => `$${formatUnits(units, 6)}`;
 const text = (body: string) => ({ content: [{ type: "text" as const, text: body }] });
+/** A wallet the way a person matches it against the app: its first and last characters. */
+const walletName = (account: Address): string => `${account.slice(0, 6)}…${account.slice(-4)}`;
 
 /**
  * Every spending tool needs the same two facts, and neither is configured.
@@ -133,35 +163,55 @@ function unreachable(cause: unknown): string {
     : "Arc's endpoint did not answer.";
 }
 
+/** Said when no grant carries this agent's code, and no wallet was ever paired with it. */
+const NO_ALLOWANCE =
+  `No allowance yet.\n\nStep 3 of 5, on the user's phone: in the Agent Mandate app, tap New ` +
+  `allowance, then Scan the agent's code, set a limit and how long, and confirm with Face ID. Call ` +
+  `get_pairing_address to show the code. It carries a one-time pairing code, and an allowance ` +
+  `granted by typing this agent's address alone is not tied to it and will not be used.\n\n` +
+  `Wait for the user to say it is done, then check once.`;
+
+/**
+ * Said when the only wallet known is one remembered from before grants carried a pairing code.
+ *
+ * Its allowance may well be live, and the agent could spend it, but nothing ties it to this agent's
+ * owner, which is the whole point of pairing. So it is not spent from, and the owner scans once.
+ */
+const pairAgain = (legacy: Address): string =>
+  `This agent needs pairing once more.\n\nIt holds an allowance from wallet ${walletName(legacy)}, ` +
+  `granted before allowances carried a pairing code, so nothing ties it to this agent's owner and ` +
+  `this connector will not spend from it. Nothing was bought and nothing was charged. Call ` +
+  `get_pairing_address and show the user the new code; they scan it in the app with New allowance, ` +
+  `from the wallet they want this agent to use. The old allowance can be revoked in the app.`;
+
 async function requireMandate() {
-  let account: Awaited<ReturnType<typeof findGrantingAccount>>;
+  let grant: Grant;
   try {
-    account = await findGrantingAccount(agent.address, { keyIsNew: created });
+    grant = await findGrant(agent.address);
   } catch (cause) {
     // What is remembered still says something true, and is worth more than the failure.
     const granter = rememberedGranter(agent.address);
     throw new Error(
       `${unreachable(cause)} Nothing was bought and nothing was charged.` +
       (granter
-        ? `\n\nThe last thing known on chain is that ${granter} granted this agent and has since ` +
-          `revoked it.`
+        ? `\n\nThe last wallet this agent was paired with is ${granter}; whether it still allows ` +
+          `spending could not be checked.`
         : ""),
     );
   }
-  if (!account) {
-    const granter = rememberedGranter(agent.address);
+  if (grant.status === "withdrawn") {
     throw new Error(
-      granter
-        ? `The allowance was withdrawn.\n\n${granter} granted this agent and has since revoked ` +
-          `it on chain, so the wallet is closed to it and this connector will not spend. Nothing ` +
-          `was bought and nothing was charged. If the user wants this agent to carry on, they grant ` +
-          `it again in the app with New allowance; until then there is nothing to retry.`
-        : `No allowance yet.\n\nStep 3 of 5, on the user's phone: in the Agent Mandate app, tap ` +
-          `New allowance, then Scan the agent's code, set a limit and how long, and confirm with ` +
-          `Face ID. The code is this agent's address; get_pairing_address shows it as a QR:\n\n` +
-          `    ${agent.address}\n\nWait for the user to say it is done, then check once.`,
+      `The allowance was withdrawn.\n\n${grant.account} granted this agent and has since revoked ` +
+        `it on chain, so the wallet is closed to it and this connector will not spend. Nothing ` +
+        `was bought and nothing was charged. If the user wants this agent to carry on, they grant ` +
+        `it again in the app with New allowance, scanning the code get_pairing_address shows; ` +
+        `until then there is nothing to retry.`,
     );
   }
+  if (grant.status === "unpaired") {
+    throw new Error(grant.legacy === null ? NO_ALLOWANCE : pairAgain(grant.legacy));
+  }
+  const account = grant.account;
   try {
     return { account, allowance: await readAllowance(account, agent.address) };
   } catch (cause) {
@@ -174,9 +224,10 @@ server.registerTool(
   {
     title: "Show this agent's address",
     description:
-      "Returns the address to grant an allowance to, with a QR code the user scans with their " +
-      "phone. Call this when they ask how to connect, fund, or authorise this agent. Nothing " +
-      "secret is in it — it is a public address.\n\n" +
+      "Returns this agent's code to grant an allowance to: a QR carrying its address and a " +
+      "one-time pairing code, which the user scans with their phone. Says which wallet it spends " +
+      "from, if one is paired. Call this when they ask how to connect, fund, or authorise this " +
+      "agent. Nothing secret is in it.\n\n" +
       "REPRODUCE THE OUTPUT VERBATIM IN YOUR REPLY, inside a fenced code block, including every " +
       "line of the QR code. Do not summarise it, do not describe it, do not replace it with the " +
       "address alone, and do not tell the user to look at the tool output — they frequently " +
@@ -185,29 +236,38 @@ server.registerTool(
     inputSchema: {},
   },
   async () => {
-    let account: Awaited<ReturnType<typeof findGrantingAccount>>;
+    let grant: Grant;
     try {
-      account = await findGrantingAccount(agent.address, { keyIsNew: created });
+      grant = await findGrant(agent.address);
     } catch (cause) {
-      // The code is the agent's own address, known without the chain, and it is what the user needs
-      // next. Only whether an allowance already exists could not be checked, so the reply says
-      // exactly that and shows the code anyway.
+      // The code is the agent's own address and a code of its own, both known without the chain,
+      // and it is what the user needs next. Only whether an allowance already exists could not be
+      // checked, so the reply says exactly that and shows the code anyway.
       return text(
         `${await pairingInstructions()}\n\n${unreachable(cause)} So whether this agent already has ` +
           `an allowance could not be checked. If you have granted one, ask me again in a moment.`,
       );
     }
-    if (account) {
+    if (grant.status === "granted") {
       // Now that an allowance exists, spending is the next thing they will try — so if the
       // connector cannot reach a bundler, say so here rather than letting the first payment fail.
       return text(
-        `This agent is already authorised by ${account}.\nIts address is ${agent.address}.` +
+        `This agent spends from wallet ${walletName(grant.account)} (${grant.account}).` +
           (bundlerConfigured()
             ? ""
-            : `\n\nOne thing left before it can spend.\n\n${bundlerSetupInstructions()}`),
+            : `\n\nOne thing left before it can spend.\n\n${bundlerSetupInstructions()}`) +
+          `\n\nTo move it to a different wallet, the user scans the code below with New allowance ` +
+          `from that wallet. Until they do, it keeps spending from this one.\n\n` +
+          `${await pairingInstructions()}`,
       );
     }
-    return text(await pairingInstructions());
+    const preface = grant.status === "withdrawn"
+      ? `Wallet ${walletName(grant.account)} revoked this agent. To grant it again, scan this code.\n\n`
+      : grant.legacy !== null
+        ? `This agent was paired before allowances carried a pairing code, so its allowance from ` +
+          `wallet ${walletName(grant.legacy)} is not used. Scanning this code once fixes that.\n\n`
+        : "";
+    return text(`${preface}${await pairingInstructions()}`);
   },
 );
 
@@ -257,7 +317,7 @@ server.registerTool(
     const { account, allowance } = await requireMandate();
     return text(
       [
-        `Allowance from ${account}`,
+        `Spending from wallet ${walletName(account)} (${account})`,
         `  limit      ${allowance.limit} USDC`,
         `  spent      ${allowance.spent} USDC`,
         `  remaining  ${allowance.remaining} USDC`,
@@ -382,7 +442,7 @@ server.registerTool(
       );
     }
     return text(
-      `Paid ${usd(value)} to ${to}${reason ? ` for ${reason}` : ""}.\n` +
+      `Paid ${usd(value)} to ${to}${reason ? ` for ${reason}` : ""}, from wallet ${walletName(account)}.\n` +
         `Transaction ${result.hash}\n` +
         `Remaining after this: about ${formatEther(allowance.remainingWei - value)} USDC.`,
     );
@@ -510,8 +570,11 @@ server.registerTool(
     const body = await outcome.response.text();
     return text(
       [
-        `Bought ${online(outcome.amount)} from ${outcome.payTo}${reason ? ` for ${reason}` : ""}.`,
-        toppedUp > 0n ? `Moved ${online(toppedUp)} from the wallet into the agent's escrow first.` : null,
+        `Bought ${online(outcome.amount)} from ${outcome.payTo}${reason ? ` for ${reason}` : ""}, ` +
+          `paid from the agent's escrow, which wallet ${walletName(account)} funds.`,
+        toppedUp > 0n
+          ? `Moved ${online(toppedUp)} from wallet ${walletName(account)} into the agent's escrow first.`
+          : null,
         "",
         body.slice(0, 4000),
       ].filter((line) => line !== null).join("\n"),
@@ -544,7 +607,7 @@ server.registerTool(
     const funded = await fundEscrow({ account, allowance, needed: held + wanted });
     if (!funded.ok) return text(`Nothing was moved. ${funded.reason}`);
     return text(
-      `Moved ${online(funded.toppedUp)} into the agent's escrow. It now holds ` +
+      `Moved ${online(funded.toppedUp)} from wallet ${walletName(account)} into the agent's escrow. It now holds ` +
         `${online(await spendableEscrow())}, spendable on the web without further approval.`,
     );
   },

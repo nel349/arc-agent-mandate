@@ -58,10 +58,12 @@ inventing a pairing flow and plug into the agent people already run.
 claude mcp add arc-mandate -s user -- node "$PWD/mcp/server.ts"     # from a clone of this repo
 ```
 
-The agent makes its own key, never sends it anywhere, and shows a public address. You grant to
-that address from your phone. It then finds the granting account **by itself**, by watching for
-`SessionKeyAdded` naming its own address — that argument is indexed in the event, which is what
-makes a single scan enough with no second round trip and no config file.
+The agent makes its own key, never sends it anywhere, and shows a code: its public address and a
+one-time pairing code. You grant to it from your phone by scanning that code, and the app writes a
+hash of the pairing code into the grant. The agent then finds the granting account **by itself**,
+by asking for `SessionKeyAdded` naming its own address and carrying its code. Both are indexed in
+the event, which makes a single scan enough, with no second round trip and no config file, and a
+grant made to its address by anyone else is not used.
 
 **Nothing is ever transferred to it.** It hands its operations to a bundler — Circle's is the only
 one on Arc, which we checked rather than assumed — and the paymaster covers them, so neither the

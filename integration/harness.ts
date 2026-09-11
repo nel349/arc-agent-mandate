@@ -228,13 +228,42 @@ export const permissions = (updates: readonly Hex[]) =>
     abi: pluginAbi, functionName: "updateKeyPermissions", args: [agent.address, updates],
   }));
 
-export async function revokeAgent() {
+/** Takes a key's allowance away, as the owner. The granted agent's unless another is named. */
+export async function revokeAgent(key: Address = agent.address) {
   const predecessor = await publicClient.readContract({
-    address: pluginAddress(), abi: pluginAbi, functionName: "findPredecessor", args: [MSCA, agent.address],
+    address: pluginAddress(), abi: pluginAbi, functionName: "findPredecessor", args: [MSCA, key],
   });
   return asOwner(encodeFunctionData({
-    abi: pluginAbi, functionName: "removeSessionKey", args: [agent.address, predecessor],
+    abi: pluginAbi, functionName: "removeSessionKey", args: [key, predecessor],
   }));
+}
+
+/** Gives an address native USDC to pay gas with, so it can act on the fork in its own right. */
+export async function fund(address: Address, wei: bigint = 10n ** 18n): Promise<void> {
+  const { error } = await rpc("anvil_setBalance", [address, "0x" + wei.toString(16)]);
+  if (error) throw new Error(error.message);
+}
+
+/** Moves the chain forward by empty blocks, for anything that depends on how far apart blocks are. */
+export async function mine(blocks: number): Promise<void> {
+  const { error } = await rpc("anvil_mine", ["0x" + blocks.toString(16)]);
+  if (error) throw new Error(error.message);
+}
+
+/** Enough gas for any one management call on the account; the call is simulated, so none is spent. */
+const REFUSAL_CALL_GAS = 3_000_000n;
+
+/**
+ * What the account answers when the owner asks it to do something it refuses.
+ *
+ * `asOwner` sends and mines, so a refusal arrives as a reverted receipt with its reason gone. This
+ * asks the same question as a call, which is where the node reports why, and returns that report
+ * whole. Throws if the account would accept, because a test asking this expects a refusal.
+ */
+export async function ownerRefusal(data: Hex): Promise<string> {
+  const reply = await rpc("eth_call", [{ from: ENTRY_POINT, to: MSCA, data, gas: toHex(REFUSAL_CALL_GAS) }, "latest"]);
+  if (reply.error === undefined) throw new Error("the account accepted what the test expected it to refuse");
+  return JSON.stringify(reply.error);
 }
 
 export const sessionKeys = () =>
