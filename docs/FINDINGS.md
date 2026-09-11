@@ -184,7 +184,8 @@ through `transfer`, where a native spend limit never sees it — an ERC-20 call 
 `value == 0`. Under an allowlist that call was refused for being unlisted, which means the second
 rail was closed by accident rather than on purpose.
 
-What works is a **denylist with the second rail named on it**: anyone may be paid, except the
+What worked here was a **denylist with the second rail named on it**, and finding 13 is why the app
+no longer grants one: anyone may be paid, except the
 ERC-20 view. `contracts/test/ArcPayeeScope.t.sol` pins all three steps against the real plugin on
 a fork — the empty allowlist spending nothing, the denylist reopening the ERC-20 rail, and naming
 that rail closing it again.
@@ -328,6 +329,30 @@ which is the worst kind of wrong. Fetch the real ABI from a block explorer.
 **`setAgentWallet` has a five-minute deadline ceiling.** `MAX_DEADLINE_DELAY = 5 minutes`, so a
 signature made with the hour-long deadline that feels natural is rejected as "deadline too far".
 
+## 13. A denylist allowance bounds the money and nothing else
+
+Finding 8's answer was a denylist naming the USDC view: anyone may be paid, and the second rail is
+gated by its ERC-20 limit. That bounds USDC, since the native limit counts `call.value` wherever it
+goes. It bounds nothing else the wallet holds. A call carrying no value, to any contract the list
+does not name, is allowed, and a zero-value call is exactly how an NFT is transferred, an operator
+approved, or another token moved.
+
+On a fork, with the phone's own grant calldata, the agent's key transferred the wallet's ERC-8004
+identity to a stranger, and the allowance read nothing spent afterwards.
+
+What the app grants now is an allowlist naming what an agent does, each contract listed with
+`checkSelectors` so only the named functions are reachable: `transfer` and `approve` on the USDC
+view under its ERC-20 limit, `depositFor` on Circle's Gateway, and `register()` and
+`setAgentWallet` on the identity registry, so the agent can set up an identity the wallet owns.
+Finding 8 still stands, because an empty allowlist refuses everything, and this one is not empty.
+
+`checkSelectors` matters on an allowlist in the opposite way to a denylist. A contract listed
+without it is allowed outright, before the plugin's ERC-20 selector gate runs, which on the USDC
+view would open `transferFrom`, the one function the meter does not count.
+
+The general lesson: a spend limit describes the money a key can move, not the authority it holds.
+A key that may make any zero-value call holds everything in the wallet that is not money.
+
 ---
 
 **How each claim is held up.** Findings 1–8 are exercised by `npm run gate` in this repository,
@@ -345,3 +370,7 @@ Findings 9–12 are held in three places, and it is worth being exact about whic
 - **Against the live chain only, and not reproducible on a fork.** The executed ERC-20 transfer of
   finding 9, and the ERC-8004 writes of finding 12. Finding 9 is the reason: there is no local EVM
   these can run on. The commands in each section reproduce them against Arc testnet directly.
+
+Finding 13 is held in the gate here, on a fork: `integration/allowance.test.ts` sends the phone's
+grant calldata to the real plugin and runs every call through the real EntryPoint, identity setup
+and refusals alike.

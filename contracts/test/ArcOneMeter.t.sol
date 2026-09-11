@@ -36,12 +36,21 @@ contract ArcOneMeterTest is ArcMscaHarness {
     address internal constant GATEWAY = 0x0077777d7EBA4688BDeF3E311b846F25870A19B9;
     address internal constant PAYEE = address(0xDEAD);
 
+    /// Arc's ERC-8004 identity registry, where an agent sets up the identity its owner holds.
+    address internal constant IDENTITY_REGISTRY = 0x8004A818BFB912233c491871b3d84c89A494BD9e;
+
+    bytes4 internal constant DEPOSIT_FOR = bytes4(keccak256("depositFor(address,address,uint256)"));
+    bytes4 internal constant REGISTER = bytes4(keccak256("register()"));
+    bytes4 internal constant SET_AGENT_WALLET = bytes4(keccak256("setAgentWallet(uint256,address,uint256,bytes)"));
+
     /// The whole mandate, at ERC-20 scale. 20 USDC.
     uint256 internal constant LIMIT = 20e6;
 
     address internal sessionKey;
 
-    /// One limit, on the rail everything travels.
+    /// One limit, on the rail everything travels, granted the way the app grants it: an allowlist
+    /// naming the USDC view's `transfer` and `approve`, the Gateway's `depositFor` and the identity
+    /// registry's two setup calls, as `permissionUpdates` in `src/arc/mandate.ts` builds it.
     ///
     /// The native limit is left at its default of zero, which refuses any call carrying value.
     /// That is not a restriction to work around -- it is what makes the ERC-20 limit the *whole*
@@ -53,18 +62,42 @@ contract ArcOneMeterTest is ArcMscaHarness {
         vm.skip(!_forkArcAndInstall(keys));
         SESSION_KEY_PK_FOR_SPEND = SESSION_KEY_PK;
 
-        bytes[] memory updates = new bytes[](4);
+        bytes[] memory updates = new bytes[](11);
         updates[0] = abi.encodeCall(
             ISessionKeyPermissionsUpdates.setAccessListType,
-            (ISessionKeyPlugin.ContractAccessControlType.DENYLIST)
+            (ISessionKeyPlugin.ContractAccessControlType.ALLOWLIST)
         );
-        // On the list with selector checking, which is the only way to reach the ERC-20 gate.
+        // On the list with selector checking, which is the only way to reach the ERC-20 gate, and
+        // with only the two metered functions named.
         updates[1] = abi.encodeCall(
             ISessionKeyPermissionsUpdates.updateAccessListAddressEntry, (USDC_ERC20_VIEW, true, true)
         );
-        updates[2] =
+        updates[2] = abi.encodeCall(
+            ISessionKeyPermissionsUpdates.updateAccessListFunctionEntry,
+            (USDC_ERC20_VIEW, IERC20.transfer.selector, true)
+        );
+        updates[3] = abi.encodeCall(
+            ISessionKeyPermissionsUpdates.updateAccessListFunctionEntry,
+            (USDC_ERC20_VIEW, IERC20.approve.selector, true)
+        );
+        updates[4] =
             abi.encodeCall(ISessionKeyPermissionsUpdates.setERC20SpendLimit, (USDC_ERC20_VIEW, LIMIT, 0));
-        updates[3] = abi.encodeCall(ISessionKeyPermissionsUpdates.setGasSpendLimit, (type(uint256).max - 1, 0));
+        updates[5] =
+            abi.encodeCall(ISessionKeyPermissionsUpdates.updateAccessListAddressEntry, (GATEWAY, true, true));
+        updates[6] = abi.encodeCall(
+            ISessionKeyPermissionsUpdates.updateAccessListFunctionEntry, (GATEWAY, DEPOSIT_FOR, true)
+        );
+        updates[7] = abi.encodeCall(
+            ISessionKeyPermissionsUpdates.updateAccessListAddressEntry, (IDENTITY_REGISTRY, true, true)
+        );
+        updates[8] = abi.encodeCall(
+            ISessionKeyPermissionsUpdates.updateAccessListFunctionEntry, (IDENTITY_REGISTRY, REGISTER, true)
+        );
+        updates[9] = abi.encodeCall(
+            ISessionKeyPermissionsUpdates.updateAccessListFunctionEntry,
+            (IDENTITY_REGISTRY, SET_AGENT_WALLET, true)
+        );
+        updates[10] = abi.encodeCall(ISessionKeyPermissionsUpdates.setGasSpendLimit, (type(uint256).max - 1, 0));
         _updatePermissions(sessionKey, updates);
     }
 
@@ -146,12 +179,22 @@ contract ArcOneMeterTest is ArcMscaHarness {
         _spendOn(USDC_ERC20_VIEW, 0, abi.encodeCall(IERC20.transferFrom, (MSCA, PAYEE, 1)));
     }
 
-    /// Calling the Gateway itself stays permitted, since a deposit that carries no value spends
-    /// nothing on its own -- the money moved when the approval was metered.
+    /// The deposit itself is named on the list and permitted, since a deposit that carries no value
+    /// spends nothing on its own -- the money moved when the approval was metered.
     function test_theGatewayIsStillReachableForTheDepositItself() public {
         _grantOneMeter();
         _spendOn(GATEWAY, 0, abi.encodeWithSignature(
             "depositFor(address,address,uint256)", USDC_ERC20_VIEW, PAYEE, uint256(1e6)
+        ));
+    }
+
+    /// And only the deposit. Anything else on the Gateway, starting a withdrawal of the account's own
+    /// deposits for one, is unnamed and so refused.
+    function test_nothingElseOnTheGatewayIsReachable() public {
+        _grantOneMeter();
+        vm.expectRevert(ISessionKeyPlugin.PermissionsCheckFailed.selector);
+        _spendOn(GATEWAY, 0, abi.encodeWithSignature(
+            "initiateWithdrawal(address,uint256)", USDC_ERC20_VIEW, uint256(1e6)
         ));
     }
 
@@ -194,14 +237,7 @@ contract ArcOneMeterTest is ArcMscaHarness {
     /// open web does not know who it will pay -- loses nothing by moving here.
     function test_payeeScopingDoesNotSurviveOnThisRail() public {
         _grantOneMeter();
-        // Deny the payee by name, as explicitly as a denylist can.
-        bytes[] memory deny = new bytes[](1);
-        deny[0] = abi.encodeCall(
-            ISessionKeyPermissionsUpdates.updateAccessListAddressEntry, (PAYEE, true, false)
-        );
-        _updatePermissions(sessionKey, deny);
-
-        // A direct payment to it is refused...
+        // The payee is named nowhere on the list, so a direct payment to it is refused...
         vm.expectRevert(ISessionKeyPlugin.PermissionsCheckFailed.selector);
         _spendOn(PAYEE, 1, "");
 

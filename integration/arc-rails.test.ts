@@ -4,17 +4,17 @@ import { createPublicClient, http, parseAbi, type Address } from "viem";
 import { USDC_RAILS } from "../src/arc/mandate.ts";
 
 /**
- * Does Arc still have only the rails we deny?
+ * Does Arc still have only the rail we meter?
  *
- * An unscoped mandate is granted on a **denylist**: the agent may pay anyone except the addresses
- * we name. That is the only setting that expresses what the product promises — bounded by how much
- * and how long, not by who — but it carries one weakness. A denylist is only as complete as the
- * list, so a contract that can move USDC without carrying `msg.value` and is *not* on it would let
- * an agent spend past its limit, because the native counter would never see the money leave.
+ * An unscoped mandate meters every payment on one rail, the ERC-20 view over the native balance,
+ * which is what lets the phone show one number that is the whole allowance. `USDC_RAILS` names that
+ * rail, and says it is the only one.
  *
- * The weakness is not that such a contract might appear. It is that it would appear **silently**.
- * This test is what makes it loud: it re-derives the set of second rails from the live chain and
- * fails when it finds one `USDC_RAILS` does not name.
+ * Allowances were once granted on a denylist, where a second rail nobody named would have been open
+ * and unmetered, and this test was the guard against that. Every allowance is an allowlist now, so an
+ * unnamed rail is refused rather than open. What this still catches is the claim going stale: it
+ * re-derives the set of rails from the live chain and fails, loudly, when Arc has one `USDC_RAILS`
+ * does not name.
  *
  * **What counts as a rail**, precisely: a contract whose `balanceOf` tracks the account's native
  * balance. That is what makes it a second view over one pot of money rather than an unrelated
@@ -97,9 +97,9 @@ test("no contract can move USDC off-limit except the ones the mandate denies", a
   assert.deepEqual(
     undenied,
     [],
-    `Arc has grown a second view over the native balance that no mandate denies: ${undenied.join(", ")}.\n` +
-    "Until it is added to USDC_RAILS in src/arc/mandate.ts, an agent on an unscoped mandate can\n" +
-    "move USDC through it without the spend limit ever counting it. Add it, then re-run.",
+    `Arc has grown a second view over the native balance that USDC_RAILS does not name: ${undenied.join(", ")}.\n` +
+    "Allowances are allowlists, so no agent can reach it yet. Decide whether agents should pay through\n" +
+    "it; if so, add it to USDC_RAILS in src/arc/mandate.ts, which lists and meters it, then re-run.",
   );
 
   // The list must also not rot in the other direction: an address we deny that is no longer a rail

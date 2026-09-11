@@ -11,6 +11,7 @@
     "chain.ts",
     "pairing.ts",
     "pairing-image.ts",
+    "erc8004.ts",
     "identity.ts",
     "spend.ts",
     "bundler.ts",

@@ -1,6 +1,6 @@
 import {
-  encodeAbiParameters, encodeFunctionData, keccak256, parseAbi, parseAbiParameters, toHex,
-  type Address, type Hash, type Hex,
+  encodeAbiParameters, encodeFunctionData, keccak256, parseAbi, parseAbiParameters, toFunctionSelector,
+  toHex, type Address, type Hash, type Hex,
 } from "viem";
 import { getUserOperationGasPrice } from "@circle-fin/modular-wallets-core";
 import { arcPublicClient, isDeployed } from "./client.ts";
@@ -25,6 +25,8 @@ import { pairingTag } from "../../mcp/pairing.ts";
  *   `approve`s alike, on the ERC-20 view and leaves the native limit at zero
  *   (`meterEverythingOnOneRail`). A mandate that names payees stays on the native rail, where
  *   naming them means something. See `permissionUpdates` and `usdc.ts`.
+ * - **An allowlist of what an agent calls.** The key may reach the USDC view, the Gateway deposit
+ *   and its own identity's two setup calls, and nothing else the wallet holds. See `IDENTITY_CALLS`.
  * - **Management is owner-only.** Granting, re-scoping and revoking each route to the account's
  *   passkey. The agent's own spending does not. That split is the product.
  * - **There is no direct-call path.** Circle's multisig implements no runtime validation, so
@@ -128,17 +130,84 @@ const ACCESS_LIST = { allowlist: 0, denylist: 1, allowAll: 2 } as const;
  * contract with protocol-level authority to move the balance, where `value == 0` and the native
  * counter sees nothing.
  *
- * **These are metered, not denied — the name of the game changed.** An unscoped mandate now routes
- * *everything* through this rail and bounds it with a single ERC-20 limit, which is what lets a
- * person be shown one number that is the whole truth. A scoped mandate leaves the rail unnamed on
- * an allowlist, where unlisted is already refused.
+ * **These are metered, not denied.** An unscoped mandate routes *everything* through this rail and
+ * bounds it with a single ERC-20 limit, which is what lets a person be shown one number that is the
+ * whole truth. A scoped mandate leaves the rail unnamed, and unnamed is refused.
  *
  * Exported because it is a claim about the chain rather than an implementation detail: it says
  * these are *all* of them. `integration/arc-rails.test.ts` re-derives the set from Arc and fails
- * if the chain ever grows one this list does not name — which is the single weakness of granting
- * on a denylist, made loud instead of silent.
+ * if the chain ever grows one this list does not name. On an allowlist an unnamed rail is refused
+ * rather than open, so that check no longer guards a hole; it says whether the one rail the phone's
+ * number describes is still the only one.
  */
 export const USDC_RAILS: readonly Address[] = [ARC_CONTRACTS.usdc];
+
+/** A contract an agent's key may call from the account, and the only functions on it that it may. */
+export interface AllowedCalls {
+  readonly contract: Address;
+  /** Signatures, as `name(types)`. */
+  readonly functions: readonly string[];
+}
+
+/**
+ * On the USDC view: paying someone, and approving the Gateway to take a top-up. Both are what the
+ * one ERC-20 limit meters. `transferFrom` is deliberately absent, because the meter does not count it.
+ */
+const USDC_FUNCTIONS: readonly string[] = ["transfer(address,uint256)", "approve(address,uint256)"];
+
+/**
+ * Filling the agent's escrow at Circle's Gateway, which is how it pays x402 sellers. The money was
+ * counted when `approve` was metered, so the deposit itself carries none.
+ */
+export const ESCROW_CALLS: AllowedCalls = {
+  contract: ARC_CONTRACTS.gatewayWallet,
+  functions: ["depositFor(address,address,uint256)"],
+};
+
+/**
+ * Setting up the agent's own ERC-8004 identity, owned by this account.
+ *
+ * `register()` mints a new identity to the caller, which is the account, and `setAgentWallet` links
+ * the agent's key to it with the agent's own signature. Neither moves money, and neither can touch
+ * an identity the account already holds: moving one needs `transferFrom` or an approval, and neither
+ * is named. This is what lets a solved maze credit the wallet that granted the allowance.
+ */
+export const IDENTITY_CALLS: AllowedCalls = {
+  contract: ARC_CONTRACTS.erc8004.identity,
+  functions: ["register()", "setAgentWallet(uint256,address,uint256,bytes)"],
+};
+
+/**
+ * Why an allowance is an allowlist, which it was not until 09-11.
+ *
+ * Unscoped allowances used to be granted on a denylist naming only the USDC view, on the reasoning
+ * that nothing else an agent could call carried money: the native limit counts `call.value` wherever
+ * it goes. That held for USDC and for nothing else the wallet holds. A zero-value call can transfer
+ * an NFT, approve an operator or move another token, and on a fork of Arc the agent's key moved the
+ * owner's ERC-8004 identity to a stranger with the limit untouched. So the list is inverted: an agent
+ * may call what these name, and anything unnamed is refused during validation, before it runs.
+ *
+ * Each contract is listed with `checkSelectors`. On an allowlist a contract listed without it is
+ * allowed outright, which on the USDC view would skip the plugin's ERC-20 gate and open `transferFrom`.
+ */
+function allow({ contract, functions }: AllowedCalls): Hex[] {
+  return [
+    encodeFunctionData({
+      abi: updatesAbi, functionName: "updateAccessListAddressEntry", args: [contract, true, true],
+    }),
+    ...functions.map((signature) => encodeFunctionData({
+      abi: updatesAbi, functionName: "updateAccessListFunctionEntry",
+      args: [contract, toFunctionSelector(signature), true],
+    })),
+  ];
+}
+
+/** Takes a contract off the list, which on an allowlist refuses every call to it. */
+function disallow(contract: Address): Hex {
+  return encodeFunctionData({
+    abi: updatesAbi, functionName: "updateAccessListAddressEntry", args: [contract, false, false],
+  });
+}
 
 export interface MandateTerms {
   /** The agent's address. It holds the matching key; we never see it. */
@@ -209,9 +278,9 @@ export interface Mandate {
  *
  * Three parts, each load-bearing, and the plugin's ERC-20 weaknesses are why:
  *
- * - **On the list with `checkSelectors`.** The denylist branch returns early for an unlisted
- *   target, before the ERC-20 selector gate runs. Listing the rail is what reaches the gate, which
- *   is what refuses `transferFrom` — otherwise unmetered.
+ * - **On the list with `checkSelectors`, naming only `transfer` and `approve`.** A contract listed
+ *   without selector checks is allowed outright, before the ERC-20 selector gate runs, and the gate
+ *   is what refuses `transferFrom`, which the meter does not count.
  * - **A spend limit**, which meters `transfer` and `approve` *and* is what sets
  *   `isERC20WithSpendLimit`. Without it the gate is inert and the key is unbounded on this token.
  * - **No native limit**, so there is no second meter and nothing escapes the first.
@@ -224,11 +293,7 @@ export interface Mandate {
  */
 function meterEverythingOnOneRail(limit: Usdc): Hex[] {
   return USDC_RAILS.flatMap((rail) => [
-    encodeFunctionData({
-      abi: updatesAbi,
-      functionName: "updateAccessListAddressEntry",
-      args: [rail, true, true],
-    }),
+    ...allow({ contract: rail, functions: USDC_FUNCTIONS }),
     encodeFunctionData({
       abi: updatesAbi,
       functionName: "setERC20SpendLimit",
@@ -242,11 +307,12 @@ function meterEverythingOnOneRail(limit: Usdc): Hex[] {
 function permissionUpdates(terms: MandateTerms): Hex[] {
   const scoped = terms.payees.length > 0;
 
+  // An allowlist either way: what the agent may call is named below, and nothing else is reachable.
   const updates: Hex[] = [
     encodeFunctionData({
       abi: updatesAbi,
       functionName: "setAccessListType",
-      args: [scoped ? ACCESS_LIST.allowlist : ACCESS_LIST.denylist],
+      args: [ACCESS_LIST.allowlist],
     }),
   ];
 
@@ -276,8 +342,12 @@ function permissionUpdates(terms: MandateTerms): Hex[] {
         "A limit below 0.000001 USDC cannot be expressed on the rail an unscoped mandate uses.",
       );
     }
-    updates.push(...meterEverythingOnOneRail(terms.limit));
+    // An agent shopping the open web pays sellers from its escrow, so it may fill it.
+    updates.push(...meterEverythingOnOneRail(terms.limit), ...allow(ESCROW_CALLS));
   }
+
+  // Every agent may set up its own identity, owned by this account, whichever rail it pays on.
+  updates.push(...allow(IDENTITY_CALLS));
 
   // Gas is a third way to spend the same balance, and an unset limit denies rather than allows.
   // `type(uint256).max` is the engine's "no limit" sentinel, so one below it is the real ceiling.
@@ -301,21 +371,27 @@ function permissionUpdates(terms: MandateTerms): Hex[] {
  * Only the updates a change actually asks for.
  *
  * **Naming payees scopes the mandate, and has to say so on the wire.** `updateAccessListAddressEntry`
- * puts an address on *the* list, and since `permissionUpdates` now chooses that list's meaning at
- * grant time, the same call allows or denies depending on which kind of mandate this is. On an
- * unscoped one — a denylist — adding a payee would have blocked exactly the address the caller
- * meant to permit, which is the worst possible way for an API to be wrong.
+ * puts an address on *the* list, and the same call allows or denies depending on which kind of list
+ * it is. Unscoped mandates granted before 09-11 are denylists, where adding a payee would have
+ * blocked exactly the address the caller meant to permit, which is the worst possible way for an API
+ * to be wrong. So a change that names payees also sets the list to an allowlist.
  *
- * So a change that names payees also sets the list back to an allowlist. That is the only reading
- * of "these are the payees" that is not a silent inversion, and it makes the second rail safe for
- * free: under an allowlist, anything unnamed — the ERC-20 view included — is already refused.
+ * **And it closes what it leaves.** On the one-meter shape the USDC view is listed with `transfer`
+ * named, and scoping turns its limit off below, so left listed a transfer would move money no meter
+ * counts. The view and the Gateway come off the list, and the identity calls go on, so a scoped
+ * mandate reached by a change is the same allowlist a scoped grant makes.
  */
 function changeUpdates(change: MandateChange): Hex[] {
   const payees = change.addPayees ?? [];
   const updates: Hex[] = payees.length > 0
-    ? [encodeFunctionData({
-        abi: updatesAbi, functionName: "setAccessListType", args: [ACCESS_LIST.allowlist],
-      })]
+    ? [
+        encodeFunctionData({
+          abi: updatesAbi, functionName: "setAccessListType", args: [ACCESS_LIST.allowlist],
+        }),
+        ...USDC_RAILS.map(disallow),
+        disallow(ESCROW_CALLS.contract),
+        ...allow(IDENTITY_CALLS),
+      ]
     : [];
 
   for (const payee of payees) {

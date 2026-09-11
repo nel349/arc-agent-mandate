@@ -1,5 +1,8 @@
 import { spawn, execFileSync, type ChildProcess } from "node:child_process";
-import { createPublicClient, createWalletClient, encodeFunctionData, formatEther, http, keccak256, parseAbi, toHex, type Address, type Hex } from "viem";
+import {
+  createPublicClient, createWalletClient, encodeFunctionData, formatEther, http, keccak256, parseAbi,
+  parseAbiItem, parseEventLogs, toHex, type Address, type Hex,
+} from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
 /**
@@ -171,8 +174,17 @@ export async function asOwner(data: Hex) {
 const pack = (hi: bigint, lo: bigint): Hex =>
   `0x${((hi << 128n) | lo).toString(16).padStart(64, "0")}`;
 
-/** One purchase, signed by a session key, through the real EntryPoint. Throws REFUSED when the
- *  mandate rejects it -- which is a validation failure, so nothing is charged and nothing moves. */
+/**
+ * The EntryPoint's record of one operation, which says whether its calls ran.
+ *
+ * `handleOps` succeeds whenever validation passes, even when the operation's own calls then revert:
+ * the EntryPoint catches that, charges for it, and reports it here. So a mined `handleOps` is not an
+ * accepted spend, and reading it as one is how a refusal at execution looks like a success.
+ */
+const userOperationEvent = parseAbiItem(
+  "event UserOperationEvent(bytes32 indexed userOpHash, address indexed sender, address indexed paymaster, uint256 nonce, bool success, uint256 actualGasCost, uint256 actualGasUsed)",
+);
+
 /** One call in a batch, as `executeWithSessionKey` takes it. */
 export interface Call {
   readonly target: Address;
@@ -186,6 +198,13 @@ export interface Spend {
   readonly key?: Hex;
 }
 
+/**
+ * One operation, signed by a session key, through the real EntryPoint.
+ *
+ * Throws REFUSED when the mandate rejects it during validation, so nothing runs and nothing moves.
+ * Throws REVERTED when validation accepted it and its calls then reverted: the mandate allowed it,
+ * and something while it ran did not. Returns the receipt only when its calls ran.
+ */
 export async function spend({ calls, key = AGENT_PK }: Spend) {
   const signer = privateKeyToAccount(key);
   const callData = encodeFunctionData({
@@ -218,6 +237,9 @@ export async function spend({ calls, key = AGENT_PK }: Spend) {
   }
   const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
   if (receipt.status !== "success") throw new Error("REFUSED");
+  const [operation] = parseEventLogs({ abi: [userOperationEvent], logs: receipt.logs });
+  if (operation === undefined) throw new Error("handleOps landed without reporting the operation");
+  if (!operation.args.success) throw new Error("REVERTED");
   return receipt;
 }
 

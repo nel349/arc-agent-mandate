@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { decodeAbiParameters, parseAbiParameters } from "viem";
+import { decodeAbiParameters, decodeFunctionData, getAddress, parseAbi, parseAbiParameters, type Hex } from "viem";
 import {
   buildChangeCallData, buildGrantPlan, meterInForce, SESSION_KEY_PLUGIN,
   SESSION_KEY_PLUGIN_MANIFEST_HASH, type MandateTerms,
@@ -132,19 +132,119 @@ test("a grant that allows nothing is refused", () => {
 });
 
 /**
- * The plugin's access control defaults to an ALLOWLIST, and an empty allowlist refuses everything
- * — including a plain transfer to an ordinary address. An unscoped mandate therefore has to
- * invert the list, and then shut the ERC-20 view by name, because a denylist would otherwise
- * leave the second rail open. `contracts/test/ArcPayeeScope.t.sol` proves all three halves
- * against the real plugin.
+ * What a grant lets the agent's key call, read back the way the plugin will read it.
+ *
+ * Every allowance is an allowlist, so this list is the whole of it: anything it does not name is
+ * refused before it runs. It is asserted in full and in order rather than by searching the calldata
+ * for a fragment, because the dangerous mistakes here are an extra entry or a wrong flag, and
+ * neither shows up as a missing substring. Unscoped allowances used to be denylists, which let the
+ * agent make any zero-value call from the wallet: `integration/allowance.test.ts` runs this same
+ * calldata against the real plugin, including the identity transfer the old shape allowed.
  */
-/** `setAccessListType(uint8)`, with DENYLIST = 1 and ALLOWLIST = 0. */
-const DENYLIST_CALL = "0x8f2920d8" + "1".padStart(64, "0");
+/** `setAccessListType(uint8)`, with ALLOWLIST = 0. */
 const ALLOWLIST_CALL = "0x8f2920d8" + "0".padStart(64, "0");
 
-test("an unscoped allowance inverts the access list, or it could not pay anyone", () => {
-  const data = buildGrantPlan(terms({ payees: [] }), true).management.toLowerCase();
-  assert.ok(data.includes(DENYLIST_CALL.slice(2)), "the access list was not inverted to a denylist");
+const grantAbi = parseAbi(["function addSessionKey(address sessionKey, bytes32 tag, bytes[] permissionUpdates)"]);
+const changeAbi = parseAbi(["function updateKeyPermissions(address sessionKey, bytes[] updates)"]);
+const permissionAbi = parseAbi([
+  "function setAccessListType(uint8 contractAccessControlType)",
+  "function updateAccessListAddressEntry(address contractAddress, bool isOnList, bool checkSelectors)",
+  "function updateAccessListFunctionEntry(address contractAddress, bytes4 selector, bool isOnList)",
+  "function setNativeTokenSpendLimit(uint256 spendLimit, uint48 refreshInterval)",
+  "function setERC20SpendLimit(address token, uint256 spendLimit, uint48 refreshInterval)",
+  "function setGasSpendLimit(uint256 spendLimit, uint48 refreshInterval)",
+  "function updateTimeRange(uint48 validAfter, uint48 validUntil)",
+]);
+
+/** One permission update: which one, and its arguments as the plugin decodes them. */
+type Permission = readonly unknown[];
+
+const readPermissions = (updates: readonly Hex[]): Permission[] =>
+  updates.map((update) => {
+    const { functionName, args } = decodeFunctionData({ abi: permissionAbi, data: update });
+    return [functionName, ...args];
+  });
+
+const grantedPermissions = (grant: MandateTerms): Permission[] =>
+  readPermissions(decodeFunctionData({ abi: grantAbi, data: buildGrantPlan(grant, true).management }).args[2]);
+
+const USDC_VIEW = getAddress("0x3600000000000000000000000000000000000000");
+const GATEWAY = getAddress("0x0077777d7EBA4688BDeF3E311b846F25870A19B9");
+const IDENTITY_REGISTRY = getAddress("0x8004A818BFB912233c491871b3d84c89A494BD9e");
+const PAYEE = getAddress("0x2222222222222222222222222222222222222222");
+const EXPIRES_AT = 1_800_000_000;
+const ALLOWLIST = 0;
+/** One below `type(uint256).max`, the highest real ceiling. See `HIGHEST_REAL_LIMIT`. */
+const GAS_CEILING = (1n << 256n) - 2n;
+const NO_LIMIT = (1n << 256n) - 1n;
+
+/**
+ * From `cast sig`, so the list is checked against the selectors themselves rather than against the
+ * code that computes them.
+ */
+const SELECTOR = {
+  transfer: "0xa9059cbb",
+  approve: "0x095ea7b3",
+  depositFor: "0xb3db428b",
+  register: "0x1aa3a008",
+  setAgentWallet: "0x2d1ef5ae",
+} as const;
+
+/** The agent's own identity: registering one for the wallet, and linking its key. Never moving one. */
+const IDENTITY_SETUP: readonly Permission[] = [
+  ["updateAccessListAddressEntry", IDENTITY_REGISTRY, true, true],
+  ["updateAccessListFunctionEntry", IDENTITY_REGISTRY, SELECTOR.register, true],
+  ["updateAccessListFunctionEntry", IDENTITY_REGISTRY, SELECTOR.setAgentWallet, true],
+];
+
+test("an unscoped allowance is an allowlist naming exactly what an agent calls, and nothing else", () => {
+  assert.deepEqual(grantedPermissions(terms({ payees: [], expiresAt: EXPIRES_AT })), [
+    ["setAccessListType", ALLOWLIST],
+    // Paying someone and approving a top-up, on the one metered rail. Not `transferFrom`.
+    ["updateAccessListAddressEntry", USDC_VIEW, true, true],
+    ["updateAccessListFunctionEntry", USDC_VIEW, SELECTOR.transfer, true],
+    ["updateAccessListFunctionEntry", USDC_VIEW, SELECTOR.approve, true],
+    ["setERC20SpendLimit", USDC_VIEW, 10_000_000n, 0],
+    // Filling its escrow at Circle's Gateway, and nothing else there.
+    ["updateAccessListAddressEntry", GATEWAY, true, true],
+    ["updateAccessListFunctionEntry", GATEWAY, SELECTOR.depositFor, true],
+    ...IDENTITY_SETUP,
+    ["setGasSpendLimit", GAS_CEILING, 0],
+    ["updateTimeRange", 0, EXPIRES_AT],
+  ]);
+});
+
+test("a scoped allowance names its payees and the identity setup, never the USDC view or the Gateway", () => {
+  assert.deepEqual(grantedPermissions(terms({ payees: [PAYEE], expiresAt: EXPIRES_AT })), [
+    ["setAccessListType", ALLOWLIST],
+    ["updateAccessListAddressEntry", PAYEE, true, false],
+    ["setNativeTokenSpendLimit", 10n * 10n ** 18n, 0],
+    ...IDENTITY_SETUP,
+    ["setGasSpendLimit", GAS_CEILING, 0],
+    ["updateTimeRange", 0, EXPIRES_AT],
+  ]);
+});
+
+/**
+ * Scoping turns the ERC-20 limit off, and on the one-meter shape the USDC view is listed with
+ * `transfer` named. Left on the list, a transfer would move money no meter counts, so the change has
+ * to take the view off the list as well as its limit.
+ */
+test("scoping a live mandate takes the USDC view and the Gateway off the list, not only their limit", () => {
+  const { args } = decodeFunctionData({
+    abi: changeAbi,
+    data: buildChangeCallData(AGENT, { limit: Usdc.parse("10"), rail: "erc20", addPayees: [PAYEE] }),
+  });
+  assert.equal(args[0], getAddress(AGENT));
+  assert.deepEqual(readPermissions(args[1]), [
+    ["setAccessListType", ALLOWLIST],
+    ["updateAccessListAddressEntry", USDC_VIEW, false, false],
+    ["updateAccessListAddressEntry", GATEWAY, false, false],
+    ...IDENTITY_SETUP,
+    ["updateAccessListAddressEntry", PAYEE, true, false],
+    ["setNativeTokenSpendLimit", 10n * 10n ** 18n, 0],
+    ["setERC20SpendLimit", USDC_VIEW, NO_LIMIT, 0],
+  ]);
 });
 
 test("an unscoped allowance names the ERC-20 view, because it meters it", () => {
@@ -174,9 +274,9 @@ test("an allowance with no payees is allowed, and bounds money and time instead"
 });
 
 /**
- * `updateAccessListAddressEntry` means "allow" on an allowlist and "deny" on a denylist. Since an
- * unscoped mandate is granted as a denylist, a change that names payees must also flip the list
- * back, or it blocks precisely the address the caller meant to permit.
+ * `updateAccessListAddressEntry` means "allow" on an allowlist and "deny" on a denylist. Unscoped
+ * mandates granted before 09-11 are denylists, so a change that names payees must also set the list
+ * to an allowlist, or it blocks precisely the address the caller meant to permit.
  */
 test("naming payees in a change scopes the mandate rather than blocking them", () => {
   const payee = "0x3333333333333333333333333333333333333333" as const;
