@@ -1,5 +1,9 @@
+import { useRouter } from "expo-router";
 import { useCallback } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Button } from "../src/ui/Button.tsx";
+import { shortAddress } from "../src/ui/mandate-format.ts";
+import { useSession } from "../src/ui/session-context.tsx";
 import { useAppearance } from "../src/ui/theme-context.tsx";
 import { THEMES, type ThemeId } from "../src/ui/themes.ts";
 import { Label } from "../src/ui/Label.tsx";
@@ -22,8 +26,32 @@ export default function SettingsScreen() {
 
   const choose = useCallback((id: ThemeId) => () => setTheme(id), [setTheme]);
 
+  const { wallet } = useSession();
+  const router = useRouter();
+  /** Back to the welcome screen, which is what home shows when no wallet is held. */
+  const signOut = useCallback(() => {
+    wallet.signOut();
+    router.dismissAll();
+  }, [wallet, router]);
+
   return (
     <Screen>
+      {/* Which wallet this is, first: with two passkeys it was the thing nobody could tell. */}
+      {wallet.account !== null && (
+        <Surface>
+          <Label>Wallet</Label>
+          <View style={styles.plain}>
+            <Text style={[styles.name, { color: c.paper }]}>Signed in</Text>
+            <Text style={[styles.address, { color: c.dim }]}>{shortAddress(wallet.account.address)}</Text>
+          </View>
+          <Text style={[styles.note, { color: c.dim }]}>
+            Signing out loses nothing. The wallet stays with its passkey, and you can sign in again
+            with this passkey or another.
+          </Text>
+          <Button title="Sign out" icon="log-out-outline" onPress={signOut} disabled={wallet.busy} />
+        </Surface>
+      )}
+
       <Surface>
         <Label>Appearance</Label>
 
@@ -111,6 +139,7 @@ const styles = StyleSheet.create({
   name: tokens.type.body,
   note: tokens.type.footnote,
   value: tokens.type.body,
+  address: { ...tokens.type.data, fontFamily: tokens.font.mono },
   mark: {
     width: tokens.size.mark, height: tokens.size.mark,
     borderRadius: tokens.radius.pill, borderWidth: tokens.border.hairline,

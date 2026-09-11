@@ -37,6 +37,14 @@ export interface ArcWallet {
    * every passkey for this relying party and let the person choose.
    */
   signIn(): void;
+  /**
+   * Puts the wallet down, back to the welcome screen.
+   *
+   * Nothing is lost: the wallet is derived from its passkey, so signing in again, with this passkey
+   * or another, returns to it. Ignored while a passkey ceremony is in flight, which would otherwise
+   * land a wallet after the person had left it.
+   */
+  signOut(): void;
   refresh(): void;
 }
 
@@ -80,6 +88,13 @@ export function useArcAccount(): ArcWallet {
     await load(await connectArcAccount({ ...CIRCLE_CONFIG, username: "" }, WebAuthnMode.Login));
   }), [run, load]);
 
+  const signOut = useCallback(() => {
+    if (busy) return;
+    setAccount(null);
+    setBalance(null);
+    setError(null);
+  }, [busy]);
+
   const refresh = useCallback(() => run(async () => {
     if (!account) throw new Error("no wallet yet");
     setBalance(await balanceOf(account.address));
@@ -117,5 +132,5 @@ export function useArcAccount(): ArcWallet {
     return () => watch.remove();
   }, [account]);
 
-  return { account, balance, busy, error, create, signIn, refresh };
+  return { account, balance, busy, error, create, signIn, signOut, refresh };
 }

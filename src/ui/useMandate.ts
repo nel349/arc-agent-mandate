@@ -92,6 +92,20 @@ export function useMandate(account: ArcAccount | null): MandateScreen {
     })();
   }, [account]);
 
+  /**
+   * A different wallet, or none, starts from nothing.
+   *
+   * Signing out and in with another passkey otherwise kept the previous wallet's allowances on screen
+   * until the first read of the new one landed: for a moment, one wallet's agents under another's name.
+   * Declared before the read below so that, when the wallet changes, the clearing runs first.
+   */
+  useEffect(() => {
+    setMandates([]);
+    setReady(null);
+    setReadError(null);
+    setActionError(null);
+  }, [account]);
+
   useEffect(refresh, [refresh]);
 
   /**
