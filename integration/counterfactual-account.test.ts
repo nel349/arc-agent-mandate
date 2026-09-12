@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { isPluginInstalled, listMandates } from "../src/arc/mandate.ts";
+import { readingLive } from "./arc-endpoint.ts";
 
 /**
  * A wallet that has never sent anything must still be able to grant.
@@ -25,7 +26,7 @@ const NEVER_DEPLOYED = "0x00000000000000000000000000000000deadbeef";
 
 test("an account with no code reports no plugin, rather than raising", async () => {
   assert.equal(
-    await isPluginInstalled(NEVER_DEPLOYED),
+    await readingLive("an undeployed account's plugins", () => isPluginInstalled(NEVER_DEPLOYED)),
     false,
     "reading an undeployed account must answer 'no plugins', not throw — that answer is what " +
     "sends buildGrantCalls down the installPlugin path a first grant needs",
@@ -33,5 +34,5 @@ test("an account with no code reports no plugin, rather than raising", async () 
 });
 
 test("an account with no code has no mandates, rather than raising", async () => {
-  assert.deepEqual(await listMandates(NEVER_DEPLOYED), []);
+  assert.deepEqual(await readingLive("an undeployed account's mandates", () => listMandates(NEVER_DEPLOYED)), []);
 });

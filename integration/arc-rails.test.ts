@@ -2,6 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createPublicClient, http, parseAbi, type Address } from "viem";
 import { USDC_RAILS } from "../src/arc/mandate.ts";
+import { isRateLimited } from "../src/arc/client.ts";
+import { ARC_RPC, readingLive } from "./arc-endpoint.ts";
 
 /**
  * Does Arc still have only the rail we meter?
@@ -22,7 +24,14 @@ import { USDC_RAILS } from "../src/arc/mandate.ts";
  * value is already counted against the mandate whatever it targets, so nothing else qualifies.
  */
 
-const ARC_RPC = process.env.ARC_TESTNET_RPC_URL ?? "https://rpc.testnet.arc.network";
+/**
+ * The endpoint every live read shares, and the retry that goes with it.
+ *
+ * This file used to resolve its own, which meant it ignored the endpoint the rest of the suite was
+ * told to use, and it never retried. It is also the heaviest reader here — a `getCode` for all 256
+ * system addresses, then two reads for each that answers — so it is the first to be refused for
+ * asking too often.
+ */
 const client = createPublicClient({ transport: http(ARC_RPC) });
 
 /** Arc keeps its system contracts in one reserved block. USDC sits at the base of it. */
@@ -52,26 +61,35 @@ async function looksLikeASecondRail(address: Address, nativeBalance: bigint, blo
     // Every read is pinned to one block. The probe is a live account, so reading its native
     // balance and its ERC-20 balance at different heights compares two different moments and the
     // comparison never matches — which showed up as the detector failing to find USDC itself.
-    const [reported, decimals] = await Promise.all([
-      client.readContract({ address, abi: erc20Abi, functionName: "balanceOf", args: [PROBE], blockNumber }),
-      client.readContract({ address, abi: erc20Abi, functionName: "decimals", blockNumber }),
-    ]);
+    const [reported, decimals] = await readingLive(`${address} as a view over the balance`, () =>
+      Promise.all([
+        client.readContract({ address, abi: erc20Abi, functionName: "balanceOf", args: [PROBE], blockNumber }),
+        client.readContract({ address, abi: erc20Abi, functionName: "decimals", blockNumber }),
+      ]));
     // The view truncates: 18dp native down to 6dp. Anything that reproduces the probe's balance
     // under that scaling is looking at the same money.
     return decimals === 6 && reported === nativeBalance / NATIVE_PER_ERC20 && reported > 0n;
-  } catch {
+  } catch (cause) {
+    // **A refusal is not an answer about shape.** This used to swallow every failure alike, so a
+    // read refused for asking too often reported "not a rail" — and the damage runs both ways. It
+    // made USDC itself disappear from the detection, failing the run with the wrong diagnosis; and
+    // had a genuine second rail been refused the same way, the check above would have found nothing
+    // undenied and passed. A guard over an account's money must never report absence it did not
+    // establish, so a rate limit is raised rather than counted as a negative.
+    if (isRateLimited(cause)) throw cause;
     return false; // not token-shaped, so not a second view over the balance
   }
 }
 
 test("no contract can move USDC off-limit except the ones the mandate denies", async () => {
-  const blockNumber = await client.getBlockNumber().catch((cause) => {
+  const blockNumber = await readingLive("Arc's current block", () => client.getBlockNumber()).catch((cause) => {
     assert.fail(
       `Could not reach Arc at ${ARC_RPC}, so this check did not run: ${cause.shortMessage ?? cause.message}. ` +
       "Failing rather than passing quietly — a guard that silently does not run is worse than no guard.",
     );
   });
-  const nativeBalance = await client.getBalance({ address: PROBE, blockNumber }).catch((cause) => {
+  const nativeBalance = await readingLive("the probe's native balance", () =>
+    client.getBalance({ address: PROBE, blockNumber })).catch((cause) => {
     assert.fail(
       `Could not reach Arc at ${ARC_RPC}, so this check did not run: ${cause.shortMessage ?? cause.message}. ` +
       "Failing rather than passing quietly — a guard that silently does not run is worse than no guard.",
@@ -82,7 +100,7 @@ test("no contract can move USDC off-limit except the ones the mandate denies", a
   const withCode: Address[] = [];
   for (let offset = 0; offset < SYSTEM_RANGE_SIZE; offset++) {
     const address = addressAt(offset);
-    const code = await client.getCode({ address, blockNumber });
+    const code = await readingLive(`code at ${address}`, () => client.getCode({ address, blockNumber }));
     if (code !== undefined && code !== "0x") withCode.push(address);
   }
 

@@ -4,6 +4,7 @@ import {
   parseAbiItem, parseEventLogs, toHex, type Address, type Hex,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
+import { ARC_RPC } from "./arc-endpoint.ts";
 
 /**
  * A real Arc, locally.
@@ -14,8 +15,12 @@ import { privateKeyToAccount } from "viem/accounts";
  * cannot tell you whether money moved, whether a refusal cost anything, or whether revocation
  * takes effect. This can.
  */
-const ARC_RPC = "https://rpc.testnet.arc.network";
+export { ARC_RPC };
 const FORK_BLOCK = 60219238;
+
+/** How many times to try forking before giving up, and how long to wait between, times the attempt. */
+const FORK_ATTEMPTS = 3;
+const FORK_RETRY_MS = 3_000;
 export const PORT = Number(process.env.ANVIL_PORT ?? 8546);
 export const RPC = `http://127.0.0.1:${PORT}`;
 
@@ -119,23 +124,41 @@ export async function start({ mandate = 10n * 10n ** 18n, walletBalance = 500n *
   }
 
   const complaints: string[] = [];
-  anvil = spawn("anvil", ["--fork-url", ARC_RPC, "--fork-block-number", String(FORK_BLOCK),
-                          "--port", String(PORT), "--silent"],
-                { stdio: ["ignore", "ignore", "pipe"] });
+  /**
+   * Started up to three times, because a fork's genesis is fetched from the endpoint above and that
+   * endpoint rate-limits. Refused, anvil exits with "failed to create genesis" and every test in the
+   * file dies with it — which is how a whole forked-chain suite failed on 09-11 for somebody else's
+   * reason. A pause and another go is enough; what is not enough is one attempt.
+   */
+  for (let attempt = 1; attempt <= FORK_ATTEMPTS; attempt++) {
+    anvil = spawn("anvil", ["--fork-url", ARC_RPC, "--fork-block-number", String(FORK_BLOCK),
+                            "--port", String(PORT), "--silent"],
+                  { stdio: ["ignore", "ignore", "pipe"] });
   // Kept rather than discarded: a node that refuses to start explains itself here and nowhere else,
   // and throwing that away is what made a port collision look like a network fault.
-  anvil.stderr?.on("data", (chunk: Buffer) => { complaints.push(chunk.toString()); });
+    anvil.stderr?.on("data", (chunk: Buffer) => { complaints.push(chunk.toString()); });
 
-  let up = false;
-  for (let i = 0; i < 60; i++) {
-    try { await publicClient.getBlockNumber(); up = true; break; } catch { await new Promise((r) => setTimeout(r, 500)); }
-  }
-  if (!up) {
+    let up = false;
+    for (let i = 0; i < 60; i++) {
+      try { await publicClient.getBlockNumber(); up = true; break; } catch { await new Promise((r) => setTimeout(r, 500)); }
+    }
+    if (up) break;
+
+    anvil.kill("SIGKILL");
+    const refused = complaints.join("");
     // Said here rather than left to surface as ECONNREFUSED from the first call that needed it.
-    throw new Error(
-      `anvil did not answer on ${RPC} within 30s.` +
-      (complaints.length > 0 ? `\n${complaints.join("")}` : " It printed nothing."),
-    );
+    if (attempt === FORK_ATTEMPTS) {
+      throw new Error(
+        `anvil did not answer on ${RPC} within 30s, after ${FORK_ATTEMPTS} attempts to fork ${ARC_RPC}.` +
+        (refused.length > 0 ? `\n${refused}` : " It printed nothing.") +
+        (/rate limit|429|too many requests/i.test(refused)
+          ? "\nThat is the endpoint refusing us, not a fault here: set ARC_TESTNET_RPC_URL to an " +
+            "endpoint of your own, or run again in a few minutes."
+          : ""),
+      );
+    }
+    complaints.length = 0;
+    await new Promise((r) => setTimeout(r, FORK_RETRY_MS * attempt));
   }
   await rpc("anvil_setBalance", [submitter.address, "0x" + (10n ** 20n).toString(16)]);
   await rpc("anvil_setBalance", [MSCA, "0x" + walletBalance.toString(16)]);

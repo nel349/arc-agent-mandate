@@ -10,7 +10,7 @@ import {
 import { privateKeyToAccount } from "viem/accounts";
 import * as arc from "./harness.ts";
 import { pairingTag } from "../mcp/pairing.ts";
-import { buildGrantPlan } from "../src/arc/mandate.ts";
+import { buildGrantPlan, grantedIn } from "../src/arc/mandate.ts";
 import { Usdc } from "../src/arc/usdc.ts";
 import { GRANT_LABEL, mandateTermsFor } from "../src/ui/grant-entry.ts";
 
@@ -115,6 +115,18 @@ describe("pairing, on a forked Arc", () => {
     assert.equal(granted.length, 1, "one grant, one SessionKeyAdded");
     assert.equal(granted[0]?.address.toLowerCase(), arc.pluginAddress().toLowerCase());
     assert.deepEqual(granted[0]?.args, { account: arc.MSCA, sessionKey: agent, tag: pairingTag(CODE) });
+  });
+
+  /** The phone names the allowance it just made by this log, so it has to be the grant's own. */
+  it("a landed grant's own log is found among its logs, and nobody else's is taken for it", async () => {
+    const agent = agentFor("named");
+    const { receipt } = await ownerGrant(agent, CODE);
+    const granted = parseEventLogs({ abi: pluginWrites, eventName: "SessionKeyAdded", logs: receipt.logs })[0];
+    assert.ok(granted !== undefined);
+
+    assert.deepEqual(grantedIn(receipt.logs, arc.MSCA, agent), { tx: receipt.transactionHash, logIndex: granted.logIndex });
+    assert.equal(grantedIn(receipt.logs, arc.MSCA, agentFor("someone-else")), null);
+    assert.equal(grantedIn(receipt.logs, STRANGER.address, agent), null);
   });
 
   it("a typed address grants with the label, which no pairing code can match", async () => {
