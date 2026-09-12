@@ -4,7 +4,9 @@ import { decodeFunctionData, keccak256, parseAbi, toHex } from "viem";
 import { pairingLink, pairingTag } from "../../mcp/pairing.ts";
 import { buildGrantPlan } from "../arc/mandate.ts";
 import { Usdc } from "../arc/usdc.ts";
-import { entryFromScan, entryFromText, GRANT_LABEL, mandateTermsFor } from "./grant-entry.ts";
+import {
+  alreadyGranted, entryFromScan, entryFromText, GRANT_LABEL, grantedWithoutCode, mandateTermsFor,
+} from "./grant-entry.ts";
 import { GRANT_PROBLEMS, readGrantTerms } from "./grant-terms.ts";
 import { readPairingLink } from "./pairing.ts";
 
@@ -86,6 +88,31 @@ test("a link with a damaged code is refused rather than granted without one", ()
 test("a code that is not one is refused when the terms are made", () => {
   assert.throws(() => mandateTermsFor(termsOf(AGENT), "ABC", NOW_MS), /32 lowercase hex/);
   assert.throws(() => mandateTermsFor(termsOf(AGENT), CODE.toUpperCase(), NOW_MS), /32 lowercase hex/);
+});
+
+/**
+ * On screen, an allowance the agent will never use looked exactly like one it spends from. The tag
+ * the grant wrote is what tells them apart, and the feed now keeps it.
+ */
+test("a grant's tag says whether the connector will use the allowance, and an unread tag says nothing", () => {
+  assert.equal(grantedWithoutCode(pairingTag(CODE)), false, "a scanned grant carries the agent's code");
+  assert.equal(grantedWithoutCode(keccak256(toHex(GRANT_LABEL))), true);
+  assert.equal(grantedWithoutCode(keccak256(toHex(GRANT_LABEL)).toUpperCase().replace("0X", "0x")), true);
+  // The SDK's default label, from before the app sent one of its own.
+  assert.equal(grantedWithoutCode(keccak256(toHex("mandate"))), true);
+  assert.equal(grantedWithoutCode(undefined), false, "a row read before tags were kept is not a claim");
+});
+
+/**
+ * The plugin allows one allowance per agent per wallet, and refused a second only after Face ID. The
+ * first step sees it instead, from the allowances already read.
+ */
+test("an agent this wallet already grants is caught at the first step, whatever the address's case", () => {
+  const live = [{ agent: AGENT as `0x${string}` }];
+  assert.equal(alreadyGranted(AGENT.toLowerCase(), live), true);
+  assert.equal(alreadyGranted("0x2222222222222222222222222222222222222222", live), false);
+  assert.equal(alreadyGranted("", live), false);
+  assert.equal(alreadyGranted(AGENT, []), false);
 });
 
 test("editing the field back to a bare address drops the code, and only then", () => {

@@ -1,7 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { HttpRequestError } from "viem";
-import { ARC_BUSY, describeFailure, isCancellation, MANDATE_FAILURES, walletFailure } from "./failure.ts";
+import {
+  ALREADY_GRANTED, ARC_BUSY, describeFailure, isCancellation, MANDATE_FAILURES, walletFailure,
+} from "./failure.ts";
 
 /**
  * The SDK wraps a failure and puts the reason in `cause`. Matching only the outer message meant
@@ -158,6 +160,22 @@ test("a dismissed or empty passkey request is a cancellation, however deeply it 
     isCancellation(new Error("outer", { cause: new Error("middle", { cause: IOS_DISMISSED }) })),
     true,
     "a cancellation two links down was missed",
+  );
+});
+
+/**
+ * Granting an agent that already has an allowance from this wallet is refused by the plugin with
+ * `InvalidSessionKey(address)`, which reached the screen as a revert and a hex selector. The selector
+ * is `cast sig "InvalidSessionKey(address)"`, followed by the agent's address.
+ */
+test("the plugin refusing a second grant to one agent says what to do, not the revert", () => {
+  const refused = Object.assign(new Error("execution reverted"), {
+    details: "UserOperation reverted during simulation with reason: 0xd3d0f659" +
+      "0000000000000000000000003535816e967ad2b6271dfadf9138fb07eab161ce",
+  });
+  assert.equal(
+    describeFailure(new Error("granting 5.000000 USDC to 0x3535… failed", { cause: refused }), MANDATE_FAILURES),
+    ALREADY_GRANTED,
   );
 });
 

@@ -1,4 +1,5 @@
 import { isRateLimited } from "../arc/client.ts";
+import { INVALID_SESSION_KEY } from "../arc/mandate.ts";
 
 /**
  * Turning a failure into a sentence someone holding a phone can act on.
@@ -116,7 +117,18 @@ export function isCancellation(cause: unknown): boolean {
  */
 export const ARC_BUSY = "Arc is busy right now. The figures will catch up in a few seconds.";
 
+/**
+ * The plugin's refusal of a second grant to one agent from one wallet, `InvalidSessionKey(address)`,
+ * matched by the selector the mandate module derives from the signature rather than by a copied hex,
+ * said as what to do. The grant screen says it before Face ID when it can see the allowance already
+ * (`alreadyGranted`); this is for when it could not, and the refusal arrived as a revert selector.
+ */
+export const ALREADY_GRANTED =
+  "This agent already has an allowance from this wallet. To grant it again, revoke that one on the " +
+  "agent's screen first.";
+
 export const MANDATE_FAILURES = [
+  [new RegExp(`InvalidSessionKey|${INVALID_SESSION_KEY}`, "i"), ALREADY_GRANTED],
   [/returned no data|is not a contract/i, "The allowance contract is not deployed on this network yet."],
   [/PermissionsCheckFailed|AA2[0-9]/i, "The account refused this. The allowance may have been used up or revoked."],
 ] as const;

@@ -87,7 +87,15 @@ export interface EscrowTally {
  * pairing code. Both arguments are indexed, which is what makes one query enough and spares the user
  * a second round trip.
  */
-export const ARC_RPC = process.env.ARC_RPC_URL ?? "https://rpc.testnet.arc.network";
+/**
+ * Which endpoint the connector reads and submits through.
+ *
+ * `ARC_TESTNET_RPC_URL` first, because that is the one name the app, the tests and the contract
+ * suite all read: setting an endpoint of your own in one place should not leave this program on the
+ * public one, which is what happened while this read only its own older name. That name still works.
+ */
+export const ARC_RPC =
+  process.env.ARC_TESTNET_RPC_URL ?? process.env.ARC_RPC_URL ?? "https://rpc.testnet.arc.network";
 export const SESSION_KEY_PLUGIN =
   process.env.ARC_SESSION_KEY_PLUGIN ?? "0x669Dd1eDb85ABD00f74186d88124614EE81E6670";
 

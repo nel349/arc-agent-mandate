@@ -1,5 +1,6 @@
+import { keccak256, toHex } from "viem";
 import { isPairingCode } from "../../mcp/pairing.ts";
-import type { MandateTerms } from "../arc/mandate.ts";
+import type { Mandate, MandateTerms } from "../arc/mandate.ts";
 import type { GrantTerms } from "./grant-terms.ts";
 import { readPairingLink, type ScannedAgent } from "./pairing.ts";
 
@@ -36,10 +37,44 @@ export function entryFromText(text: string): AgentEntry {
     : { agent: text, pairing: null };
 }
 
+/**
+ * Whether this wallet already grants this agent.
+ *
+ * The plugin allows one allowance per agent per wallet, and refuses a second with `InvalidSessionKey`
+ * only after Face ID has been asked for. Seen at the first step, it costs nobody a signature.
+ */
+export function alreadyGranted(agent: string, mandates: readonly Pick<Mandate, "agent">[]): boolean {
+  const who = agent.toLowerCase();
+  return mandates.some((mandate) => mandate.agent.toLowerCase() === who);
+}
+
 /** What a grant is labelled when it carries no pairing code, which is what the tag holds instead. */
 export const GRANT_LABEL = "agent";
 
 const SECONDS_PER_DAY = 86_400;
+
+/**
+ * The tags a grant made from a typed address carries: this app's label, and the one the SDK defaults
+ * to. A grant made by scanning carries a hash of the agent's one-time code instead, which no label
+ * can match.
+ */
+const LABEL_TAGS: readonly string[] = [keccak256(toHex(GRANT_LABEL)), keccak256(toHex("mandate"))];
+
+/**
+ * Whether a grant carries no pairing code, so an agent using the Arc Mandate connector ignores it.
+ *
+ * The phone could not tell: every allowance looked the same on screen, including the ones the agent
+ * would never spend from, and the only symptom was an agent that kept asking to be paired. Unknown,
+ * for a row read before the feed kept tags, is not the same as "no code" and reads as nothing.
+ */
+export function grantedWithoutCode(tag: string | undefined): boolean {
+  return tag !== undefined && LABEL_TAGS.includes(tag.toLowerCase());
+}
+
+/** Said about such a grant, wherever it is shown. */
+export const NO_PAIRING_CODE =
+  "Granted from a typed address, so it carries no agent code. An agent using the Arc Mandate " +
+  "connector will not spend from this allowance; scan the agent's code to grant one it will use.";
 
 /**
  * The terms handed to the grant, from the form's reading and the entry's pairing code.

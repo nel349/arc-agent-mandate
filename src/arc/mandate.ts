@@ -1,6 +1,6 @@
 import {
-  encodeAbiParameters, encodeFunctionData, keccak256, parseAbi, parseAbiParameters, toFunctionSelector,
-  toHex, type Address, type Hash, type Hex,
+  encodeAbiParameters, encodeFunctionData, keccak256, parseAbi, parseAbiItem, parseAbiParameters,
+  parseEventLogs, toFunctionSelector, toHex, type Address, type Hash, type Hex, type Log,
 } from "viem";
 import { getUserOperationGasPrice } from "@circle-fin/modular-wallets-core";
 import { arcPublicClient, isDeployed } from "./client.ts";
@@ -99,6 +99,11 @@ const pluginAbi = parseAbi([
   "function getNativeTokenSpendLimitInfo(address account, address sessionKey) view returns ((bool hasLimit, uint256 limit, uint256 limitUsed, uint48 refreshInterval, uint48 lastUsedTime))",
   "function getKeyTimeRange(address account, address sessionKey) view returns (uint48 validAfter, uint48 validUntil)",
   "function getERC20SpendLimitInfo(address account, address sessionKey, address token) view returns ((bool hasLimit, uint256 limit, uint256 limitUsed, uint48 refreshInterval, uint48 lastUsedTime))",
+]);
+
+/** Circle's Gateway, for what is in an agent's escrow. */
+const gatewayAbi = parseAbi([
+  "function availableBalance(address token, address depositor) view returns (uint256)",
 ]);
 
 const updatesAbi = parseAbi([
@@ -244,12 +249,20 @@ export interface Mandate {
    */
   readonly agentFloat: Usdc;
   /**
-   * When the agent last spent, or `null` if it never has.
+   * What sits in the agent's escrow at Circle's Gateway, where top-ups go and x402 sellers are paid
+   * from.
    *
-   * The plugin records this against the spend limit and it comes back on every read, so it costs
-   * nothing to show — and it is the only thing the chain can honestly say about an agent's
-   * activity. Reading a chain leaves no trace, so an agent that has been installed, paired and is
-   * running looks exactly like one that was never set up, right up until it spends.
+   * Money the allowance has already moved, so it is not part of what is left. Shown because a revoke
+   * does not reach it: it stays the agent's to spend, or to withdraw to its own address after
+   * Circle's delay, and a person deciding to revoke should know that before they do.
+   */
+  readonly escrow: Usdc;
+  /**
+   * When the plugin last recorded a spend against the meter in force, or `null`.
+   *
+   * Always `null` on the one-meter rail the app grants: the plugin writes this time only for native
+   * and gas limits, or for a limit with a refresh interval, and an ERC-20 limit without one never
+   * sets it. The agent's screen takes the last spend from the feed instead (`lastSpentAt`).
    */
   readonly lastUsedAt: number | null;
   /**
@@ -539,6 +552,34 @@ export interface GrantReceipt {
   readonly grant: Hash;
 }
 
+const keyAdded = parseAbiItem(
+  "event SessionKeyAdded(address indexed account, address indexed sessionKey, bytes32 indexed tag)",
+);
+
+/**
+ * What the plugin refuses a second grant to one agent with, as it reaches a caller: a revert whose
+ * data begins with this selector. Derived from the signature rather than typed out, and exported so
+ * the sentence a person reads is matched against the contract's own error and not a copied hex string.
+ */
+export const INVALID_SESSION_KEY = toFunctionSelector("InvalidSessionKey(address)");
+
+/**
+ * A landed grant's own log, found among the logs its operation left.
+ *
+ * The log is what the feed reads for that grant, so it is how the phone names the allowance it has
+ * just made rather than every allowance the agent has ever had. Matched by the account and the agent,
+ * since a bundle can carry other operations' logs.
+ */
+export function grantedIn(
+  logs: readonly Log[], account: Address, agent: Address,
+): { readonly tx: Hash; readonly logIndex: number } | null {
+  const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+  const added = parseEventLogs({ abi: [keyAdded], logs: [...logs] })
+    .find((log) => same(log.args.account, account) && same(log.args.sessionKey, agent));
+  if (added === undefined || added.transactionHash === null || added.logIndex === null) return null;
+  return { tx: added.transactionHash, logIndex: added.logIndex };
+}
+
 export async function grantMandate(account: ArcAccount, terms: MandateTerms): Promise<GrantReceipt> {
   const plan = buildGrantPlan(terms, await isPluginInstalled(account.address));
   try {
@@ -760,7 +801,7 @@ export function meterInForce(
 }
 
 export async function readMandate(address: Address, agent: Address): Promise<Mandate> {
-  const [spend, range, agentBalance, onlineLimit] = await Promise.all([
+  const [spend, range, agentBalance, onlineLimit, escrowHeld] = await Promise.all([
     arcPublicClient.readContract({
       address: SESSION_KEY_PLUGIN, abi: pluginAbi,
       functionName: "getNativeTokenSpendLimitInfo", args: [address, agent],
@@ -773,6 +814,10 @@ export async function readMandate(address: Address, agent: Address): Promise<Man
     arcPublicClient.readContract({
       address: SESSION_KEY_PLUGIN, abi: pluginAbi,
       functionName: "getERC20SpendLimitInfo", args: [address, agent, ARC_CONTRACTS.usdc],
+    }),
+    arcPublicClient.readContract({
+      address: ARC_CONTRACTS.gatewayWallet, abi: gatewayAbi,
+      functionName: "availableBalance", args: [ARC_CONTRACTS.usdc, agent],
     }),
   ]);
   const meter = meterInForce(spend, onlineLimit);
@@ -787,6 +832,8 @@ export async function readMandate(address: Address, agent: Address): Promise<Man
     remaining: spent.compare(limit) >= 0 ? Usdc.ZERO : limit.subtract(spent),
     ...(range[1] === 0 ? {} : { expiresAt: Number(range[1]) }),
     agentFloat: Usdc.fromNativeUnits(agentBalance),
+    // Gateway counts in the ERC-20 view's six decimals.
+    escrow: Usdc.fromErc20Units(escrowHeld),
     lastUsedAt: meter.lastUsedTime === 0 ? null : Number(meter.lastUsedTime),
   };
 }
