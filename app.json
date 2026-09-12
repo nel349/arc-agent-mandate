@@ -11,7 +11,11 @@
       "bundleIdentifier": "com.kuiralabs.arcmandate",
       "associatedDomains": [
         "webcredentials:kuiralabs.github.io"
-      ]
+      ],
+      "buildNumber": "2",
+      "config": {
+        "usesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.kuiralabs.arcmandate",
