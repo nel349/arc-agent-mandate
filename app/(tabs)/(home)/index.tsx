@@ -58,10 +58,23 @@ export default function AllowancesScreen() {
       <Surface raised>
         <Text style={[styles.caption, { color: c.muted }]}>In your wallet</Text>
         <View style={styles.walletRow}>
-          <Text style={[styles.balance, { color: c.paper }]} accessibilityLabel={`${wallet.balance?.format(2) ?? "Unknown"} USDC in your wallet`}>
-            {wallet.balance?.format(2) ?? "—"}
-            <Text style={[styles.unit, { color: c.dim }]}>  USDC</Text>
-          </Text>
+          {/*
+            The figure and its unit are two lines, not one text node with another nested inside it.
+            Nested, the unit had to share a row with the Share button, and the balance carried
+            `flexShrink` to make that fit: iOS reflowed the unit onto a second line, Android shrank
+            the parent and clipped the number itself — the balance was being cut off on the one
+            screen whose whole job is to state it. Stacked, nothing competes for width.
+          */}
+          <View
+            style={styles.balanceBlock}
+            accessible
+            accessibilityLabel={`${wallet.balance?.format(2) ?? "Unknown"} USDC in your wallet`}
+          >
+            <Text style={[styles.balance, { color: c.paper }]} numberOfLines={1} adjustsFontSizeToFit>
+              {wallet.balance?.format(2) ?? "—"}
+            </Text>
+            <Text style={[styles.unit, { color: c.dim }]}>USDC</Text>
+          </View>
           {/* Sharing, because that is how money arrives: the address has to reach whoever or
               whatever is sending it. Copying would need another native module; the share sheet
               has Copy in it already. */}
@@ -148,9 +161,10 @@ const RECENT_ROWS = 3;
 const styles = StyleSheet.create({
   caption: tokens.type.footnote,
   walletRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: tokens.space.sm },
+  /** The figure over its unit. `flexShrink` lives here, on the block, never on the number itself. */
+  balanceBlock: { flexShrink: 1 },
   balance: {
     ...tokens.type.largeTitle,
-    flexShrink: 1,
     // Re-read every ten seconds; proportional digits would change width on every update.
     fontVariant: [...tokens.font.tabular],
   },
