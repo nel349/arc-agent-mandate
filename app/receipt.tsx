@@ -1,4 +1,5 @@
 import { Stack, useLocalSearchParams } from "expo-router";
+import type { ActivityKind } from "../src/arc/activity.ts";
 import { Linking, StyleSheet, Text, View } from "react-native";
 import { Button } from "../src/ui/Button.tsx";
 import { DetailRow } from "../src/ui/DetailRow.tsx";
@@ -6,19 +7,25 @@ import { Note } from "../src/ui/Note.tsx";
 import { Screen } from "../src/ui/Screen.tsx";
 import { Surface } from "../src/ui/Surface.tsx";
 import { explorerTxUrl } from "../src/arc/chain.ts";
-import { ACTIVITY_TITLES, activityAmount, DRAW_EXPLAINED } from "../src/ui/activity-format.ts";
+import {
+  ACTIVITY_TITLES, activityAmount, DRAW_EXPLAINED, PAID_EXPLAINED, REGISTERED_EXPLAINED,
+} from "../src/ui/activity-format.ts";
 import { useAgentNames } from "../src/ui/agent-names-context.tsx";
 import { clockTime, weekdayDayMonth } from "../src/ui/calendar.ts";
+import { grantedWithoutCode, NO_PAIRING_CODE } from "../src/ui/grant-entry.ts";
 import { shortAddress } from "../src/ui/mandate-format.ts";
 import { useSession } from "../src/ui/session-context.tsx";
 import { useTheme } from "../src/ui/theme-context.tsx";
 import { tokens } from "../src/ui/tokens.ts";
 
-/** What a grant or a revoke was, said on the receipt the way `DRAW_EXPLAINED` says a draw. */
-const KEY_EVENT_EXPLAINED = {
+/** What each row was, in full. One table, so no kind can reach this screen without a sentence. */
+const EXPLAINED: Readonly<Record<ActivityKind, string>> = {
+  draw: DRAW_EXPLAINED,
+  paid: PAID_EXPLAINED,
+  registered: REGISTERED_EXPLAINED,
   granted: "Your wallet gave this agent an allowance. It was signed with your passkey.",
   revoked: "Your wallet took this agent's allowance away. It was signed with your passkey.",
-} as const;
+};
 
 /**
  * One row of the feed, in full, as a half-height sheet.
@@ -31,7 +38,7 @@ const KEY_EVENT_EXPLAINED = {
 export default function ReceiptScreen() {
   const { tx, log } = useLocalSearchParams<{ tx: string; log: string }>();
   const { activity } = useSession();
-  const { nameOf } = useAgentNames();
+  const { ofRow } = useAgentNames();
   const c = useTheme().color;
 
   const item = activity.items.find((i) => i.tx === tx && String(i.logIndex) === log) ?? null;
@@ -47,7 +54,7 @@ export default function ReceiptScreen() {
   }
 
   const amount = activityAmount(item);
-  const name = nameOf(item.agent);
+  const name = ofRow(item);
   /** The one place this receipt can be checked without taking the app's word for it. */
   const openTransaction = () => void Linking.openURL(explorerTxUrl(item.tx));
 
@@ -65,6 +72,8 @@ export default function ReceiptScreen() {
         <Surface style={styles.group}>
           <DetailRow label="Agent" value={name ?? shortAddress(item.agent)} first />
           {name !== null && <DetailRow label="Address" value={shortAddress(item.agent)} data />}
+          {item.to !== undefined && <DetailRow label="Paid to" value={shortAddress(item.to)} data />}
+          {item.identity !== undefined && <DetailRow label="Identity" value={`ERC-8004 #${item.identity}`} />}
           <DetailRow label="When" value={`${weekdayDayMonth(item.at)}, ${clockTime(item.at)}`} />
           <DetailRow
             label="Transaction"
@@ -76,8 +85,10 @@ export default function ReceiptScreen() {
         </Surface>
 
         <Text style={[styles.explained, { color: c.dim }]}>
-          {item.kind === "draw" ? DRAW_EXPLAINED : KEY_EVENT_EXPLAINED[item.kind]}
+          {EXPLAINED[item.kind]}
         </Text>
+
+        {grantedWithoutCode(item.tag) && <Note tone="warn">{NO_PAIRING_CODE}</Note>}
 
         <Button icon="open-outline" title="View on ArcScan" onPress={openTransaction} />
       </Screen>

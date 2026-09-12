@@ -1,7 +1,8 @@
 import {
-  formatLog, isAddress, isHash, numberToHex, pad, parseAbiItem, parseEventLogs, toEventSelector,
-  type Address, type Hash,
+  formatLog, getAddress, isAddress, isHash, numberToHex, pad, parseAbiItem, parseEventLogs,
+  toEventSelector, zeroAddress, type Address, type Hash, type Hex,
 } from "viem";
+import { entryPoint07Address } from "viem/account-abstraction";
 import { ARC_CONTRACTS } from "./chain.ts";
 import { arcPublicClient } from "./client.ts";
 import { SESSION_KEY_PLUGIN, SESSION_KEY_PLUGIN_DEPLOY_BLOCK } from "./mandate.ts";
@@ -17,10 +18,17 @@ import { Usdc } from "./usdc.ts";
  * it is exactly what a feed of "what my allowance paid for" should list, with no indexer and
  * nothing reconstructed from calldata.
  *
- * What the chain does **not** say is which seller the agent then paid. That happens inside
- * Gateway as a signed message and settles later in a batch. So a draw is shown as funding a
- * purchase, never as a purchase from a named shop, because that would be a claim nothing here can
- * check. Grants and revokes come from the plugin's own events, so an agent's history is complete.
+ * What the chain does **not** say is which seller the agent then paid out of that escrow. That happens
+ * inside Gateway as a signed message and settles later in a batch. So a draw is shown as money moved
+ * into the escrow, never as a purchase from a named shop, because that would be a claim nothing here
+ * can check.
+ *
+ * **A payment straight to somebody** is different, and was missing entirely: the `pay` tool sends
+ * USDC through the ERC-20 view, which Arc records as a `Transfer` naming both sides. What that log
+ * does not name is *which agent* sent it, since the sender is the wallet. The EntryPoint's
+ * `UserOperationEvent` in the same transaction does: the plugin requires a session key to own its
+ * operation's nonce, so the key is in the nonce (`agentInNonce`). Grants and revokes come from the
+ * plugin's own events, so an agent's history is complete.
  *
  * **Reading under the RPC's cap.** `eth_getLogs` refuses spans over 10,000 blocks, and Arc makes
  * about two a second, so a day is seventeen windows. The feed starts with the most recent day,
@@ -28,18 +36,40 @@ import { Usdc } from "./usdc.ts";
  * kept as one unbroken span, which is what lets it resume instead of starting over.
  */
 
-export type ActivityKind = "draw" | "granted" | "revoked";
+/**
+ * Every kind of row, as one list, with the type derived from it.
+ *
+ * The list and the type used to be written separately, and the guard that reads a stored feed checked
+ * against the list: adding `paid` and `registered` to the type left them out of the list, and rows of
+ * those kinds were quietly dropped on the way back from the phone's own store. Derived, that cannot
+ * happen — a kind the list does not name is not a kind.
+ */
+const KINDS = ["draw", "paid", "registered", "granted", "revoked"] as const;
+
+export type ActivityKind = (typeof KINDS)[number];
 
 export interface Activity {
   readonly kind: ActivityKind;
   readonly agent: Address;
-  /** What moved into the agent's Gateway balance. Only a draw carries an amount. */
+  /** What moved: into the agent's escrow on a draw, to whoever was paid on a payment. */
   readonly amount: Usdc | null;
+  /** Who was paid, on a `paid` row and nowhere else. */
+  readonly to?: Address;
+  /** The ERC-8004 identity number, on a `registered` row and nowhere else. */
+  readonly identity?: bigint;
   /** Unix seconds, from the block. */
   readonly at: number;
   readonly block: bigint;
   readonly tx: Hash;
   readonly logIndex: number;
+  /**
+   * What the grant wrote as its tag, on a `granted` row and nowhere else.
+   *
+   * A grant made by scanning the agent's code carries a hash of that code, and one made from a typed
+   * address carries a hash of the label. The agent spends only from the first kind, so this is what
+   * tells an allowance it will use from one it will ignore. See `grantedWithoutCode`.
+   */
+  readonly tag?: Hex;
 }
 
 /** Blocks already read, inclusive at both ends. */
@@ -183,6 +213,9 @@ export function mergeFeed(feed: Feed, incoming: readonly Activity[], cap: number
 export interface LogFields {
   readonly agent: Address | undefined;
   readonly value?: bigint | undefined;
+  readonly to?: Address | undefined;
+  readonly identity?: bigint | undefined;
+  readonly tag?: Hex | undefined;
   readonly blockNumber: bigint | null;
   readonly timestamp: bigint | null;
   readonly transactionHash: Hash | null;
@@ -196,12 +229,22 @@ export function activityFromLog(kind: ActivityKind, log: LogFields): Activity | 
   if (transactionHash === null || logIndex === null) return null;
 
   let amount: Usdc | null = null;
-  if (kind === "draw") {
+  if (kind === "draw" || kind === "paid") {
     if (log.value === undefined) return null;
-    // Gateway counts in the ERC-20 view's six decimals.
+    // Gateway and the ERC-20 view both count in six decimals.
     amount = Usdc.fromErc20Units(log.value);
   }
-  return { kind, agent, amount, at: Number(timestamp), block: blockNumber, tx: transactionHash, logIndex };
+  // A payment nobody can address is not shown: the whole point of the row is who was paid.
+  if (kind === "paid" && log.to === undefined) return null;
+  // Nor is a registration without the number it registered, which is the whole of that row.
+  if (kind === "registered" && log.identity === undefined) return null;
+  return {
+    kind, agent, amount, at: Number(timestamp), block: blockNumber, tx: transactionHash, logIndex,
+    ...(kind === "paid" && log.to !== undefined ? { to: log.to } : {}),
+    ...(kind === "registered" && log.identity !== undefined ? { identity: log.identity } : {}),
+    // Only a grant has one, and a grant read from an older feed may not carry it.
+    ...(kind === "granted" && log.tag !== undefined ? { tag: log.tag } : {}),
+  };
 }
 
 /**
@@ -226,6 +269,64 @@ const keyAdded = parseAbiItem(
   "event SessionKeyAdded(address indexed account, address indexed sessionKey, bytes32 indexed tag)",
 );
 const keyRemoved = parseAbiItem("event SessionKeyRemoved(address indexed account, address indexed sessionKey)");
+const transferred = parseAbiItem("event Transfer(address indexed from, address indexed to, uint256 value)");
+const operated = parseAbiItem(
+  "event UserOperationEvent(bytes32 indexed userOpHash, address indexed sender, address indexed paymaster, uint256 nonce, bool success, uint256 actualGasCost, uint256 actualGasUsed)",
+);
+
+/** An identity is minted from nowhere, which is what tells a registration from a transfer. */
+const registered = parseAbiItem("event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)");
+
+/** ERC-4337 v0.7's EntryPoint, from viem rather than typed out again. */
+export const ENTRY_POINT: Address = entryPoint07Address;
+
+/**
+ * The agent that signed an operation, taken out of its nonce.
+ *
+ * The session key plugin requires a key to own the key half of its nonce, so that one agent's
+ * operations stay sequential. That makes the nonce the only place an operation names the agent
+ * behind it: the sender is the wallet, and the calldata is the account's, not the key's. `null` for
+ * an operation the owner signed themselves, whose nonce key is zero.
+ */
+export function agentInNonce(nonce: bigint): Address | null {
+  const address = (nonce >> NONCE_SEQUENCE_BITS) & ((1n << ADDRESS_BITS) - 1n);
+  // Checksummed, because every other address the feed carries is, and they are compared to each other.
+  return address === 0n ? null : getAddress(`0x${address.toString(16).padStart(ADDRESS_HEX_CHARS, "0")}`);
+}
+
+/** ERC-4337 packs a nonce as a 192-bit key and a 64-bit sequence; the plugin puts the agent in the key. */
+const NONCE_SEQUENCE_BITS = 64n;
+/** An address is 20 bytes, which is 160 bits and 40 hex characters. */
+const ADDRESS_BITS = 160n;
+const ADDRESS_HEX_CHARS = 40;
+
+/** One operation, as the pairing below needs it. */
+export interface OperationLog {
+  readonly transactionHash: Hash | null;
+  readonly nonce: bigint | undefined;
+  readonly success: boolean | undefined;
+}
+
+/**
+ * Which agent made the payments in each transaction.
+ *
+ * Only operations that ran: one the EntryPoint recorded as failed moved nothing, whatever else its
+ * transaction contains. An operation the owner signed names no agent and is left out, so a transfer
+ * from the app itself is never attributed to one.
+ */
+export function agentsByTransaction(operations: readonly OperationLog[]): Map<Hash, Address> {
+  const byTransaction = new Map<Hash, Address>();
+  for (const operation of operations) {
+    if (operation.transactionHash === null || operation.nonce === undefined || operation.success !== true) continue;
+    const agent = agentInNonce(operation.nonce);
+    if (agent !== null) byTransaction.set(operation.transactionHash, agent);
+  }
+  return byTransaction;
+}
+
+/** A top-up shows as a transfer into Gateway and again as its `Deposited`, which is the row shown. */
+const intoEscrow = (to: Address): boolean =>
+  to.toLowerCase() === ARC_CONTRACTS.gatewayWallet.toLowerCase();
 
 /** Both of the plugin's key events, so one query can ask for either. */
 const KEY_EVENTS = [keyAdded, keyRemoved] as const;
@@ -262,8 +363,40 @@ export async function readActivityWindow(
   });
   const keys = parseEventLogs({ abi: KEY_EVENTS, logs: raw.map((log) => formatLog(log)) });
 
+  // Payments straight to somebody, which the wallet sends through the ERC-20 view. Read from the
+  // view alone: Arc emits the same transfer again from its system emitter at a different scale, and
+  // reading both counts every payment twice (docs/FINDINGS.md, finding 6).
+  await pause();
+  const transfers = await arcPublicClient.getLogs({
+    address: ARC_CONTRACTS.usdc, event: transferred, args: { from: account },
+    fromBlock: window.from, toBlock: window.to,
+  });
+  const payments = transfers.filter((log) => log.args.to !== undefined && !intoEscrow(log.args.to));
+
+  // An ERC-8004 identity minted to this wallet, which is an agent setting up the identity its owner
+  // holds. Both sides of the mint are indexed, so this asks for only this wallet's.
+  await pause();
+  const identities = await arcPublicClient.getLogs({
+    address: ARC_CONTRACTS.erc8004.identity, event: registered, args: { from: zeroAddress, to: account },
+    fromBlock: window.from, toBlock: window.to,
+  });
+
+  // Asked only when there is something to attribute, since most windows have nothing and this feed
+  // shares one rate limit with the figures a person is waiting on.
+  let agents = new Map<Hash, Address>();
+  if (payments.length > 0 || identities.length > 0) {
+    await pause();
+    const operations = await arcPublicClient.getLogs({
+      address: ENTRY_POINT, event: operated, args: { sender: account },
+      fromBlock: window.from, toBlock: window.to,
+    });
+    agents = agentsByTransaction(operations.map((log) => ({
+      transactionHash: log.transactionHash, nonce: log.args.nonce, success: log.args.success,
+    })));
+  }
+
   // Only when the node left times off the logs: one block read per distinct block, not per row.
-  const missing = [...draws, ...keys]
+  const missing = [...draws, ...keys, ...payments, ...identities]
     .filter((log) => timestampOf(log) === null && log.blockNumber !== null)
     .map((log) => log.blockNumber as bigint);
   const times = new Map<bigint, bigint>();
@@ -280,9 +413,25 @@ export async function readActivityWindow(
 
   return [
     ...draws.map((log) => activityFromLog("draw", { ...fields(log), agent: log.args.depositor, value: log.args.value })),
+    ...payments.map((log) => activityFromLog("paid", {
+      ...fields(log),
+      // The transfer says the wallet paid; the operation in the same transaction says which agent.
+      agent: log.transactionHash === null ? undefined : agents.get(log.transactionHash),
+      value: log.args.value,
+      to: log.args.to,
+    })),
+    ...identities.map((log) => activityFromLog("registered", {
+      ...fields(log),
+      agent: log.transactionHash === null ? undefined : agents.get(log.transactionHash),
+      identity: log.args.tokenId,
+    })),
     ...keys.map((log) => activityFromLog(
       log.eventName === "SessionKeyAdded" ? "granted" : "revoked",
-      { ...fields(log), agent: log.args.sessionKey },
+      {
+        ...fields(log),
+        agent: log.args.sessionKey,
+        ...(log.eventName === "SessionKeyAdded" ? { tag: log.args.tag } : {}),
+      },
     )),
   ].filter((item): item is Activity => item !== null);
 }
@@ -301,9 +450,13 @@ interface StoredActivity {
   readonly b: string;
   readonly h: string;
   readonly i: number;
+  /** The grant's tag, on a granted row. Absent on rows kept before the feed read it. */
+  readonly g?: string;
+  /** Who was paid, on a paid row. */
+  readonly p?: string;
+  /** The identity number, on a registered row. */
+  readonly n?: string;
 }
-
-const KINDS: readonly ActivityKind[] = ["draw", "granted", "revoked"];
 
 export function serializeFeed(feed: Feed): string {
   return JSON.stringify({
@@ -317,6 +470,9 @@ export function serializeFeed(feed: Feed): string {
       b: item.block.toString(),
       h: item.tx,
       i: item.logIndex,
+      ...(item.tag === undefined ? {} : { g: item.tag }),
+      ...(item.to === undefined ? {} : { p: item.to }),
+      ...(item.identity === undefined ? {} : { n: item.identity.toString() }),
     })),
   });
 }
@@ -335,7 +491,10 @@ function parseItem(raw: unknown): Activity | null {
   if (kind === undefined || block === null) return null;
   if (typeof r.a !== "string" || !isAddress(r.a) || typeof r.h !== "string" || !isHash(r.h)) return null;
   if (typeof r.t !== "number" || !Number.isFinite(r.t) || typeof r.i !== "number") return null;
-  if (kind === "draw" && units === null) return null;
+  if ((kind === "draw" || kind === "paid") && units === null) return null;
+  if (kind === "paid" && (typeof r.p !== "string" || !isAddress(r.p))) return null;
+  const identity = bigintOr(r.n);
+  if (kind === "registered" && identity === null) return null;
   return {
     kind,
     agent: r.a,
@@ -344,6 +503,9 @@ function parseItem(raw: unknown): Activity | null {
     block,
     tx: r.h,
     logIndex: r.i,
+    ...(kind === "granted" && typeof r.g === "string" && isHash(r.g) ? { tag: r.g } : {}),
+    ...(kind === "paid" && typeof r.p === "string" && isAddress(r.p) ? { to: r.p } : {}),
+    ...(kind === "registered" && identity !== null ? { identity } : {}),
   };
 }
 

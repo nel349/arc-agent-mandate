@@ -14,6 +14,17 @@ export function shortAddress(address: string): string {
   return `${address.slice(0, 10)}…${address.slice(-7)}`;
 }
 
+/**
+ * An agent's ERC-8004 identity, as the details panel shows it.
+ *
+ * The registry calls it an agent id; naming the standard is what lets somebody look it up. Worded
+ * here because every other figure on that panel is worded here, and the screen should be reading
+ * sentences rather than building them.
+ */
+export function identityLabel(agentId: bigint): string {
+  return `ERC-8004 #${agentId}`;
+}
+
 /** What a mandate has left, as a fraction between 0 and 1. Zero limit reads as spent. */
 export function fractionUsed(mandate: Mandate): number {
   const limit = mandate.limit.toNativeUnits();
@@ -70,11 +81,28 @@ const FINER_PRECISION_BELOW_UNITS = 10_000_000_000_000_000n;
  * warned about nothing at all, which is worse than staying quiet.
  */
 export function agentHoldingNote(held: Usdc): string | null {
-  const units = held.toNativeUnits();
-  if (units < WORTH_MENTIONING_UNITS) return null;
-  // Enough places that a small holding is a number rather than a rounded-away zero.
-  const shown = units < FINER_PRECISION_BELOW_UNITS ? held.format(4) : held.format(2);
-  return `agent holds ${shown}`;
+  if (held.toNativeUnits() < WORTH_MENTIONING_UNITS) return null;
+  return `agent holds ${precisely(held)}`;
+}
+
+/** Enough places that a small amount is a number rather than a rounded-away zero. */
+function precisely(amount: Usdc): string {
+  return amount.toNativeUnits() < FINER_PRECISION_BELOW_UNITS ? amount.format(4) : amount.format(2);
+}
+
+/**
+ * What the revoke confirmation says, naming what a revoke leaves behind.
+ *
+ * Revoking stops the agent drawing on the wallet, and does not reach money already moved into its
+ * escrow at Circle's Gateway: that stays the agent's to spend, or to withdraw to its own address
+ * after Circle's delay. A person who assumes a revoke takes it back is deciding on a false premise,
+ * so the amount is named when there is one.
+ */
+export function revokeWarning(name: string | null, escrow: Usdc): string {
+  const stops = `${name ?? "This agent"} can no longer spend from your wallet once this confirms.`;
+  if (escrow.isZero()) return `${stops} Money it already moved to pay for a purchase in progress is not returned.`;
+  return `${stops} The ${precisely(escrow)} USDC already in its escrow at Circle's Gateway stays with it: ` +
+    "revoking does not reach that, and only the agent's key can spend it or withdraw it.";
 }
 
 /**

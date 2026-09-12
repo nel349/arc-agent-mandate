@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { agentHoldingNote, agentRowLabel, allowanceSentence, endsLine, expiryLabel, expiryLine, hasEnded, fractionUsed, lastUsedLabel, shortAddress, spentLine, spentPercentLabel } from "./mandate-format.ts";
+import { agentHoldingNote, agentRowLabel, allowanceSentence, endsLine, expiryLabel, expiryLine, hasEnded, fractionUsed, identityLabel, lastUsedLabel, revokeWarning, shortAddress, spentLine, spentPercentLabel } from "./mandate-format.ts";
 import { Usdc } from "../arc/usdc.ts";
 import type { Mandate } from "../arc/mandate.ts";
 
@@ -13,10 +13,36 @@ const mandate = (limit: string, spent: string, expiresAt?: number): Mandate => {
     remaining: s.compare(l) >= 0 ? Usdc.ZERO : l.subtract(s),
     ...(expiresAt === undefined ? {} : { expiresAt }),
     agentFloat: Usdc.parse("0.5"),
+    escrow: Usdc.ZERO,
     lastUsedAt: null,
     rail: "erc20",
   };
 };
+
+test("an identity reads as the standard it belongs to, not as a bare number", () => {
+  assert.equal(identityLabel(12n), "ERC-8004 #12");
+  // Zero is a real agent id, and a falsy-looking one: it must read the same as any other.
+  assert.equal(identityLabel(0n), "ERC-8004 #0");
+});
+
+/**
+ * A revoke does not reach money already in the agent's escrow at Circle's Gateway, and the alert said
+ * only that "a purchase in progress" was not returned, while a top-up could leave far more there.
+ */
+test("the revoke warning names what stays in the agent's escrow, and says only that when there is none", () => {
+  assert.equal(
+    revokeWarning(null, Usdc.ZERO),
+    "This agent can no longer spend from your wallet once this confirms. Money it already moved to pay " +
+      "for a purchase in progress is not returned.",
+  );
+  assert.equal(
+    revokeWarning("Maze runner", Usdc.parse("0.25")),
+    "Maze runner can no longer spend from your wallet once this confirms. The 0.25 USDC already in its " +
+      "escrow at Circle's Gateway stays with it: revoking does not reach that, and only the agent's key " +
+      "can spend it or withdraw it.",
+  );
+  assert.match(revokeWarning("Maze runner", Usdc.parse("0.004")), /The 0\.0040 USDC already in its escrow/);
+});
 
 test("a fresh mandate reads as nothing used", () => {
   assert.equal(fractionUsed(mandate("50", "0")), 0);

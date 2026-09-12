@@ -9,6 +9,9 @@ import { tokens } from "./tokens.ts";
 /** A shape per kind of row, so a grant and a payment differ before either is read. */
 const GLYPHS: Readonly<Record<ActivityKind, keyof typeof Ionicons.glyphMap>> = {
   draw: "bag-handle-outline",
+  /** Sent to somebody, rather than moved into the agent's own escrow. */
+  paid: "paper-plane-outline",
+  registered: "finger-print-outline",
   granted: "add-circle-outline",
   revoked: "close-circle-outline",
 };
@@ -58,7 +61,24 @@ function ActivityRowView({
   );
 }
 
-export const ActivityRow = memo(ActivityRowView);
+/**
+ * Compared by value, as `MandateCard` is, and for the same reason.
+ *
+ * The words arrive as a fresh object from `activityRowText` on every render of the list, so a memo
+ * comparing by reference never matched and every row re-rendered on each ten-second poll — a feed of
+ * five hundred rows, redrawn for figures that had not changed. These are everything a row draws.
+ */
+export const ActivityRow = memo(ActivityRowView, (a, b) =>
+  a.first === b.first &&
+  a.onPress === b.onPress &&
+  a.item.tx === b.item.tx &&
+  a.item.logIndex === b.item.logIndex &&
+  a.item.kind === b.item.kind &&
+  a.item.amount?.toNativeUnits() === b.item.amount?.toNativeUnits() &&
+  a.text.title === b.text.title &&
+  a.text.detail === b.text.detail &&
+  a.text.titleIsAddress === b.text.titleIsAddress,
+);
 
 const styles = StyleSheet.create({
   row: {
@@ -77,7 +97,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  text: { flex: 1, gap: 2 },
+  text: { flex: 1, gap: tokens.space.hair },
   title: tokens.type.headline,
   /** Matches the agent list, where an unnamed agent is also its address in mono. */
   address: { ...tokens.type.data, fontWeight: "600" },

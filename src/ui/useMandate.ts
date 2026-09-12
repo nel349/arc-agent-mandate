@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { AppState } from "react-native";
 import type { Address, Hash } from "viem";
+import type { UserOperationReceipt } from "viem/account-abstraction";
 import type { ArcAccount } from "../arc/account.ts";
 import {
-  grantMandate, isPluginDeployed, listMandates, revokeMandate, updateMandate,
+  grantedIn, grantMandate, isPluginDeployed, listMandates, revokeMandate, updateMandate,
   type Mandate, type MandateTerms,
 } from "../arc/mandate.ts";
+import type { GrantLog } from "./agent-names.ts";
 import { Usdc } from "../arc/usdc.ts";
 import { describeFailure, MANDATE_FAILURES } from "./failure.ts";
 
@@ -51,8 +53,12 @@ export interface MandateScreen {
    * fill in a form that cannot work.
    */
   readonly ready: boolean | null;
-  /** `onGranted` runs when the operation has landed, not when it was requested. */
-  grant(terms: MandateTerms, onGranted?: () => void): void;
+  /**
+   * `onGranted` runs when the operation has landed, not when it was requested, with the grant's own
+   * log so the new allowance can be named apart from the agent's earlier ones. Null when the receipt
+   * did not carry it.
+   */
+  grant(terms: MandateTerms, onGranted?: (granted: GrantLog | null) => void): void;
   revoke(agent: Address, onRevoked?: () => void): void;
   changeLimit(agent: Address, limit: Usdc): void;
   refresh(): void;
@@ -173,7 +179,7 @@ export function useMandate(account: ArcAccount | null): MandateScreen {
        * immediately — before the passkey prompt, let alone the receipt. Cancelling Face ID meant
        * the address you had just scanned was already gone.
        */
-      onDone?: () => void,
+      onDone?: (receipt: UserOperationReceipt | null) => void,
     ) => {
       if (!account || busy) return;
       setActionError(null);
@@ -182,13 +188,13 @@ export function useMandate(account: ArcAccount | null): MandateScreen {
         try {
           const hashes = await run(account);
           const last = hashes[hashes.length - 1];
-          if (last !== undefined) await account.bundler.waitForUserOperationReceipt({ hash: last });
+          const receipt = last === undefined ? null : await account.bundler.waitForUserOperationReceipt({ hash: last });
           if (__DEV__) {
             console.log(`[mandate] ${label} — ${hashes.length} user operation(s)`);
             for (const hash of hashes) console.log(`[mandate]   ${hash}`);
           }
           refresh();
-          onDone?.();
+          onDone?.(receipt);
         } catch (cause) {
           setActionError(describeFailure(cause, MANDATE_FAILURES));
         } finally {
@@ -200,14 +206,16 @@ export function useMandate(account: ArcAccount | null): MandateScreen {
   );
 
   const grant = useCallback(
-    (terms: MandateTerms, onGranted?: () => void) =>
+    (terms: MandateTerms, onGranted?: (granted: GrantLog | null) => void) =>
       perform(
         "granted an allowance",
         { kind: "grant", agent: terms.agent },
         async (a) => [(await grantMandate(a, terms)).grant],
-        onGranted,
+        (receipt) => onGranted?.(
+          receipt === null || account === null ? null : grantedIn(receipt.logs, account.address, terms.agent),
+        ),
       ),
-    [perform],
+    [perform, account],
   );
 
   const revoke = useCallback(

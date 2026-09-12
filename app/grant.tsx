@@ -9,7 +9,7 @@ import { Button } from "../src/ui/Button.tsx";
 import { ChoiceListRow } from "../src/ui/ChoiceListRow.tsx";
 import { DetailRow } from "../src/ui/DetailRow.tsx";
 import { Field } from "../src/ui/Field.tsx";
-import { Note } from "../src/ui/Note.tsx";
+import { ERROR_LINES, Note } from "../src/ui/Note.tsx";
 import { PresetChip } from "../src/ui/PresetChip.tsx";
 import { ScanModal } from "../src/ui/ScanModal.tsx";
 import { Screen } from "../src/ui/Screen.tsx";
@@ -17,7 +17,8 @@ import { Surface } from "../src/ui/Surface.tsx";
 import { WizardTopBar } from "../src/ui/WizardTopBar.tsx";
 import { cleanAgentName, MAX_AGENT_NAME } from "../src/ui/agent-names.ts";
 import { useAgentNames } from "../src/ui/agent-names-context.tsx";
-import { entryFromScan, entryFromText, mandateTermsFor } from "../src/ui/grant-entry.ts";
+import { ALREADY_GRANTED } from "../src/ui/failure.ts";
+import { alreadyGranted, entryFromScan, entryFromText, mandateTermsFor } from "../src/ui/grant-entry.ts";
 import { exceedsWallet, grantedSentence, grantSummary, windowEndLabel } from "../src/ui/grant-format.ts";
 import { readGrantTerms } from "../src/ui/grant-terms.ts";
 import { feelSuccess } from "../src/ui/haptics.ts";
@@ -52,7 +53,7 @@ const TITLES: Readonly<Record<Step, string>> = {
 
 export default function GrantScreen() {
   const { wallet, mandate } = useSession();
-  const { rename, nameOf } = useAgentNames();
+  const { nameGranted } = useAgentNames();
   const router = useRouter();
   const c = useTheme().color;
 
@@ -88,12 +89,17 @@ export default function GrantScreen() {
   const terms = "terms" in read ? read.terms : null;
   const problems = "problems" in read ? read.problems : NO_PROBLEMS;
 
-  const agentReady = agent.length > 0 && problems.agent === null;
+  /** This wallet already grants this agent, and the plugin allows one allowance per agent per wallet. */
+  const already = alreadyGranted(agent, mandate.mandates);
+  const agentReady = agent.length > 0 && problems.agent === null && !already;
   const amountReady = amount.length > 0 && problems.amount === null;
   const windowReady = problems.days === null;
 
-  /** What to call the agent on the later steps: the name just typed, one kept from before, or its address. */
-  const who = cleanAgentName(name) || (isAddress(agent) ? nameOf(agent) ?? shortAddress(agent) : agent);
+  /**
+   * What to call the agent on the later steps: the name just typed, or its address. Not a name from
+   * an earlier allowance, which belongs to that allowance.
+   */
+  const who = cleanAgentName(name) || (isAddress(agent) ? shortAddress(agent) : agent);
 
   /**
    * Built from the terms that would actually be granted, never from a parallel set held for
@@ -133,14 +139,15 @@ export default function GrantScreen() {
     mandate.grant(
       mandateTermsFor(terms, pairing, Date.now()),
       // Runs when the grant has landed, not when it was asked for. The name is kept only then, so
-      // a cancelled Face ID does not leave a name behind for an agent that was never granted.
-      () => {
-        if (chosenName.length > 0) rename(terms.agent, chosenName);
+      // a cancelled Face ID does not leave a name behind for an agent that was never granted. It goes
+      // to this allowance alone, by the grant's own log.
+      (granted) => {
+        nameGranted(terms.agent, granted, chosenName);
         feelSuccess();
         if (open.current) setStep("done");
       },
     );
-  }, [terms, name, pairing, mandate, rename]);
+  }, [terms, name, pairing, mandate, nameGranted]);
 
   const bar = (action?: { title: string; enabled: boolean; onPress: () => void }) => (
     <WizardTopBar title={TITLES[step]} onBack={back} closes={step === "agent" || step === "done"} {...(action ? { action } : {})} />
@@ -188,6 +195,7 @@ export default function GrantScreen() {
           {agentReady && pairing === null && (
             <Note>An agent using the Arc Mandate connector will not use this allowance. Scan its code instead.</Note>
           )}
+          {already && <Note>{ALREADY_GRANTED}</Note>}
         </Screen>
       </>
     );
@@ -343,9 +351,6 @@ const WINDOWS: readonly { readonly label: string; readonly days: string }[] = [
   { label: "30 days", days: "30" },
 ];
 const DEFAULT_DAYS = "7";
-
-/** Enough of a chain error to recognise it; the harness log has the whole thing. */
-const ERROR_LINES = 3;
 
 /** Nothing to complain about yet, and the same shape the reader returns. */
 const NO_PROBLEMS = { agent: null, amount: null, days: null } as const;

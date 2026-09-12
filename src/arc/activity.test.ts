@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  activityFromLog, covering, earlierWindows, EMPTY_FEED, FIRST_BACKOFF_MS, hasEarlier, LOG_WINDOW, MAX_BACKOFF_MS,
-  mergeFeed, newWindows, nextBackoff,
+  activityFromLog, agentInNonce, agentsByTransaction, covering, earlierWindows, EMPTY_FEED,
+  FIRST_BACKOFF_MS, hasEarlier, LOG_WINDOW, MAX_BACKOFF_MS, mergeFeed, newWindows, nextBackoff,
   parseFeed, serializeFeed, type Activity, type Feed,
 } from "./activity.ts";
 import { explorerTxUrl } from "./chain.ts";
@@ -106,6 +106,92 @@ test("a stored feed that does not read is an empty one, and bad rows are dropped
   stored.i.push({ k: "draw", a: "not an address", u: "1", t: 1, b: "2", h: hash(9), i: 0 });
   stored.i.push({ k: "stolen", a: AGENT, u: null, t: 1, b: "2", h: hash(8), i: 0 });
   assert.equal(parseFeed(JSON.stringify(stored)).items.length, 1);
+});
+
+/**
+ * A payment straight to somebody, which the feed did not show at all: the wallet is the sender, so
+ * the transfer alone cannot say which agent made it.
+ *
+ * The figures below are one real payment on Arc, transaction `0x431dafcf…a739a8` in block 61,632,911:
+ * $0.01 through the ERC-20 view, and the EntryPoint's operation whose nonce carries the session key
+ * in its high half and the sequence number in its low one.
+ */
+const REAL_NONCE = BigInt("0x000000003535816e967ad2b6271dfadf9138fb07eab161ce0000000000000017");
+const OWNER = "0xEe1933BbBC8acd7B32caD469D4f22Ca5B19d7918";
+
+test("the agent behind a payment is the session key in its operation's nonce", () => {
+  assert.equal(agentInNonce(REAL_NONCE), AGENT);
+  // An operation the owner signed themselves owns no key half, and names no agent.
+  assert.equal(agentInNonce(23n), null);
+});
+
+test("only operations that ran, and were signed by an agent, name the payments in their transaction", () => {
+  const agents = agentsByTransaction([
+    { transactionHash: hash(1), nonce: REAL_NONCE, success: true },
+    { transactionHash: hash(2), nonce: REAL_NONCE, success: false },
+    { transactionHash: hash(3), nonce: 23n, success: true },
+    { transactionHash: null, nonce: REAL_NONCE, success: true },
+    { transactionHash: hash(4), nonce: undefined, success: true },
+  ]);
+  assert.deepEqual([...agents.entries()], [[hash(1), AGENT]]);
+});
+
+test("a payment is read at the view's six decimals, and names who was paid", () => {
+  const item = activityFromLog("paid", {
+    agent: AGENT, value: 10_000n, to: OWNER, blockNumber: 61_632_911n, timestamp: 1_789_100_000n,
+    transactionHash: hash(1), logIndex: 101,
+  });
+  assert.equal(item?.amount?.format(6), "0.010000");
+  assert.equal(item?.to, OWNER);
+  assert.equal(item?.kind, "paid");
+});
+
+test("a payment with nobody to name, or no amount, is not shown rather than shown wrong", () => {
+  const base = {
+    agent: AGENT, blockNumber: 1n, timestamp: 1n, transactionHash: hash(1), logIndex: 0,
+  } as const;
+  assert.equal(activityFromLog("paid", { ...base, value: 1n }), null, "a payment with no payee");
+  assert.equal(activityFromLog("paid", { ...base, to: OWNER }), null, "a payment with no amount");
+});
+
+test("a payment reads back from the store with its payee, and one stored without a payee is dropped", () => {
+  const paid: Activity = {
+    kind: "paid", agent: AGENT, amount: Usdc.parse("0.01"), to: OWNER, at: 1_789_100_000,
+    block: 61_632_911n, tx: hash(1), logIndex: 101,
+  };
+  const feed: Feed = { coverage: { low: 61_000_000n, high: 61_700_000n }, items: [paid], since: null };
+  assert.deepEqual(parseFeed(serializeFeed(feed)).items, [paid]);
+
+  const stored = JSON.parse(serializeFeed(feed));
+  delete stored.i[0].p;
+  assert.deepEqual(parseFeed(JSON.stringify(stored)).items, []);
+});
+
+/**
+ * An agent setting up the ERC-8004 identity its owner holds, which is what a seller credits. The
+ * mint names the wallet; the operation in the same transaction names the agent that made it.
+ */
+test("a registration carries the identity it minted, and one without a number is not shown", () => {
+  const base = {
+    agent: AGENT, blockNumber: 61_632_911n, timestamp: 1_789_100_000n, transactionHash: hash(1), logIndex: 3,
+  } as const;
+  const item = activityFromLog("registered", { ...base, identity: 890_537n });
+  assert.equal(item?.identity, 890_537n);
+  assert.equal(item?.amount, null);
+  assert.equal(activityFromLog("registered", base), null);
+});
+
+test("a registration reads back from the store with its number, and one stored without is dropped", () => {
+  const registered: Activity = {
+    kind: "registered", agent: AGENT, amount: null, identity: 890_537n, at: 1_789_100_000,
+    block: 61_632_911n, tx: hash(1), logIndex: 3,
+  };
+  const feed: Feed = { coverage: { low: 61_000_000n, high: 61_700_000n }, items: [registered], since: null };
+  assert.deepEqual(parseFeed(serializeFeed(feed)).items, [registered]);
+
+  const stored = JSON.parse(serializeFeed(feed));
+  delete stored.i[0].n;
+  assert.deepEqual(parseFeed(JSON.stringify(stored)).items, []);
 });
 
 test("a transaction links to ArcScan", () => {

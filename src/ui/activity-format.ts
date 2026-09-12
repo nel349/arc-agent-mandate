@@ -10,9 +10,16 @@ import { shortAddress } from "./mandate-format.ts";
  * renderer and the chain layer never decides how something reads.
  */
 
-/** What each kind of row says it was. One table, so the list and the receipt cannot disagree. */
+/**
+ * What each kind of row says it was. One table, so the list and the receipt cannot disagree.
+ *
+ * A draw is money moved into the agent's escrow, which it pays sellers from later. It used to read
+ * "Funded a purchase", which a top-up made ahead of time is not: it has paid nobody yet.
+ */
 export const ACTIVITY_TITLES: Readonly<Record<ActivityKind, string>> = {
-  draw: "Funded a purchase",
+  draw: "Moved to its escrow",
+  paid: "Paid someone",
+  registered: "Identity registered",
   granted: "Allowance granted",
   revoked: "Allowance revoked",
 };
@@ -92,5 +99,42 @@ export interface ActivityRowText {
  * leaves out the seller without saying why reads as a receipt with a bug in it.
  */
 export const DRAW_EXPLAINED =
-  "Moved from your wallet into this agent's Gateway balance, which paid the seller. Arc records " +
-  "the payment into Gateway, not which seller it went to, so the seller is not shown here.";
+  "Moved from your wallet into this agent's escrow at Circle's Gateway, which it pays sellers from. " +
+  "Arc records that move, not which seller the agent then paid, so no seller is shown here.";
+
+/**
+ * What a payment straight to somebody was, for the receipt.
+ *
+ * Unlike a draw, this one can name who was paid, because Arc records the transfer itself. It is said
+ * out loud, since the two rows sit next to each other and otherwise look like the same thing.
+ */
+export const PAID_EXPLAINED =
+  "Sent from your wallet to the address below, by this agent, under its allowance. Arc records this " +
+  "transfer, so unlike money moved into the agent's escrow, this one names who was paid.";
+
+/** An ERC-8004 identity, as both screens that show one say it. */
+export const identityLabel = (identity: bigint): string => `ERC-8004 #${identity}`;
+
+/**
+ * What a registration was, for the receipt.
+ *
+ * The agent sets up an ERC-8004 identity through its allowance, and the wallet owns it. That is the
+ * thing a seller credits, so it is worth saying plainly rather than leaving as an unexplained row.
+ */
+export const REGISTERED_EXPLAINED =
+  "This agent set up an ERC-8004 identity, and your wallet owns it. Sellers that reward agents write " +
+  "what it earns to that identity, and anything minted for it, like a badge, is yours.";
+
+/**
+ * When the agent last spent, from the feed: its newest draw or payment, or `null` when it has none.
+ *
+ * The chain's own last-used time is never written for the one-meter rail the app grants, so the
+ * agent's screen could not say it. The feed can, for as far back as it has read.
+ */
+export function lastSpentAt(items: readonly Activity[]): number | null {
+  let latest: number | null = null;
+  for (const item of items) {
+    if ((item.kind === "draw" || item.kind === "paid") && (latest === null || item.at > latest)) latest = item.at;
+  }
+  return latest;
+}

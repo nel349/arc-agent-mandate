@@ -237,6 +237,7 @@ const sample = (limit: string, spent: string, expiresAt?: number, agentFloat = U
     remaining: s.compare(l) >= 0 ? Usdc.ZERO : l.subtract(s),
     ...(expiresAt === undefined ? {} : { expiresAt }),
     agentFloat,
+    escrow: Usdc.ZERO,
     lastUsedAt,
     rail: "erc20",
   };

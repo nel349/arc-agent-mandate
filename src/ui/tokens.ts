@@ -10,7 +10,8 @@
  * as anywhere else, and the second screen is where scattered values start disagreeing.
  */
 export const tokens = {
-  space: { xs: 6, sm: 10, md: 12, base: 16, lg: 20, xl: 28 },
+  /** `hair` is the gap inside a two-line row, where anything larger reads as two separate things. */
+  space: { hair: 2, tiny: 3, xs: 6, sm: 10, md: 12, base: 16, lg: 20, xl: 28 },
 
   /**
    * Depth, cast downward. Glass sits above its background rather than being painted onto it, and
