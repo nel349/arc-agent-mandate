@@ -1,24 +1,29 @@
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Share, StyleSheet, Text, View } from "react-native";
-import type { Activity } from "../../src/arc/activity.ts";
 import { ActivityRow } from "../../src/ui/ActivityRow.tsx";
 import { ArcRing } from "../../src/ui/ArcRing.tsx";
 import { MoreRow } from "../../src/ui/MoreRow.tsx";
-import { activityRowText } from "../../src/ui/activity-format.ts";
+import { activityRowText, formatAmount, lastSpentAt } from "../../src/ui/activity-format.ts";
 import { Button } from "../../src/ui/Button.tsx";
 import { DetailRow } from "../../src/ui/DetailRow.tsx";
 import { Field } from "../../src/ui/Field.tsx";
 import { Label } from "../../src/ui/Label.tsx";
-import { Note } from "../../src/ui/Note.tsx";
+import { ERROR_LINES, Note } from "../../src/ui/Note.tsx";
 import { Screen } from "../../src/ui/Screen.tsx";
 import { Surface } from "../../src/ui/Surface.tsx";
 import { MAX_AGENT_NAME } from "../../src/ui/agent-names.ts";
 import { useAgentNames } from "../../src/ui/agent-names-context.tsx";
 import { feelWarning } from "../../src/ui/haptics.ts";
 import {
-  agentHoldingNote, allowanceSentence, endsLine, fractionUsed, hasEnded, lastUsedLabel, spentPercentLabel,
+  agentHoldingNote, allowanceSentence, endsLine, fractionUsed, hasEnded, identityLabel, lastUsedLabel,
+  revokeWarning, spentPercentLabel,
 } from "../../src/ui/mandate-format.ts";
+import { scoreLabel, scoreMeaning, writtenBy } from "../../src/ui/reputation-format.ts";
+import { activityRoute } from "../../src/ui/routes.ts";
+import { useAgentIdentity } from "../../src/ui/useAgentIdentity.ts";
+import { useAgentReputation } from "../../src/ui/useAgentReputation.ts";
+import { useOpenReceipt } from "../../src/ui/useOpenReceipt.ts";
 import { useSession } from "../../src/ui/session-context.tsx";
 import { useTheme } from "../../src/ui/theme-context.tsx";
 import { tokens } from "../../src/ui/tokens.ts";
@@ -33,17 +38,23 @@ import { tokens } from "../../src/ui/tokens.ts";
 export default function AgentScreen() {
   const { address } = useLocalSearchParams<{ address: string }>();
   const { mandate, activity } = useSession();
-  const { nameOf, rename } = useAgentNames();
+  const { ofAllowance, inCurrentAllowance, renameAllowance } = useAgentNames();
   const router = useRouter();
   const c = useTheme().color;
 
-  const openReceipt = useCallback(
-    (item: Activity) => router.push({ pathname: "/receipt", params: { tx: item.tx, log: String(item.logIndex) } }),
-    [router],
-  );
+  const openReceipt = useOpenReceipt();
 
   const found = mandate.mandates.find((m) => m.agent.toLowerCase() === String(address).toLowerCase()) ?? null;
-  const name = found === null ? null : nameOf(found.agent);
+  const name = found === null ? null : ofAllowance(found.agent);
+  /** Confirmed against the registry before it is shown; see `useAgentIdentity`. */
+  const identity = useAgentIdentity(found?.agent ?? null, activity.items);
+  /**
+   * What others have said about that identity. Empty until there is something, and empty again if
+   * the registry will not answer: a score is somebody else's word, and a wrong one here would be
+   * worse than no panel at all.
+   */
+  const reputation = useAgentReputation(identity);
+  const newest = reputation[0];
 
   /** What is being typed into the name field, or `null` when it shows the kept name. */
   const [draft, setDraft] = useState<string | null>(null);
@@ -54,21 +65,21 @@ export default function AgentScreen() {
 
   const keepName = useCallback(() => {
     if (found === null || draft === null) return;
-    rename(found.agent, draft);
+    renameAllowance(found.agent, draft);
     setDraft(null);
-  }, [found, draft, rename]);
+  }, [found, draft, renameAllowance]);
 
   /**
    * Asked as a native alert with Revoke drawn as destructive, which is how iOS asks before anything
    * that cannot be undone. The sentence names the agent and says the one thing a revoke does not
-   * do, because a person who assumes it claws money back is making a decision on a false premise.
+   * do, with the amount it leaves behind, because a person who assumes it claws money back is making
+   * a decision on a false premise.
    */
   const confirmRevoke = useCallback(() => {
     if (found === null) return;
     Alert.alert(
       "Revoke this allowance?",
-      `${name ?? "This agent"} can no longer spend from your wallet once this confirms. ` +
-        "Money it already moved to pay for a purchase in progress is not returned.",
+      revokeWarning(name, found.escrow),
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -102,7 +113,12 @@ export default function AgentScreen() {
 
   const ended = hasEnded(found);
   const holding = agentHoldingNote(found.agentFloat);
-  const payments = activity.items.filter((i) => i.agent.toLowerCase() === found.agent.toLowerCase());
+  // This allowance's rows only. The agent's earlier allowances are in "See all", each under its own name.
+  const payments = activity.items.filter(
+    (i) => i.agent.toLowerCase() === found.agent.toLowerCase() && inCurrentAllowance(i),
+  );
+  // The chain's own last-used time is never set on this rail, so the feed says when money last moved.
+  const lastUsed = { ...found, lastUsedAt: found.lastUsedAt ?? lastSpentAt(payments) };
 
   return (
     <>
@@ -146,7 +162,7 @@ export default function AgentScreen() {
                 />
               );
             })}
-            <MoreRow title="See all" onPress={() => router.push({ pathname: "/activity", params: { agent: found.agent } })} />
+            <MoreRow title="See all" onPress={() => router.push(activityRoute(found.agent))} />
           </Surface>
         )}
 
@@ -154,8 +170,33 @@ export default function AgentScreen() {
         <Surface style={styles.group}>
           <DetailRow label="Ends" value={endsLine(found)} first />
           <DetailRow label="Spent" value={`${found.spent.format(2)} USDC (${spentPercentLabel(found)})`} />
-          {found.lastUsedAt !== null && <DetailRow label="Last used" value={lastUsedLabel(found)} />}
+          {lastUsed.lastUsedAt !== null && <DetailRow label="Last used" value={lastUsedLabel(lastUsed)} />}
+          {!found.escrow.isZero() && (
+            <DetailRow label="In its escrow" value={`${formatAmount(found.escrow)} USDC`} />
+          )}
+          {identity !== null && <DetailRow label="Identity" value={identityLabel(identity)} />}
         </Surface>
+
+        {/* What the agent earned, as opposed to what it spent. Shown only when the registry has
+            something to say: an agent that has not been scored simply has no panel here. */}
+        {newest !== undefined && (
+          <>
+            <Label>Earned</Label>
+            <Surface style={styles.group}>
+              {reputation.map((said, index) => (
+                <DetailRow
+                  key={`${said.client}:${index}`}
+                  label={said.tag1.length > 0 ? said.tag1 : "Score"}
+                  value={scoreLabel(said)}
+                  first={index === 0}
+                />
+              ))}
+            </Surface>
+            <Note>
+              {[scoreMeaning(newest), writtenBy(newest)].filter((line): line is string => line !== null).join(" ")}
+            </Note>
+          </>
+        )}
 
         <Label>Agent</Label>
         <Surface>
@@ -186,9 +227,6 @@ export default function AgentScreen() {
     </>
   );
 }
-
-/** Enough of a chain error to recognise it; the harness log has the whole thing. */
-const ERROR_LINES = 3;
 
 /** The latest few on the agent's own screen; "See all" has the rest. */
 const AGENT_ROWS = 5;
