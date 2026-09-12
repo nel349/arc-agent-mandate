@@ -1,3 +1,4 @@
+import { Platform } from "react-native";
 import type { Theme } from "./themes.ts";
 
 /**
@@ -25,6 +26,9 @@ export function stackChrome(color: Theme["color"]) {
     headerShadowVisible: false,
     headerLargeTitleShadowVisible: false,
     contentStyle: { backgroundColor: color.groundMid },
+    // Android draws a bar with a fill; iOS is given a transparent one per screen, below. Without
+    // this the Android header is the system's default grey over the app's own dark ground.
+    ...(Platform.OS === "android" ? { headerStyle: { backgroundColor: color.groundMid } } : {}),
   };
 }
 
@@ -35,9 +39,20 @@ export function stackChrome(color: Theme["color"]) {
  * Both backgrounds have to be cleared. Leaving either one set draws a darker band across the top of
  * the gradient, which is the bug this was extracted with rather than after.
  */
-export const TOP_LEVEL_SCREEN = {
-  headerLargeTitleEnabled: true,
-  headerTransparent: true,
-  headerStyle: { backgroundColor: TRANSPARENT },
-  headerLargeStyle: { backgroundColor: TRANSPARENT },
-};
+export const TOP_LEVEL_SCREEN = Platform.select({
+  ios: {
+    headerLargeTitleEnabled: true,
+    headerTransparent: true,
+    headerStyle: { backgroundColor: TRANSPARENT },
+    headerLargeStyle: { backgroundColor: TRANSPARENT },
+  },
+  /**
+   * Android has no large title, and a transparent bar there is not the same offer.
+   *
+   * On iOS a transparent header is drawn *over* a screen that iOS has already inset for it. Android
+   * takes it literally: the bar floats and the content starts at the top of the window, so the
+   * wallet card was drawn through the word "Allowances" and under the settings gear. An ordinary
+   * bar, filled from the theme by `stackChrome`, is what that platform means by a header.
+   */
+  default: { headerTransparent: false },
+});

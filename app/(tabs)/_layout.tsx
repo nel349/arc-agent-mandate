@@ -1,5 +1,7 @@
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { Redirect } from "expo-router";
-import { NativeTabs, Icon, Label } from "expo-router/unstable-native-tabs";
+import { Platform } from "react-native";
+import { NativeTabs, Icon, Label, VectorIcon } from "expo-router/unstable-native-tabs";
 import { ROUTES } from "../../src/ui/routes.ts";
 import { useSession } from "../../src/ui/session-context.tsx";
 import { useTheme } from "../../src/ui/theme-context.tsx";
@@ -30,6 +32,12 @@ import { useTheme } from "../../src/ui/theme-context.tsx";
  * capsule rendering light behind the settings gear. Both palettes here are dark, so there is nothing
  * for it to contradict.
  *
+ * **That argument is about iOS only, and Android needs the opposite.** Material takes its light or
+ * dark from the app's own theme rather than from a floating material, so "let the platform decide"
+ * there produced a bright lavender slab under a black app. The router applies `backgroundColor` on
+ * both platforms — only the blur and the icon colours are held back from Android — so the bar is
+ * told its colour outright, and the selected item's indicator with it.
+ *
  * Each tab owns a stack of its own (`index/_layout.tsx`, `rewards/_layout.tsx`), which is what keeps
  * the large titles and lets a screen pushed from one tab stay in that tab. Anything modal — the grant
  * flow, a receipt, an agent's own screen — is pushed by the root stack, over the bar.
@@ -49,13 +57,31 @@ export default function TabsLayout() {
       iconColor={{ default: c.dim, selected: c.paper }}
       // The bar gets out of the way while a list is being read, and comes back on the way up.
       minimizeBehavior="onScrollDown"
+      {...(Platform.OS === "android"
+        ? { backgroundColor: c.groundLow, indicatorColor: c.glass, rippleColor: c.glass }
+        : {})}
     >
-      <NativeTabs.Trigger name="index">
-        <Icon sf={{ default: "creditcard", selected: "creditcard.fill" }} />
+      {/*
+        Two glyph sets, because the platforms do not share one. `sf` is iOS only — its own type says
+        so, and an Android build given nothing else draws a tab bar of bare labels, which is what it
+        was doing.
+        `androidSrc` takes an element, but only expo-router's own `VectorIcon` wrapper: anything else
+        is dropped with a warning, which is how a first attempt at this left the bar still empty. The
+        wrapper names a family and a glyph and the router rasterises it, so Android reuses the icon
+        set the app already carries rather than a second copy of each picture as a drawable.
+      */}
+      <NativeTabs.Trigger name="(home)">
+        <Icon
+          sf={{ default: "creditcard", selected: "creditcard.fill" }}
+          androidSrc={<VectorIcon family={Ionicons} name="card-outline" />}
+        />
         <Label>Allowances</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="rewards">
-        <Icon sf={{ default: "rosette", selected: "rosette" }} />
+        <Icon
+          sf={{ default: "rosette", selected: "rosette" }}
+          androidSrc={<VectorIcon family={Ionicons} name="ribbon-outline" />}
+        />
         <Label>Rewards</Label>
       </NativeTabs.Trigger>
     </NativeTabs>

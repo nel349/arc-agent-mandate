@@ -14,7 +14,8 @@
       ]
     },
     "android": {
-      "package": "com.kuiralabs.arcmandate"
+      "package": "com.kuiralabs.arcmandate",
+      "edgeToEdgeEnabled": true
     },
     "plugins": [
       "expo-router",
