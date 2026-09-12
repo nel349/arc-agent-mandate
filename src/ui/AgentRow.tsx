@@ -114,7 +114,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: tokens.space.base,
     minHeight: tokens.size.tapTarget,
   },
-  who: { flex: 1, gap: 2 },
+  who: { flex: 1, gap: tokens.space.hair },
   name: tokens.type.headline,
   address: { ...tokens.type.data, fontWeight: "600" },
   ends: tokens.type.footnote,

@@ -43,7 +43,7 @@ export function Surface({
 
 const styles = StyleSheet.create({
   panel: {
-    borderWidth: 1,
+    borderWidth: tokens.border.hairline,
     borderRadius: tokens.radius.lg,
     padding: tokens.space.base,
     gap: tokens.space.sm,

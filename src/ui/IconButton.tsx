@@ -97,7 +97,7 @@ export function IconButton({
 const styles = StyleSheet.create({
   box: {
     borderRadius: tokens.radius.pill,
-    borderWidth: 1,
+    borderWidth: tokens.border.hairline,
     alignItems: "center",
     justifyContent: "center",
   },

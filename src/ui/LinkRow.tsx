@@ -58,7 +58,7 @@ const styles = StyleSheet.create({
     minHeight: tokens.size.tapTarget,
     paddingVertical: tokens.space.xs,
   },
-  labels: { flex: 1, gap: 2 },
+  labels: { flex: 1, gap: tokens.space.hair },
   name: tokens.type.body,
   note: tokens.type.footnote,
 });

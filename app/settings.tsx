@@ -194,9 +194,9 @@ const styles = StyleSheet.create({
     // which is not the same as guaranteeing it — a shorter label would have quietly broken it.
     minHeight: tokens.size.tapTarget,
   },
-  swatch: { flexDirection: "row", gap: 3 },
+  swatch: { flexDirection: "row", gap: tokens.space.tiny },
   chip: { ...tokens.size.swatch, borderRadius: tokens.radius.sm },
-  labels: { flex: 1, gap: 2 },
+  labels: { flex: 1, gap: tokens.space.hair },
   name: tokens.type.body,
   note: tokens.type.footnote,
   value: tokens.type.body,

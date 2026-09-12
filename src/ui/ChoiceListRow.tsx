@@ -53,7 +53,7 @@ const styles = StyleSheet.create({
     paddingVertical: tokens.space.md,
     minHeight: tokens.size.control.preset,
   },
-  text: { flex: 1, gap: 2 },
+  text: { flex: 1, gap: tokens.space.hair },
   title: tokens.type.headline,
   detail: tokens.type.footnote,
 });

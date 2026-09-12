@@ -91,7 +91,7 @@ const styles = StyleSheet.create({
   content: { padding: tokens.space.lg },
   header: { gap: tokens.space.md, paddingBottom: tokens.space.md },
   card: {
-    borderWidth: 1,
+    borderWidth: tokens.border.hairline,
     borderRadius: tokens.radius.lg,
     padding: tokens.space.base,
     gap: tokens.space.xs,

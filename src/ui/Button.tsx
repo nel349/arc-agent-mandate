@@ -52,7 +52,12 @@ export function Button({
         compact ? styles.compact : styles.base,
         solid
           ? { backgroundColor: c.actionFill }
-          : { backgroundColor: c.glass, borderWidth: 1, borderColor: c.hairline, borderTopColor: c.specular },
+          : {
+              backgroundColor: c.glass,
+              borderWidth: tokens.border.hairline,
+              borderColor: c.hairline,
+              borderTopColor: c.specular,
+            },
         off && styles.off,
         DIMS_ON_PRESS && pressed && !off && styles.pressed,
       ]}
