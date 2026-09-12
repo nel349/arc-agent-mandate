@@ -1,13 +1,18 @@
 import { useRouter } from "expo-router";
-import { useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { readEndpoint } from "../src/arc/endpoint.ts";
+import { applyStoredEndpoint, chooseEndpoint, describeEndpoint } from "../src/ui/endpoint-setting.ts";
 import { Button } from "../src/ui/Button.tsx";
+import { Field } from "../src/ui/Field.tsx";
+import { Note } from "../src/ui/Note.tsx";
 import { shortAddress } from "../src/ui/mandate-format.ts";
 import { useSession } from "../src/ui/session-context.tsx";
 import { useAppearance } from "../src/ui/theme-context.tsx";
 import { THEMES, type ThemeId } from "../src/ui/themes.ts";
 import { Label } from "../src/ui/Label.tsx";
 import { LinkRow } from "../src/ui/LinkRow.tsx";
+import { ROUTES } from "../src/ui/routes.ts";
 import { Surface } from "../src/ui/Surface.tsx";
 import { Screen } from "../src/ui/Screen.tsx";
 import { tokens } from "../src/ui/tokens.ts";
@@ -33,6 +38,42 @@ export default function SettingsScreen() {
     wallet.signOut();
     router.dismissAll();
   }, [wallet, router]);
+
+  /**
+   * The endpoint this phone was given, if it was given one, and what is being typed into the field.
+   *
+   * Read on mount rather than held in a provider: it is one screen's business, and the reads
+   * themselves were already pointed at it at launch by the root layout.
+   */
+  const [own, setOwn] = useState<string | null>(null);
+  const [typed, setTyped] = useState("");
+  useEffect(() => {
+    void applyStoredEndpoint().then((url) => {
+      setOwn(url);
+      setTyped(url ?? "");
+    });
+  }, []);
+
+  // An empty field is not a mistake — it is the default, and the row below says so. Complaining
+  // about it would put a warning on the one screen state that is completely fine.
+  const entry = typed.trim().length === 0 ? null : readEndpoint(typed);
+  const problem = entry !== null && "problem" in entry ? entry.problem : null;
+  const keepable = entry !== null && "url" in entry && entry.url !== own;
+
+  const keep = useCallback(() => {
+    const read = readEndpoint(typed);
+    if (!("url" in read)) return;
+    setOwn(read.url);
+    // The parsed form, so what is shown is what is used — a pasted address can differ by a slash.
+    setTyped(read.url);
+    void chooseEndpoint(read.url);
+  }, [typed]);
+
+  const useDefault = useCallback(() => {
+    setOwn(null);
+    setTyped("");
+    void chooseEndpoint(null);
+  }, []);
 
   return (
     <Screen>
@@ -98,6 +139,26 @@ export default function SettingsScreen() {
           <Text style={[styles.name, { color: c.paper }]}>Arc</Text>
           <Text style={[styles.value, { color: c.dim }]}>Testnet</Text>
         </View>
+
+        {/* Optional, and it says so. The endpoint the app carries works; this is for somebody who
+            has one of their own and would rather not share a public rate limit. */}
+        <Field
+          label="Your own endpoint"
+          value={typed}
+          onChangeText={setTyped}
+          placeholder="https://"
+          hint="An Arc testnet RPC URL from your own provider. It stays on this phone."
+          data
+          problem={problem}
+          confirmed={own !== null && typed === own}
+        />
+        <Note>{describeEndpoint(own)}</Note>
+        <View style={styles.actions}>
+          <Button title="Use this" icon="link-outline" compact onPress={keep} disabled={!keepable} />
+          {own !== null && (
+            <Button title="Use the default" compact tone="warn" onPress={useDefault} />
+          )}
+        </View>
       </Surface>
 
       {/* A debug tool, not a destination. It was sitting on the main screen next to Settings as
@@ -106,13 +167,13 @@ export default function SettingsScreen() {
       <Surface>
         <Label>For developers</Label>
         <LinkRow
-          href="/dev"
+          href={ROUTES.dev}
           name="Developer harness"
           note="Step through the ceremony, read the raw log"
           hint="Step through the passkey ceremony and read the raw log"
         />
         <LinkRow
-          href="/preview"
+          href={ROUTES.preview}
           name="Component preview"
           note="Every control, in every state, on one screen"
           hint="Look at each control without completing a passkey ceremony first"
@@ -149,5 +210,10 @@ const styles = StyleSheet.create({
   plain: {
     flexDirection: "row", justifyContent: "space-between", alignItems: "center",
     paddingTop: tokens.space.xs,
+  },
+  // Wraps, because "Use the default" appears beside "Use this" only once there is something to
+  // give up, and the two together are wider than a narrow phone.
+  actions: {
+    flexDirection: "row", flexWrap: "wrap", gap: tokens.space.sm, paddingTop: tokens.space.xs,
   },
 });
