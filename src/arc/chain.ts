@@ -34,6 +34,14 @@ export const ARC_CONTRACTS = {
     validation: "0x8004Cb1BF31DAf7788923b405b754f57acEB4272",
   },
   /**
+   * Cohort Zero: the badge an agent's work earns its owner, minted by the maze.
+   *
+   * A hundred places, one per holder, and the holder is whoever owns the agent's ERC-8004 identity.
+   * An earlier deployment at `0xc360…4e7f` holds the two badges minted on 09-10, before minting and
+   * governing were split between two keys. It is not this cohort, and is not read here.
+   */
+  cohortBadge: "0xe5A8fAEf7139d04582C7E17C3F615710343b53a3",
+  /**
    * Circle's Gateway Wallet, the same address on every chain Gateway supports. An agent's purchase
    * shows on Arc as a deposit into it, credited to the agent and paid for by the account, which is
    * what the payments feed reads. The connector keeps its own copy in `mcp/gateway.ts`, because it
@@ -55,6 +63,23 @@ const EXPLORER_TX_PATH = "/tx/";
 export function explorerTxUrl(hash: string): string {
   return `${arcTestnet.blockExplorers.default.url}${EXPLORER_TX_PATH}${hash}`;
 }
+
+/** Blockscout's path for one token of a collection, which is where a badge can be checked. */
+const EXPLORER_TOKEN_PATH = "/token/";
+
+/** Where a person can check a badge for themselves: the cohort's contract, and the badge's number. */
+export function explorerTokenUrl(badgeNumber: number): string {
+  const explorer = arcTestnet.blockExplorers.default.url;
+  return `${explorer}${EXPLORER_TOKEN_PATH}${ARC_CONTRACTS.cohortBadge}/instance/${badgeNumber}`;
+}
+
+/**
+ * The maze, which is where a badge is earned.
+ *
+ * Here rather than in a screen because it is an address that outlives this app's copy of it: the
+ * reputation records on chain quote it, and the badge's own `tokenURI` points at it.
+ */
+export const MAZE_URL = "https://arc-maze.vercel.app";
 
 /** The path segment Circle's modular RPC expects for this chain, per their own docs. */
 export const ARC_TESTNET_TRANSPORT_PATH = "arcTestnet";
