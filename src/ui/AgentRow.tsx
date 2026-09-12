@@ -5,6 +5,7 @@ import type { Mandate } from "../arc/mandate.ts";
 import { ArcRing } from "./ArcRing.tsx";
 import { identityLabel } from "./activity-format.ts";
 import { agentRowLabel, endsLine, fractionUsed, hasEnded, shortAddress } from "./mandate-format.ts";
+import { DIMS_ON_PRESS, ripple } from "./press.ts";
 import { useTheme } from "./theme-context.tsx";
 import { tokens } from "./tokens.ts";
 
@@ -46,10 +47,11 @@ function AgentRowView({
       accessibilityRole="button"
       accessibilityLabel={agentRowLabel(mandate, name)}
       accessibilityHint="Opens this allowance"
+      android_ripple={ripple(c.specular)}
       style={({ pressed }) => [
         styles.row,
         !first && { borderTopWidth: tokens.border.hairline, borderTopColor: c.hairline },
-        pressed && { backgroundColor: c.glass },
+        DIMS_ON_PRESS && pressed && { backgroundColor: c.glass },
       ]}
     >
       <ArcRing spent={fractionUsed(mandate)} ended={ended} label="" size={tokens.size.ring.row} />

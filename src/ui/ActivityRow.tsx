@@ -3,6 +3,7 @@ import { memo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import type { Activity, ActivityKind } from "../arc/activity.ts";
 import { activityAmount, type ActivityRowText } from "./activity-format.ts";
+import { DIMS_ON_PRESS, ripple } from "./press.ts";
 import { useTheme } from "./theme-context.tsx";
 import { tokens } from "./tokens.ts";
 
@@ -40,10 +41,11 @@ function ActivityRowView({
       accessibilityRole="button"
       accessibilityLabel={`${title}. ${detail}.${amount === null ? "" : ` ${amount} USDC.`}`}
       accessibilityHint="Opens the receipt"
+      android_ripple={ripple(c.specular)}
       style={({ pressed }) => [
         styles.row,
         !first && { borderTopWidth: tokens.border.hairline, borderTopColor: c.hairline },
-        pressed && { backgroundColor: c.glass },
+        DIMS_ON_PRESS && pressed && { backgroundColor: c.glass },
       ]}
     >
       <View style={[styles.glyph, { borderColor: c.hairline }]}>

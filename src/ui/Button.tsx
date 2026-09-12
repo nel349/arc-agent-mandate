@@ -1,5 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { DIMS_ON_PRESS, ripple } from "./press.ts";
 import { useTheme } from "./theme-context.tsx";
 import { tokens } from "./tokens.ts";
 
@@ -44,13 +45,16 @@ export function Button({
       accessibilityRole="button"
       accessibilityState={{ disabled: off, busy }}
       accessibilityLabel={title}
+      // The ripple is drawn in whatever reads on this button's own fill: the ground under a solid
+      // one, the lit edge under glass.
+      android_ripple={ripple(solid ? c.groundMid : c.specular)}
       style={({ pressed }) => [
         compact ? styles.compact : styles.base,
         solid
           ? { backgroundColor: c.actionFill }
           : { backgroundColor: c.glass, borderWidth: 1, borderColor: c.hairline, borderTopColor: c.specular },
         off && styles.off,
-        pressed && !off && styles.pressed,
+        DIMS_ON_PRESS && pressed && !off && styles.pressed,
       ]}
     >
       {busy ? (

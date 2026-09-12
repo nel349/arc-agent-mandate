@@ -1,6 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
 import { Pressable, StyleSheet } from "react-native";
+import { ripple } from "./press.ts";
 import { ROUTES } from "./routes.ts";
 import { useTheme } from "./theme-context.tsx";
 import { tokens } from "./tokens.ts";
@@ -30,6 +31,9 @@ export function SettingsButton() {
   return (
     <Pressable
       onPress={() => router.push(ROUTES.settings)}
+      // Borderless: the gear has no shape of its own, so the ripple is a circle around it rather
+      // than a square nobody drew.
+      android_ripple={ripple(c.specular, true)}
       style={styles.button}
       hitSlop={Math.round((tokens.size.tapTarget - HEADER_ICON) / 2)}
       accessibilityRole="button"

@@ -1,6 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Link } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { ripple } from "./press.ts";
 import { useTheme } from "./theme-context.tsx";
 import { tokens } from "./tokens.ts";
 
@@ -30,7 +31,12 @@ export function LinkRow({
 
   return (
     <Link href={href} asChild>
-      <Pressable accessibilityRole="link" accessibilityLabel={name} accessibilityHint={hint}>
+      <Pressable
+        accessibilityRole="link"
+        accessibilityLabel={name}
+        accessibilityHint={hint}
+        android_ripple={ripple(c.specular)}
+      >
         <View style={styles.row}>
           <View style={styles.labels}>
             <Text style={[styles.name, { color: c.paper }]}>{name}</Text>

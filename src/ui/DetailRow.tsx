@@ -1,5 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { DIMS_ON_PRESS, ripple } from "./press.ts";
 import { useTheme } from "./theme-context.tsx";
 import { tokens } from "./tokens.ts";
 
@@ -54,7 +55,10 @@ export function DetailRow({
       accessibilityRole="link"
       accessibilityLabel={`${label}: ${value}`}
       {...(hint === undefined ? {} : { accessibilityHint: hint })}
-      style={({ pressed }) => [styles.row, rule, pressed && { opacity: tokens.opacity.pressed }]}
+      android_ripple={ripple(c.specular)}
+      style={({ pressed }) => [
+        styles.row, rule, DIMS_ON_PRESS && pressed && { opacity: tokens.opacity.pressed },
+      ]}
     >
       {content}
     </Pressable>
