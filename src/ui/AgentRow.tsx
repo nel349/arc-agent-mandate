@@ -3,6 +3,7 @@ import { memo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import type { Mandate } from "../arc/mandate.ts";
 import { ArcRing } from "./ArcRing.tsx";
+import { identityLabel } from "./activity-format.ts";
 import { agentRowLabel, endsLine, fractionUsed, hasEnded, shortAddress } from "./mandate-format.ts";
 import { useTheme } from "./theme-context.tsx";
 import { tokens } from "./tokens.ts";
@@ -19,10 +20,19 @@ import { tokens } from "./tokens.ts";
  * whether to step in.
  */
 function AgentRowView({
-  mandate, name, onPress, first,
+  mandate, name, identity = null, onPress, first,
 }: {
   readonly mandate: Mandate;
   readonly name: string | null;
+  /**
+   * The agent's ERC-8004 identity, or null while there is none confirmed.
+   *
+   * Shown here because its absence was read as its absence: the identity is set up silently by the
+   * connector, so the only place it appeared was a screen you had to tap into, and not seeing it on
+   * the list looked like it had never happened. The number itself is what a seller is given, and
+   * that belongs on the agent's own screen; what the list owes is the confirmation.
+   */
+  readonly identity?: bigint | null;
   readonly onPress: (agent: `0x${string}`) => void;
   /** The first row in a group has no rule above it. */
   readonly first: boolean;
@@ -55,6 +65,18 @@ function AgentRowView({
         <Text style={[styles.ends, { color: ended ? c.warn : c.dim }]} numberOfLines={1}>
           {endsLine(mandate)}
         </Text>
+        {/*
+          Its own line, and named in full.
+
+          Squeezed onto the line above as a bare "#894344" it was the very thing this was meant to
+          fix: a number with nothing saying what it is. It also carries its own colour rather than
+          the warn an ended allowance takes, because the identity is not what ended.
+        */}
+        {identity !== null && (
+          <Text style={[styles.identity, { color: c.dim }]} numberOfLines={1}>
+            {identityLabel(identity)}
+          </Text>
+        )}
       </View>
 
       <View style={styles.figure}>
@@ -72,6 +94,7 @@ function AgentRowView({
 /** Compared by value: the list is rebuilt from fresh chain reads every ten seconds. */
 export const AgentRow = memo(AgentRowView, (a, b) =>
   a.name === b.name &&
+  a.identity === b.identity &&
   a.first === b.first &&
   a.onPress === b.onPress &&
   a.mandate.agent === b.mandate.agent &&
@@ -93,6 +116,7 @@ const styles = StyleSheet.create({
   name: tokens.type.headline,
   address: { ...tokens.type.data, fontWeight: "600" },
   ends: tokens.type.footnote,
+  identity: tokens.type.caption,
   figure: { alignItems: "flex-end" },
   amount: { ...tokens.type.headline, fontVariant: [...tokens.font.tabular] },
   unit: tokens.type.caption,
