@@ -15,7 +15,15 @@
     },
     "android": {
       "package": "com.kuiralabs.arcmandate",
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "android.permission.CAMERA"
+      ],
+      "adaptiveIcon": {
+        "foregroundImage": "./brand/android/adaptive-foreground.png",
+        "monochromeImage": "./brand/android/adaptive-monochrome.png",
+        "backgroundColor": "#12110F"
+      }
     },
     "plugins": [
       "expo-router",
@@ -40,6 +48,12 @@
         }
       ]
     ],
-    "icon": "./assets/icon.png"
+    "icon": "./brand/icon/icon-1024.png",
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "f04c7c22-4b65-4936-92a7-b95f30058a27"
+      }
+    }
   }
 }
