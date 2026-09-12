@@ -1,23 +1,23 @@
-import { Stack, useRouter } from "expo-router";
-import { useCallback, useState } from "react";
+import { useRouter } from "expo-router";
+import { useCallback } from "react";
 import { ActivityIndicator, Linking, Share, StyleSheet, Text, View } from "react-native";
-import { TESTNET_FAUCET_URL } from "../src/arc/chain.ts";
-import type { Activity } from "../src/arc/activity.ts";
-import { ActivityRow } from "../src/ui/ActivityRow.tsx";
-import { AgentRow } from "../src/ui/AgentRow.tsx";
-import { MoreRow } from "../src/ui/MoreRow.tsx";
-import { activityRowText } from "../src/ui/activity-format.ts";
-import { ArcRing } from "../src/ui/ArcRing.tsx";
-import { Button } from "../src/ui/Button.tsx";
-import { Label } from "../src/ui/Label.tsx";
-import { Note } from "../src/ui/Note.tsx";
-import { Screen } from "../src/ui/Screen.tsx";
-import { Surface } from "../src/ui/Surface.tsx";
-import { useAgentNames } from "../src/ui/agent-names-context.tsx";
-import { shortAddress } from "../src/ui/mandate-format.ts";
-import { useSession } from "../src/ui/session-context.tsx";
-import { useTheme } from "../src/ui/theme-context.tsx";
-import { tokens } from "../src/ui/tokens.ts";
+import { TESTNET_FAUCET_URL } from "../../../src/arc/chain.ts";
+import { ActivityRow } from "../../../src/ui/ActivityRow.tsx";
+import { AgentRowLive } from "../../../src/ui/AgentRowLive.tsx";
+import { MoreRow } from "../../../src/ui/MoreRow.tsx";
+import { activityRowText } from "../../../src/ui/activity-format.ts";
+import { Button } from "../../../src/ui/Button.tsx";
+import { Label } from "../../../src/ui/Label.tsx";
+import { ERROR_LINES, Note } from "../../../src/ui/Note.tsx";
+import { Screen } from "../../../src/ui/Screen.tsx";
+import { Surface } from "../../../src/ui/Surface.tsx";
+import { agentRoute, ROUTES } from "../../../src/ui/routes.ts";
+import { useOpenReceipt } from "../../../src/ui/useOpenReceipt.ts";
+import { useAgentNames } from "../../../src/ui/agent-names-context.tsx";
+import { shortAddress } from "../../../src/ui/mandate-format.ts";
+import { useSession } from "../../../src/ui/session-context.tsx";
+import { useTheme } from "../../../src/ui/theme-context.tsx";
+import { tokens } from "../../../src/ui/tokens.ts";
 
 /**
  * The product: what you hold, which agents may spend it, and how much each has left.
@@ -28,18 +28,16 @@ import { tokens } from "../src/ui/tokens.ts";
  */
 export default function AllowancesScreen() {
   const { wallet, mandate, activity } = useSession();
-  const { nameOf } = useAgentNames();
+  const { ofAllowance, ofRow } = useAgentNames();
   const router = useRouter();
   const c = useTheme().color;
 
-  const open = useCallback((agent: `0x${string}`) => router.push(`/agent/${agent}`), [router]);
-  const openReceipt = useCallback(
-    (item: Activity) => router.push({ pathname: "/receipt", params: { tx: item.tx, log: String(item.logIndex) } }),
-    [router],
-  );
+  const open = useCallback((agent: `0x${string}`) => router.push(agentRoute(agent)), [router]);
+  const openReceipt = useOpenReceipt();
 
-  if (wallet.restoring) return <Opening />;
-  if (wallet.account === null) return <Welcome />;
+  // Without a wallet this tab does not exist: `app/(tabs)/_layout.tsx` has already sent the person
+  // to the welcome screen. This is the frame before that redirect lands, not a state to design for.
+  if (wallet.account === null) return null;
 
   const address = wallet.account.address;
   // The first read has not come back yet. Saying "no allowances" before knowing would be a claim.
@@ -52,7 +50,7 @@ export default function AllowancesScreen() {
           tier="solid"
           icon="add"
           title="New allowance"
-          onPress={() => router.push("/grant")}
+          onPress={() => router.push(ROUTES.grant)}
           disabled={mandate.ready === false}
         />
       }
@@ -83,6 +81,9 @@ export default function AllowancesScreen() {
           title="Get test USDC"
           onPress={() => void Linking.openURL(TESTNET_FAUCET_URL)}
         />
+        <Text style={[styles.caption, { color: c.muted }]}>
+          On the faucet, choose Arc testnet and paste your wallet&apos;s address, from Share address above.
+        </Text>
       </Surface>
 
       {wallet.error !== null && <Note tone="warn" lines={ERROR_LINES}>{wallet.error}</Note>}
@@ -102,10 +103,10 @@ export default function AllowancesScreen() {
       ) : (
         <Surface style={styles.group}>
           {mandate.mandates.map((item, index) => (
-            <AgentRow
+            <AgentRowLive
               key={item.agent}
               mandate={item}
-              name={nameOf(item.agent)}
+              name={ofAllowance(item.agent)}
               onPress={open}
               first={index === 0}
             />
@@ -118,7 +119,7 @@ export default function AllowancesScreen() {
           <Label>Recent activity</Label>
           <Surface style={styles.group}>
             {activity.items.slice(0, RECENT_ROWS).map((item, index) => {
-              const text = activityRowText(item, { name: nameOf(item.agent), withAgent: true, underDayHeading: false });
+              const text = activityRowText(item, { name: ofRow(item), withAgent: true, underDayHeading: false });
               return (
                 <ActivityRow
                   key={`${item.tx}:${item.logIndex}`}
@@ -129,7 +130,7 @@ export default function AllowancesScreen() {
                 />
               );
             })}
-            <MoreRow title="See all activity" onPress={() => router.push("/activity")} />
+            <MoreRow title="See all activity" onPress={() => router.push(ROUTES.activity)} />
           </Surface>
         </>
       )}
@@ -143,89 +144,6 @@ export default function AllowancesScreen() {
 
 /** Enough to see that an agent is active, and what it last did, without turning home into the feed. */
 const RECENT_ROWS = 3;
-
-/**
- * The first screen anyone sees, which used to say "No wallet yet" over two buttons and nothing
- * else. It now says what the app is for, shows the ring as the idea, and says what a passkey means
- * here, because "Create a wallet" is a big ask from an app that has not yet said why.
- */
-function Welcome() {
-  const { wallet } = useSession();
-  const c = useTheme().color;
-  /**
-   * Which of the two was tapped, so only that one spins. Both used to take `wallet.busy`, and
-   * tapping either put a spinner on both.
-   */
-  const [chosen, setChosen] = useState<"create" | "signIn" | null>(null);
-  const working = (which: "create" | "signIn") => wallet.busy && chosen === which;
-
-  return (
-    <>
-      {/* No "Allowances" over a screen that cannot have any yet. */}
-      <Stack.Screen options={{ title: "" }} />
-      <Screen
-        centered
-        footer={
-          <>
-            <Button
-              tier="solid"
-              title="Create a wallet"
-              onPress={() => { setChosen("create"); wallet.create(); }}
-              busy={working("create")}
-              disabled={wallet.busy}
-            />
-            <Button
-              title="I already have a passkey"
-              onPress={() => { setChosen("signIn"); wallet.signIn(); }}
-              busy={working("signIn")}
-              disabled={wallet.busy}
-            />
-          </>
-        }
-      >
-        <View style={styles.welcome}>
-          <ArcRing spent={WELCOME_RING} size={tokens.size.ring.welcome} label="" />
-          <Text style={[styles.welcomeTitle, { color: c.paper }]}>Let an agent spend, within limits</Text>
-          <Text style={[styles.welcomeBody, { color: c.muted }]}>
-            Give an AI agent an allowance in USDC. It can spend up to the limit you set, until the
-            date you choose, and you can take it back at any time.
-          </Text>
-          <Text style={[styles.welcomeNote, { color: c.dim }]}>
-            Your wallet opens with Face ID. There is no password, and nothing to write down.
-          </Text>
-          {wallet.error !== null && <Note tone="warn" lines={ERROR_LINES}>{wallet.error}</Note>}
-        </View>
-      </Screen>
-    </>
-  );
-}
-
-/**
- * Between launch and the wallet: the ring and one line.
- *
- * Reopening a remembered wallet takes a moment, and showing the welcome screen during it put two
- * big buttons in front of somebody who was already signed in.
- */
-function Opening() {
-  const c = useTheme().color;
-  return (
-    <>
-      <Stack.Screen options={{ title: "" }} />
-      <Screen centered>
-        <View style={styles.welcome}>
-          <ArcRing spent={WELCOME_RING} size={tokens.size.ring.welcome} label="" />
-          <Text style={[styles.welcomeNote, { color: c.dim }]}>Opening your wallet</Text>
-        </View>
-      </Screen>
-    </>
-  );
-}
-
-/** Enough of the ring drawn to read as a limit partly used, which is the whole idea in one shape. */
-const WELCOME_RING = 0.35;
-
-/** Enough of a chain error to recognise it; the harness log has the whole thing. */
-const ERROR_LINES = 3;
 
 const styles = StyleSheet.create({
   caption: tokens.type.footnote,
@@ -242,13 +160,4 @@ const styles = StyleSheet.create({
   group: { padding: 0, gap: 0, overflow: "hidden" },
   emptyTitle: tokens.type.headline,
   emptyBody: tokens.type.subheadline,
-  // Centred vertically by `Screen centered`; this only centres across and spaces the parts.
-  welcome: {
-    alignItems: "center",
-    gap: tokens.space.base,
-    paddingHorizontal: tokens.space.base,
-  },
-  welcomeTitle: { ...tokens.type.title, textAlign: "center" },
-  welcomeBody: { ...tokens.type.body, textAlign: "center" },
-  welcomeNote: { ...tokens.type.footnote, textAlign: "center" },
 });

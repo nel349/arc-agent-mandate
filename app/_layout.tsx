@@ -1,44 +1,16 @@
-import Ionicons from "@expo/vector-icons/Ionicons";
-import { Stack, useRouter } from "expo-router";
-import { Pressable, StyleSheet } from "react-native";
+import { Stack } from "expo-router";
+import { useEffect } from "react";
 import { AgentNamesProvider } from "../src/ui/agent-names-context.tsx";
+import { applyStoredEndpoint } from "../src/ui/endpoint-setting.ts";
+import { stackChrome } from "../src/ui/navigation-chrome.ts";
 import { SessionProvider } from "../src/ui/session-context.tsx";
 import { ThemeProvider, useTheme } from "../src/ui/theme-context.tsx";
-import { tokens } from "../src/ui/tokens.ts";
 
 /** A bar with no fill of its own, over a screen that paints its own ground. */
 const TRANSPARENT = "transparent";
 
 /** The receipt's resting height, as a fraction of the screen: the figure and its four rows. */
 const RECEIPT_HEIGHT = 0.62;
-
-/** Sized from the shared control scale, so it matches the `?` controls in content. */
-const HEADER_ICON = Math.round(tokens.size.control.header * tokens.size.glyphScale);
-
-const styles = StyleSheet.create({
-  /**
-   * Width, deliberately, and no height.
-   *
-   * The two axes are owned by different layers, which is why setting both puts the glyph off
-   * centre. iOS 26 draws its own glass capsule behind a header item at a fixed 44pt and centres it
-   * vertically in the bar. React Navigation, meanwhile, lays our view out **top-aligned** in its
-   * own container, whose top sits 4pt below where the capsule starts. So the moment we give the
-   * view a height, we are centring the glyph inside our box rather than inside the capsule the
-   * eye actually sees, and the two disagree by that 4pt. Left alone, the system centres the glyph
-   * for us and the axis is exact.
-   *
-   * Horizontally the system does not help: the capsule keeps its 44pt minimum while a 24pt glyph
-   * sits at the leading edge of it, 6pt shy of centre. A width — and nothing else — closes that.
-   *
-   * Both figures were measured off the simulator, not reasoned about; an earlier attempt to
-   * explain them with font metrics was wrong, and the giveaway was that the error stayed a
-   * constant 4pt when the glyph grew by a quarter. Typography scales with the type. Layout does
-   * not.
-   */
-  headerButton: { width: tokens.size.tapTarget, alignItems: "center" },
-  /** Android only, and a no-op on iOS: keeps the icon font from adding padding of its own. */
-  headerIcon: { includeFontPadding: false },
-});
 
 /**
  * The providers wrap the navigator so every screen, including the headers the navigator draws,
@@ -49,6 +21,11 @@ const styles = StyleSheet.create({
  * wallet held by one screen's state is a wallet the next screen cannot see.
  */
 export default function RootLayout() {
+  // Before any screen reads Arc, point the reads at the endpoint this phone was given, if it was
+  // given one. Above the providers because every screen under them reads the chain, and none of
+  // them should have to know where from.
+  useEffect(() => { void applyStoredEndpoint(); }, []);
+
   return (
     <ThemeProvider>
       <SessionProvider>
@@ -62,68 +39,23 @@ export default function RootLayout() {
 
 function Navigator() {
   const c = useTheme().color;
-  const router = useRouter();
   return (
     <Stack
       screenOptions={{
+        ...stackChrome(c),
+        // The one difference from a tab's stack: these screens are pushed over the app rather than
+        // laid on its gradient, so their bar has a fill of its own.
         headerStyle: { backgroundColor: c.groundMid },
-        headerTintColor: c.paper,
-        headerTitleStyle: { color: c.paper },
-        headerLargeTitleStyle: { color: c.paper },
-        headerShadowVisible: false,
-        headerLargeTitleShadowVisible: false,
-        contentStyle: { backgroundColor: c.groundMid },
       }}
     >
-      <Stack.Screen
-        name="index"
-        options={{
-          title: "Allowances",
-          // A large title, as Apple asks of a top-level screen, over the screen's own lit ground.
-          // Transparent so the gradient runs to the top edge; iOS draws its own scroll edge
-          // effect once content passes beneath the bar.
-          headerLargeTitleEnabled: true,
-          headerTransparent: true,
-          // Both cleared, or the bar keeps the ground colour from `screenOptions` and draws a
-          // darker band across the top of the gradient.
-          headerStyle: { backgroundColor: TRANSPARENT },
-          headerLargeStyle: { backgroundColor: TRANSPARENT },
-          // Settings is occasional, so it belongs in the chrome rather than in the content.
-          /**
-           * A view, because the native option is not available here.
-           *
-           * `unstable_headerRightItems` is the right answer — it hands iOS a real
-           * `UIBarButtonItem` and the system owns shape, padding, tint and alignment. React
-           * Navigation 7.18 accepts it, but `react-native-screens` 4.16, which Expo SDK 54 pins,
-           * implements neither the JS nor the native side and drops the prop silently. Passing it
-           * removed the button altogether. Revisit when screens supports it.
-           *
-           * So: a glyph and a width, with no background of our own. iOS 26 already draws a
-           * capsule around header items, and a second one of ours inside it reads as a box within
-           * a box. `IconButton` is not reused here for exactly that reason — it brings its own
-           * ring and its own centring, both of which the system is already providing. See
-           * `headerButton` above for which axis belongs to whom.
-           *
-           * `hitSlop` restores the touch target the glyph is too small to fill on its own.
-           */
-          headerRight: () => (
-            <Pressable
-              onPress={() => router.push("/settings")}
-              style={styles.headerButton}
-              hitSlop={Math.round((tokens.size.tapTarget - HEADER_ICON) / 2)}
-              accessibilityRole="button"
-              accessibilityLabel="Settings"
-            >
-              <Ionicons
-                name="settings-outline"
-                size={HEADER_ICON}
-                color={c.paper}
-                style={styles.headerIcon}
-              />
-            </Pressable>
-          ),
-        }}
-      />
+      {/*
+        The two top-level screens, each a tab with a stack of its own: what your agents may spend,
+        and what they have earned. The bar is the platform's own — see `app/(tabs)/_layout.tsx` —
+        so this stack shows no header of its own over it.
+      */}
+      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      {/* Before the app: no bar, and no title over a screen that cannot have allowances yet. */}
+      <Stack.Screen name="welcome" options={{ headerShown: false }} />
       {/* Pushed: drilling into one item of the list. Its title is the agent's name, set by the
           screen once it knows it. */}
       <Stack.Screen
@@ -150,7 +82,9 @@ function Navigator() {
           title: "",
         }}
       />
-      <Stack.Screen name="settings" options={{ title: "Settings" }} />
+      {/* Named, or the back button reads "(tabs)" — the route group's own name, which is an
+          implementation detail of the file tree and not a place anybody has been. */}
+      <Stack.Screen name="settings" options={{ title: "Settings", headerBackTitle: "Back" }} />
       <Stack.Screen name="dev" options={{ title: "Developer harness" }} />
       <Stack.Screen name="preview" options={{ title: "Component preview" }} />
     </Stack>
