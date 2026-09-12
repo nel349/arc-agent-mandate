@@ -1,6 +1,9 @@
 import { useState, type ReactNode } from "react";
-import { KeyboardAvoidingView, ScrollView, StyleSheet, View, type LayoutChangeEvent } from "react-native";
+import {
+  KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View, type LayoutChangeEvent,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useTabBarHeight } from "./TabBarInsets.tsx";
 import { useTheme } from "./theme-context.tsx";
 import { tokens } from "./tokens.ts";
 
@@ -76,6 +79,17 @@ export function Screen({
 }) {
   const c = useTheme().color;
   const insets = useSafeAreaInsets();
+  // Zero on iOS, where the bar is already inside `insets`, and zero outside the tabs on both.
+  const underTabBar = useTabBarHeight();
+  /**
+   * What the system takes from the bottom, on the platform that does not give it back.
+   *
+   * `contentInsetAdjustmentBehavior="automatic"` below is **iOS only**: there, UIKit pads a scroll
+   * view for the home indicator itself and adding our own would count it twice. Android ignores the
+   * prop entirely, so content simply runs under the gesture bar — which sliced the last control of
+   * Settings in half, a screen that has no footer to pad it and no tab bar over it either.
+   */
+  const systemBottom = Platform.OS === "android" ? insets.bottom : 0;
   // Measured rather than assumed, so a footer of one button or two leaves exactly enough room.
   const [footerHeight, setFooterHeight] = useState(0);
   const measure = (event: LayoutChangeEvent) => setFooterHeight(event.nativeEvent.layout.height);
@@ -100,7 +114,11 @@ export function Screen({
             }
           // iOS already adds the home indicator to the bottom inset here, and the footer's height
           // includes it too, so it is taken out once rather than counted twice.
-          : footer !== undefined && { paddingBottom: Math.max(footerHeight - insets.bottom, tokens.space.lg) },
+          : footer !== undefined
+            ? { paddingBottom: Math.max(footerHeight - insets.bottom, tokens.space.lg) }
+            // No footer, so nothing else is holding the end of the content clear of the tab bar or
+            // of the system's own bar. On iOS both terms are zero and the inset behaviour handles it.
+            : { paddingBottom: underTabBar + systemBottom },
       ]}
       // `automatic` lets iOS place content under a large title and above the home indicator, and
       // lets the title collapse as the list scrolls. A centred screen has no title to sit under.
@@ -117,7 +135,7 @@ export function Screen({
     <View
       onLayout={measure}
       pointerEvents="box-none"
-      style={[styles.footer, { paddingBottom: insets.bottom + tokens.space.sm }]}
+      style={[styles.footer, { paddingBottom: insets.bottom + underTabBar + tokens.space.sm }]}
     >
       {Gradient === null ? (
         <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: c.groundLow }]} />

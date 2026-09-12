@@ -1,28 +1,44 @@
-import { type ReactNode } from "react";
-import { StyleSheet } from "react-native";
+import { createContext, useContext, type ReactNode } from "react";
+import { Platform, StyleSheet } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 /**
- * Safe-area insets that know the floating tab bar is there.
+ * How much room the tab bar takes from the bottom of a tab's screen, on each platform.
  *
- * On iOS 26 the tab bar is a capsule floating **over** the screen, not a strip below it, so a tab's
- * content runs underneath it. Scrolling content copes on its own — `react-native-screens` restores
- * UIKit's `automatic` content inset adjustment, which accounts for the bar — but anything positioned
- * against the bottom edge does not, and `Screen`'s footer is exactly that. The result was the bar
- * sitting on top of "New allowance".
+ * The two platforms hide the bar from a screen in opposite ways, so one answer cannot serve both.
  *
- * The height of the bar is not published by `expo-router`'s native tabs, and hard-coding a measured
- * one would be a number that silently rots with the next iOS. So instead of asking how tall the bar
- * is, this asks the view. A nested `SafeAreaProvider` renders a native view and reports **that
- * view's** safe area rather than the window's, and inside a tab that area already has the bar
- * subtracted from it. Every `useSafeAreaInsets()` below this — `Screen`'s footer included — then
- * clears the bar without knowing it exists.
+ * **iOS 26** floats the bar *over* the screen. Its height is not published, so nothing here guesses
+ * it: a nested `SafeAreaProvider` renders a native view and reports **that view's** safe area, which
+ * inside a tab already has the bar subtracted. Every `useSafeAreaInsets()` below this clears the bar
+ * without knowing it exists. That is why this wrapper exists at all.
  *
- * Only the two tab screens need it. Screens pushed over the bar (an agent, the activity list,
- * settings) live on the root stack, where the window's own insets are the correct answer.
+ * **Android** does not put the bar in the safe area. It is a Material bottom navigation bar laid out
+ * edge to edge, and a screen's own content runs underneath it — which is how "New allowance"
+ * disappeared entirely rather than merely being covered: pinned to `bottom: 0`, it landed below the
+ * visible window. Measured on a device, the bar is 210px on a screen whose density makes that exactly
+ * the 80dp Material specifies, so this is the platform's published metric rather than a number
+ * somebody eyeballed.
+ *
+ * Screens ask for it through `useTabBarHeight`, and screens outside the tabs get zero, because there
+ * is no bar over them.
  */
+const ANDROID_TAB_BAR = 80;
+
+const UnderTabBar = createContext(0);
+
+/** What a screen must leave clear at the bottom for the tab bar. Zero outside the tabs. */
+export function useTabBarHeight(): number {
+  return useContext(UnderTabBar);
+}
+
 export function TabBarInsets({ children }: { readonly children: ReactNode }) {
-  return <SafeAreaProvider style={styles.fill}>{children}</SafeAreaProvider>;
+  return (
+    <SafeAreaProvider style={styles.fill}>
+      <UnderTabBar.Provider value={Platform.OS === "android" ? ANDROID_TAB_BAR : 0}>
+        {children}
+      </UnderTabBar.Provider>
+    </SafeAreaProvider>
+  );
 }
 
 const styles = StyleSheet.create({
