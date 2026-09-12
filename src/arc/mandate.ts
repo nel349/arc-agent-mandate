@@ -1,6 +1,7 @@
 import {
-  encodeAbiParameters, encodeFunctionData, keccak256, parseAbi, parseAbiItem, parseAbiParameters,
-  parseEventLogs, toFunctionSelector, toHex, type Address, type Hash, type Hex, type Log,
+  BaseError, ContractFunctionRevertedError, encodeAbiParameters, encodeFunctionData, keccak256,
+  parseAbi, parseAbiItem, parseAbiParameters, parseEventLogs, toFunctionSelector, toHex,
+  type Address, type Hash, type Hex, type Log,
 } from "viem";
 import { getUserOperationGasPrice } from "@circle-fin/modular-wallets-core";
 import { arcPublicClient, isDeployed } from "./client.ts";
@@ -99,6 +100,11 @@ const pluginAbi = parseAbi([
   "function getNativeTokenSpendLimitInfo(address account, address sessionKey) view returns ((bool hasLimit, uint256 limit, uint256 limitUsed, uint48 refreshInterval, uint48 lastUsedTime))",
   "function getKeyTimeRange(address account, address sessionKey) view returns (uint48 validAfter, uint48 validUntil)",
   "function getERC20SpendLimitInfo(address account, address sessionKey, address token) view returns ((bool hasLimit, uint256 limit, uint256 limitUsed, uint48 refreshInterval, uint48 lastUsedTime))",
+  // Never called; carried so that a revert arrives decoded by name instead of as a bare selector
+  // nobody can read. Every loupe read raises it from one place, `_loadSessionKeyId`, and only when
+  // the address has no key id under the account — so it says exactly one thing: not a session key
+  // of this account.
+  "error InvalidSessionKey(address sessionKey)",
 ]);
 
 /** Circle's Gateway, for what is in an agent's escrow. */
@@ -738,8 +744,51 @@ export async function listMandates(address: Address): Promise<Mandate[]> {
   const agents = await arcPublicClient.readContract({
     address: SESSION_KEY_PLUGIN, abi: pluginAbi, functionName: "sessionKeysOf", args: [address],
   });
-  return Promise.all(agents.map((agent) => readMandate(address, agent)));
+  const read = await Promise.all(agents.map(async (agent) => {
+    try {
+      return await readMandate(address, agent);
+    } catch (cause) {
+      // Naming the keys and reading each one are separate calls at separate blocks, so a revoke
+      // landing between them leaves the list naming a key the plugin has already forgotten. That
+      // put "Arc is busy" on the screen at the exact moment a revoke succeeded, which reads as the
+      // revoke having failed. A key that has gone is not a failed read — it is one fewer allowance,
+      // which is what was just asked for.
+      if (!keyIsGone(cause)) throw cause;
+      return null;
+    }
+  }));
+  // `flatMap` rather than a filter and a cast: the step that drops the gone keys is the step that
+  // narrows the type, so nothing has to be asserted afterwards.
+  return read.flatMap((mandate) => mandate === null ? [] : [mandate]);
 }
+
+/**
+ * Whether a read failed because that address is no longer one of the account's session keys.
+ *
+ * Narrow on purpose. `InvalidSessionKey` is the plugin's answer to that one question and nothing
+ * else, so treating it as "gone" hides nothing; every other revert, and every network failure,
+ * still surfaces. Exported for the same reason `buildGrantPlan` is: deciding which failures are
+ * ordinary is a judgement worth a test, and a predicate that needs a chain to run is a predicate
+ * nobody tests.
+ */
+export function keyIsGone(cause: unknown): boolean {
+  return cause instanceof BaseError && cause.walk((error) =>
+    error instanceof ContractFunctionRevertedError
+      && error.raw?.startsWith(NOT_A_SESSION_KEY) === true,
+  ) !== null;
+}
+
+/**
+ * How `InvalidSessionKey` arrives on the wire.
+ *
+ * Matched on the raw revert rather than the decoded name so the answer does not depend on the ABI
+ * the read happened to use: a caller whose ABI does not declare the error gets back a bare selector
+ * and nothing to compare a name against, which is silently the old bug again. Derived from the
+ * signature rather than written out, because a four-byte constant nobody can check is the kind of
+ * thing that survives a rename of what it stands for. Errors and functions are selected the same
+ * way, which is why the function helper hashes this correctly.
+ */
+const NOT_A_SESSION_KEY = toFunctionSelector("InvalidSessionKey(address)");
 
 /**
  * Which meter is in force, and what it says.

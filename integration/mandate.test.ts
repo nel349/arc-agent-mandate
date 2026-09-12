@@ -1,6 +1,7 @@
 import { after, before, beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { encodeFunctionData, parseEther } from "viem";
+import { keyIsGone } from "../src/arc/mandate.ts";
 import * as arc from "./harness.ts";
 
 /**
@@ -111,6 +112,21 @@ describe("a mandate, end to end on a forked Arc", () => {
         await assert.rejects(() => arc.pay(arc.PAYEE, parseEther(amount)), /REFUSED/);
       }
       assert.equal(await arc.balance(arc.PAYEE), payee);
+    });
+
+    it("refuses to answer for the key at all, in the way the app reads as gone", async () => {
+      await arc.revokeAgent();
+      // The phone names the account's keys and then reads each one, which is two calls at two
+      // blocks. A revoke landing between them leaves it asking about a key the plugin has just
+      // forgotten, and the refusal it gets back must be the one it treats as a gone key -- not as
+      // a read that failed, which is what put "Arc is busy" on screen as the revoke succeeded.
+      // Checked against the deployed plugin rather than an error written here to match.
+      const refusal = await arc.publicClient.readContract({
+        address: arc.pluginAddress(), abi: arc.pluginAbi,
+        functionName: "getNativeTokenSpendLimitInfo", args: [arc.MSCA, arc.agent.address],
+      }).then(() => null, (cause: unknown) => cause);
+      assert.ok(refusal !== null, "the plugin answered for a key it no longer holds");
+      assert.equal(keyIsGone(refusal), true);
     });
   });
 

@@ -1,9 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { decodeAbiParameters, decodeFunctionData, getAddress, parseAbi, parseAbiParameters, type Hex } from "viem";
 import {
-  buildChangeCallData, buildGrantPlan, meterInForce, SESSION_KEY_PLUGIN,
+  createPublicClient, custom, decodeAbiParameters, decodeFunctionData, encodeErrorResult, getAddress,
+  parseAbi, parseAbiParameters, RawContractError, type Hex,
+} from "viem";
+import {
+  buildChangeCallData, buildGrantPlan, keyIsGone, meterInForce, SESSION_KEY_PLUGIN,
   SESSION_KEY_PLUGIN_MANIFEST_HASH, type MandateTerms,
 } from "./mandate.ts";
 import { Usdc } from "./usdc.ts";
@@ -452,4 +455,72 @@ test("an ERC-20 limit in force wins even when a native limit is also set", () =>
   );
   assert.equal(meter.rail, "erc20");
   assert.equal(meter.limit.format(2), "5.00");
+});
+
+// ---- a key that goes while the list is being read ----------------------------
+
+/**
+ * Revoking removes the session key, and the plugin's loupe then refuses every question about it.
+ *
+ * Naming the keys and reading each one are separate calls at separate blocks, so a revoke landing
+ * between them is ordinary rather than exceptional — and it used to surface on the phone as a read
+ * failure, the moment the revoke had in fact worked.
+ *
+ * Driven through a real `readContract` so the assertion is about the error viem actually raises,
+ * nesting and all, rather than about one built here to match.
+ */
+const AN_ACCOUNT = getAddress("0xee1933bbbc8acd7b32cad469d4f22ca5b19d7918");
+const AN_AGENT = getAddress("0x3535816e967ad2b6271dfadf9138fb07eab161ce");
+
+const revertingClient = (data: Hex) =>
+  createPublicClient({
+    transport: custom({ request: () => Promise.reject(new RawContractError({ data })) }),
+  });
+
+const A_READ = "function getKeyTimeRange(address account, address sessionKey) view returns (uint48 validAfter, uint48 validUntil)";
+
+const readThrough = async (data: Hex, declaring: readonly string[] = []): Promise<unknown> => {
+  try {
+    await revertingClient(data).readContract({
+      address: SESSION_KEY_PLUGIN,
+      abi: parseAbi([A_READ, ...declaring]),
+      functionName: "getKeyTimeRange",
+      args: [AN_ACCOUNT, AN_AGENT],
+    });
+  } catch (cause) {
+    return cause;
+  }
+  return null;
+};
+
+const notASessionKey = encodeErrorResult({
+  abi: parseAbi(["error InvalidSessionKey(address sessionKey)"]),
+  errorName: "InvalidSessionKey",
+  args: [AN_AGENT],
+});
+
+test("a key the plugin no longer knows is a gone key, not a failed read", async () => {
+  const gone = await readThrough(notASessionKey, ["error InvalidSessionKey(address sessionKey)"]);
+  assert.equal(keyIsGone(gone), true);
+});
+
+test("the same refusal is recognised through an ABI that never declared the error", async () => {
+  // Then there is no decoded name to compare against, only the four bytes on the wire. Reading it
+  // off the name alone would be the original bug again for any caller whose ABI is one line short.
+  assert.equal(keyIsGone(await readThrough(notASessionKey)), true);
+});
+
+test("any other revert from the plugin still counts as a failure", async () => {
+  // Reading an unrelated refusal as "the key is gone" would drop a live allowance off the screen.
+  const other = await readThrough(encodeErrorResult({
+    abi: parseAbi(["error InvalidToken(address token)"]),
+    errorName: "InvalidToken",
+    args: [AN_AGENT],
+  }));
+  assert.equal(keyIsGone(other), false);
+});
+
+test("a network that did not answer is a failure, not a gone key", () => {
+  assert.equal(keyIsGone(new Error("fetch failed")), false);
+  assert.equal(keyIsGone(null), false);
 });
