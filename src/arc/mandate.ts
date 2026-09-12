@@ -767,28 +767,22 @@ export async function listMandates(address: Address): Promise<Mandate[]> {
  *
  * Narrow on purpose. `InvalidSessionKey` is the plugin's answer to that one question and nothing
  * else, so treating it as "gone" hides nothing; every other revert, and every network failure,
- * still surfaces. Exported for the same reason `buildGrantPlan` is: deciding which failures are
- * ordinary is a judgement worth a test, and a predicate that needs a chain to run is a predicate
- * nobody tests.
+ * still surfaces.
+ *
+ * Read off the raw revert rather than the decoded error name, so the answer does not depend on the
+ * ABI the read happened to use: a caller whose ABI does not declare the error gets back a bare
+ * selector and has no name to compare against, which is silently the same bug one line short.
+ *
+ * Exported for the same reason `buildGrantPlan` is: deciding which failures are ordinary is a
+ * judgement worth a test, and a predicate that needs a chain to run is a predicate nobody tests.
  */
 export function keyIsGone(cause: unknown): boolean {
   return cause instanceof BaseError && cause.walk((error) =>
     error instanceof ContractFunctionRevertedError
-      && error.raw?.startsWith(NOT_A_SESSION_KEY) === true,
+      && error.raw?.startsWith(INVALID_SESSION_KEY) === true,
   ) !== null;
 }
 
-/**
- * How `InvalidSessionKey` arrives on the wire.
- *
- * Matched on the raw revert rather than the decoded name so the answer does not depend on the ABI
- * the read happened to use: a caller whose ABI does not declare the error gets back a bare selector
- * and nothing to compare a name against, which is silently the old bug again. Derived from the
- * signature rather than written out, because a four-byte constant nobody can check is the kind of
- * thing that survives a rename of what it stands for. Errors and functions are selected the same
- * way, which is why the function helper hashes this correctly.
- */
-const NOT_A_SESSION_KEY = toFunctionSelector("InvalidSessionKey(address)");
 
 /**
  * Which meter is in force, and what it says.

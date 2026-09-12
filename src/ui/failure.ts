@@ -1,5 +1,6 @@
 import { isRateLimited } from "../arc/client.ts";
 import { INVALID_SESSION_KEY } from "../arc/mandate.ts";
+import { NO_PASSKEY_TO_OFFER } from "../passkey/errors.ts";
 
 /**
  * Turning a failure into a sentence someone holding a phone can act on.
@@ -97,8 +98,9 @@ function wasCancelled(text: string): boolean {
  * Did an error, however deeply it was wrapped, end with the passkey prompt dismissed?
  *
  * The same rule `describeFailure` applies, reading the whole chain of causes, for a caller that has
- * to decide whether to say anything at all. iOS's returning-user request reports "no passkey here"
- * with the same code as a person closing the sheet, and both are ordinary endings.
+ * to decide whether to say anything at all. A launch that found no passkey to offer is an ordinary
+ * ending too, but it is not this one: iOS reports that with the code a genuine failure uses, so it
+ * is told apart by which request was made rather than by how it ended. See `wasAnOffer`.
  */
 export function isCancellation(cause: unknown): boolean {
   return wasCancelled(causeChain(cause).join("\n"));
@@ -148,7 +150,26 @@ export const WALLET_FAILURES = [
  * about nothing. So every wallet path asks this one question, and only a real failure is shown.
  */
 export function walletFailure(cause: unknown): string | null {
-  return isCancellation(cause) ? null : describeFailure(cause, WALLET_FAILURES);
+  if (isCancellation(cause)) return null;
+  if (wasAnOffer(cause)) {
+    // Logged, because it is worth knowing while debugging that the launch found nothing to offer,
+    // and at the level the outcome deserves: this is a phone with no passkey yet, which is where
+    // every new person starts.
+    console.log(`[wallet] ${NO_PASSKEY_TO_OFFER}`);
+    return null;
+  }
+  return describeFailure(cause, WALLET_FAILURES);
+}
+
+/**
+ * Did this come from the launch offering a passkey the phone did not have?
+ *
+ * iOS reports that with the same code as a genuine failure, so the shim marks which request it was
+ * (`NO_PASSKEY_TO_OFFER`) and this reads the mark. Without it the welcome screen greeted a new
+ * person with a red box about credentials, on a screen whose whole job is to offer them one.
+ */
+function wasAnOffer(cause: unknown): boolean {
+  return causeChain(cause).some((message) => message.includes(NO_PASSKEY_TO_OFFER));
 }
 
 export function describeFailure(

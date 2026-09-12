@@ -4,7 +4,7 @@ import { anyToBase64url, fromBase64url, toArrayBuffer, toBase64url } from "./bas
 import { parseAttestationObject } from "./cose.ts";
 import { captureDeviceVector } from "./vector-capture.ts";
 import { installSubtleShim } from "./subtle.ts";
-import { PasskeyShimError } from "./errors.ts";
+import { NO_PASSKEY_TO_OFFER, PasskeyShimError } from "./errors.ts";
 import {
   ASSERTION_FIELDS,
   parseNativeJson,
@@ -203,6 +203,21 @@ export async function withReturningUserSignIn<T>(work: () => Promise<T>): Promis
   }
 }
 
+/**
+ * The returning-user request, said as the offer it is.
+ *
+ * Nobody asked for this one: the app makes it at launch on the chance a passkey is already here,
+ * and a phone with none is the ordinary answer, not a fault. Marking the failure here is what lets
+ * the screen stay quiet about it without having to stay quiet about the same failure from a sign-in
+ * the person actually tapped, which is a real one worth reporting. The original is kept as the
+ * cause, so nothing is lost from the log.
+ */
+function asAnOffer<T>(request: Promise<T>): Promise<T> {
+  return request.catch((cause: unknown) => {
+    throw new PasskeyShimError(NO_PASSKEY_TO_OFFER, { cause });
+  });
+}
+
 async function get(
   options: { publicKey: PublicKeyCredentialRequestOptions },
 ): Promise<SynthesisedCredential<AssertionResponse>> {
@@ -238,7 +253,7 @@ async function get(
     userHandleB64 = json.response.userHandle ?? "";
   } else {
     const native = returningUserOnly && arcPasskey.authenticateImmediately !== undefined
-      ? await arcPasskey.authenticateImmediately(rpId, challenge, allowedCredentialIds)
+      ? await asAnOffer(arcPasskey.authenticateImmediately(rpId, challenge, allowedCredentialIds))
       : await arcPasskey.authenticate(rpId, challenge, allowedCredentialIds);
     credentialId = native.credentialId;
     authenticatorDataB64 = native.authenticatorData;

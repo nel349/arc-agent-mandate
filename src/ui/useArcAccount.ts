@@ -156,9 +156,11 @@ export function useArcAccount(): ArcWallet {
               { ...CIRCLE_CONFIG, username: "" }, WebAuthnMode.Login, { returningUser: true },
             ));
           } catch (cause) {
-            // No passkey for this app on the phone reads as a cancelled request, and so does the
-            // person closing the sheet: the welcome screen is the answer, with nothing to apologise
-            // for. Anything else, like Circle not answering after they chose a passkey, is said.
+            // Two ordinary endings here, and neither is worth a word: the person closed the sheet,
+            // or the phone had no passkey to offer. The welcome screen is the answer to both, with
+            // nothing to apologise for. Anything else, like Circle not answering after they chose a
+            // passkey, is said -- including the very failure iOS reports for an empty phone, which
+            // is why `walletFailure` tells them apart by the request and not by the error.
             setError(walletFailure(cause));
           }
         }

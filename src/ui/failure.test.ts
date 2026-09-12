@@ -4,6 +4,7 @@ import { HttpRequestError } from "viem";
 import {
   ALREADY_GRANTED, ARC_BUSY, describeFailure, isCancellation, MANDATE_FAILURES, walletFailure,
 } from "./failure.ts";
+import { NO_PASSKEY_TO_OFFER, PasskeyShimError } from "../passkey/errors.ts";
 
 /**
  * The SDK wraps a failure and puts the reason in `cause`. Matching only the outer message meant
@@ -148,10 +149,11 @@ test("a refusal for asking too often says Arc is busy, not that something broke"
 });
 
 /**
- * The launch after a reinstall asks iOS for a passkey only if one is already on the phone. When
- * there is none, iOS ends the request with the same code as a person closing the sheet, and the
- * app must stay quiet for both. It must not stay quiet about anything else: a person who chose their
- * passkey and was then let down by the network needs to be told.
+ * A dismissed sheet is the person's own answer and the app stays quiet about it, however deeply the
+ * SDK has wrapped it by the time it arrives. It must not stay quiet about anything else: a person
+ * who chose their passkey and was then let down by the network needs to be told. A launch that
+ * found no passkey to offer is quiet too, but for a different reason and by a different route --
+ * see the offer tests at the end of this file.
  */
 test("a dismissed or empty passkey request is a cancellation, however deeply it is wrapped", () => {
   assert.equal(isCancellation(IOS_DISMISSED), true);
@@ -215,4 +217,44 @@ test("a real failure after the passkey is not taken for a cancellation", () => {
   const network = new HttpRequestError({ url: "https://modular-sdk.circle.com/v1/rpc/w3s/buidl", status: 502 });
   assert.equal(isCancellation(new Error("signing in failed", { cause: network })), false);
   assert.equal(isCancellation("a string, not an error"), false);
+});
+
+
+/**
+ * What a phone with no passkey yet actually answers.
+ *
+ * The launch offers a passkey only if one is already here. On a phone with none, iOS does not say
+ * so with a code of its own: it ends the request with `ASAuthorizationError.failed` -- the very code
+ * the test above requires to be reported -- and puts the reason in a sentence that is translated,
+ * so neither the code nor the words can be matched. The person got a red box about credentials on
+ * the welcome screen, which is the screen whose job is to offer them one.
+ *
+ * The shim marks the request instead, and only that request, which is why the deliberate sign-in
+ * above still reports the identical failure.
+ */
+const NOTHING_HERE = new PasskeyShimError(NO_PASSKEY_TO_OFFER, {
+  cause: new Error("The operation couldn\u2019t be completed. No credentials available for login."),
+});
+
+test("a launch that found no passkey to offer says nothing at all", () => {
+  assert.equal(walletFailure(NOTHING_HERE), null);
+  assert.equal(
+    walletFailure(new Error("signing in failed", { cause: NOTHING_HERE })),
+    null,
+    "the offer is made through Circle's SDK, so it arrives wrapped",
+  );
+});
+
+test("the same words from a sign-in the person asked for are still reported", () => {
+  // No mark, because no offer: this is the sheet they tapped, and it let them down.
+  const chosen = new Error("signing in failed", {
+    cause: new Error("The operation couldn\u2019t be completed. No credentials available for login."),
+  });
+  assert.notEqual(walletFailure(chosen), null);
+});
+
+test("an offer that failed is not mistaken for the person cancelling", () => {
+  // Different endings, and the screens tell them apart: a cancellation belongs to something that
+  // was about to change, an unanswered offer to a launch nobody asked for.
+  assert.equal(isCancellation(NOTHING_HERE), false);
 });
