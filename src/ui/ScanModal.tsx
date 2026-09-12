@@ -186,12 +186,20 @@ function Viewfinder({
 
       <View style={[styles.bottom, { paddingBottom: insets.bottom + tokens.space.base }]}>
         <Text style={[styles.hint, { color: SCANNER_INK }]}>Point at the code your agent printed</Text>
-        {problem !== null && <Note tone="warn" lines={2}>{problem}</Note>}
+        {problem !== null && <Note tone="warn" lines={SCAN_PROBLEM_LINES}>{problem}</Note>}
         <Button title="Type or paste the address" onPress={onClose} />
       </View>
     </View>
   );
 }
+
+/**
+ * How much of a scanning problem fits over the viewfinder.
+ *
+ * Shorter than a chain error's cap because this is our own sentence and the space is the strip under
+ * a live camera: a third line starts covering the thing being pointed at.
+ */
+const SCAN_PROBLEM_LINES = 2;
 
 /** Over live video the palette's glass disappears, so these sit on a fixed dark disc. */
 function RoundButton({

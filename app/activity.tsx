@@ -1,7 +1,6 @@
-import { Stack, useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, type ReactNode } from "react";
+import { Stack, useLocalSearchParams } from "expo-router";
+import type { ReactNode } from "react";
 import { ActivityIndicator, StyleSheet, Text } from "react-native";
-import type { Activity } from "../src/arc/activity.ts";
 import { ActivityRow } from "../src/ui/ActivityRow.tsx";
 import { Button } from "../src/ui/Button.tsx";
 import { Label } from "../src/ui/Label.tsx";
@@ -12,6 +11,7 @@ import { activityRowText, groupByDay } from "../src/ui/activity-format.ts";
 import { useAgentNames } from "../src/ui/agent-names-context.tsx";
 import { clockTime, weekdayDayMonth } from "../src/ui/calendar.ts";
 import { shortAddress } from "../src/ui/mandate-format.ts";
+import { useOpenReceipt } from "../src/ui/useOpenReceipt.ts";
 import { useSession } from "../src/ui/session-context.tsx";
 import { useTheme } from "../src/ui/theme-context.tsx";
 import { tokens } from "../src/ui/tokens.ts";
@@ -26,19 +26,15 @@ import { tokens } from "../src/ui/tokens.ts";
 export default function ActivityScreen() {
   const { agent } = useLocalSearchParams<{ agent?: string }>();
   const { activity } = useSession();
-  const { nameOf } = useAgentNames();
-  const router = useRouter();
+  const { ofAllowance, ofRow } = useAgentNames();
   const c = useTheme().color;
 
   const scoped = typeof agent === "string" && agent.length > 0 ? agent.toLowerCase() : null;
   const items = scoped === null ? activity.items : activity.items.filter((i) => i.agent.toLowerCase() === scoped);
   const days = groupByDay(items);
-  const title = scoped === null ? "Activity" : nameOf(scoped) ?? shortAddress(scoped);
+  const title = scoped === null ? "Activity" : ofAllowance(scoped) ?? shortAddress(scoped);
 
-  const open = useCallback(
-    (item: Activity) => router.push({ pathname: "/receipt", params: { tx: item.tx, log: String(item.logIndex) } }),
-    [router],
-  );
+  const open = useOpenReceipt();
 
   return (
     <>
@@ -58,7 +54,7 @@ export default function ActivityScreen() {
         {days.map((day) => (
           <Section key={day.heading} heading={day.heading}>
             {day.items.map((item, index) => {
-              const text = activityRowText(item, { name: nameOf(item.agent), withAgent: scoped === null, underDayHeading: true });
+              const text = activityRowText(item, { name: ofRow(item), withAgent: scoped === null, underDayHeading: true });
               return (
                 <ActivityRow
                   key={`${item.tx}:${item.logIndex}`}

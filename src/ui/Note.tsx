@@ -3,6 +3,14 @@ import { useTheme } from "./theme-context.tsx";
 import { tokens } from "./tokens.ts";
 
 /**
+ * How much of a failure a note shows before it is cut.
+ *
+ * Enough to recognise which one it was; the console has the rest, and the harness log all of it.
+ * One figure, because three screens had each kept their own copy of it.
+ */
+export const ERROR_LINES = 3;
+
+/**
  * A sentence about what is happening, set apart from the controls.
  *
  * Three of these had grown into the allowances screen as loose `Text` nodes with a private style
