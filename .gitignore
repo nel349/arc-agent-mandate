@@ -47,3 +47,7 @@ contracts/out/
 contracts/cache/
 contracts/node_modules/
 contracts/broadcast/
+
+# What `scripts/android-audit.mjs` captures off a device: screenshots and view hierarchies, written
+# fresh on every run. The script is worth keeping; a picture of one phone on one evening is not.
+.android-audit/
