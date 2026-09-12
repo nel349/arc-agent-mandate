@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
-import { Pressable, StyleSheet } from "react-native";
+import { Platform, Pressable, StyleSheet } from "react-native";
 import { ripple } from "./press.ts";
 import { ROUTES } from "./routes.ts";
 import { useTheme } from "./theme-context.tsx";
@@ -8,6 +8,14 @@ import { tokens } from "./tokens.ts";
 
 /** Sized from the shared control scale, so it matches the `?` controls in content. */
 const HEADER_ICON = Math.round(tokens.size.control.header * tokens.size.glyphScale);
+
+/** The two platforms lay a header item out differently enough that they are built differently. */
+const ANDROID = Platform.OS === "android";
+
+/**
+ * How far the touch area reaches past the glyph on iOS, where the view is only as tall as its icon.
+ */
+const IOS_HIT_SLOP = Math.round((tokens.size.tapTarget - HEADER_ICON) / 2);
 
 /**
  * The gear in the navigation bar.
@@ -23,7 +31,13 @@ const HEADER_ICON = Math.round(tokens.size.control.header * tokens.size.glyphSca
  * reused for exactly that reason — it brings its own ring and its own centring, both of which the
  * system is already providing.
  *
- * `hitSlop` restores the touch target the glyph is too small to fill on its own.
+ * **Android is given a real box instead**, because none of the above is true there. No capsule is
+ * drawn, so nothing owns the button's size but this file, and two things followed from having none.
+ * A ripple answers the view's own bounds and not its `hitSlop`, so a glyph-sized view with slop
+ * around it responded across 44pt and could only ever light up across 24. And asking for a
+ * shapeless ripple turned off the foreground it needed to be drawn at all, which is why there was
+ * no feedback rather than small feedback. A box fixes both: it is what the ripple is clipped to,
+ * and it is what makes the shapeless kind unnecessary.
  */
 export function SettingsButton() {
   const c = useTheme().color;
@@ -31,11 +45,15 @@ export function SettingsButton() {
   return (
     <Pressable
       onPress={() => router.push(ROUTES.settings)}
-      // Borderless: the gear has no shape of its own, so the ripple is a circle around it rather
-      // than a square nobody drew.
-      android_ripple={ripple(c.specular, true)}
+      // Bounded, like every other ripple in the app, and drawn over the glyph rather than under it.
+      // Borderless is what a shapeless glyph needs, and it costs the foreground to get -- so the
+      // ripple went to the underlay and was never seen. The button has a shape on Android now, and
+      // a radius of half the target makes the circle that shape.
+      android_ripple={ripple(c.specular, false, tokens.size.tapTarget / 2)}
       style={styles.button}
-      hitSlop={Math.round((tokens.size.tapTarget - HEADER_ICON) / 2)}
+      // Only where the box is smaller than the target. On Android the box *is* the target, and slop
+      // on top of it would put responding area outside the part that answers.
+      hitSlop={ANDROID ? undefined : IOS_HIT_SLOP}
       accessibilityRole="button"
       accessibilityLabel="Settings"
     >
@@ -46,7 +64,7 @@ export function SettingsButton() {
 
 const styles = StyleSheet.create({
   /**
-   * Width, deliberately, and no height.
+   * On iOS: width, deliberately, and no height.
    *
    * The two axes are owned by different layers, which is why setting both puts the glyph off centre.
    * iOS 26 draws its own glass capsule behind a header item at a fixed 44pt and centres it vertically
@@ -58,8 +76,22 @@ const styles = StyleSheet.create({
    * at the leading edge of it, 6pt shy of centre. A width, and nothing else, closes that.
    *
    * Both figures were measured off the simulator, not reasoned about.
+   *
+   * On Android there is no capsule and no top-aligned container to work around, so the button is
+   * simply the square it should be, with the glyph centred in it.
    */
-  button: { width: tokens.size.tapTarget, alignItems: "center" },
-  /** Android only, and a no-op on iOS: keeps the icon font from adding padding of its own. */
-  icon: { includeFontPadding: false },
+  button: {
+    width: tokens.size.tapTarget,
+    alignItems: "center",
+    ...Platform.select({ android: { height: tokens.size.tapTarget, justifyContent: "center" } }),
+  },
+  icon: {
+    /** Android only, and a no-op on iOS: keeps the icon font from adding padding of its own. */
+    includeFontPadding: false,
+    // Collapse the font's line box onto the glyph, so the centring above has something square to
+    // centre; an icon font's line box carries descender space the glyph does not fill, and the gear
+    // rides high inside it. iOS is left alone: there the system centres the line box in its capsule,
+    // and that is already right.
+    ...(ANDROID ? { lineHeight: HEADER_ICON } : {}),
+  },
 });

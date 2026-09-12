@@ -19,11 +19,25 @@ import { Platform, type PressableAndroidRippleConfig } from "react-native";
  * surface that paints its own background; a bordered row with a background would otherwise ripple
  * underneath its own fill and show nothing.
  *
- * `borderless` is for a glyph with no shape of its own, like the gear in the navigation bar: the
- * ripple spreads past the icon as a circle instead of being clipped to a box that is not drawn.
+ * That is not a detail. `foreground: false` sends the ripple to the view's *underlay*, which RN
+ * draws beneath it, and a control that never asked for it gets no feedback at all — which is what
+ * the navigation gear did for as long as it has existed. It was the one caller asking for
+ * `borderless`, and `borderless` is what turned the foreground off.
+ *
+ * `borderless` is for a glyph with genuinely no shape: the ripple spreads past it as a circle
+ * instead of being clipped to a box nobody drew. It costs the foreground to do that, so it is worth
+ * it only where there is really nothing to clip to. Give the control a size and this is the wrong
+ * trade.
+ *
+ * `radius` says how far the ripple reaches. Left out, Android derives it from the view, which is
+ * right for a row and wrong for a control whose touch area was chosen rather than grown from its
+ * content: the circle then answers the glyph's size instead of the target's.
  */
-export function ripple(color: string, borderless = false): PressableAndroidRippleConfig | undefined {
-  return Platform.OS === "android" ? { color, borderless, foreground: !borderless } : undefined;
+export function ripple(
+  color: string, borderless = false, radius?: number,
+): PressableAndroidRippleConfig | undefined {
+  if (Platform.OS !== "android") return undefined;
+  return { color, borderless, foreground: !borderless, ...(radius === undefined ? {} : { radius }) };
 }
 
 /**
