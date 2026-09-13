@@ -61,7 +61,7 @@ export interface MandateScreen {
   grant(terms: MandateTerms, onGranted?: (granted: GrantLog | null) => void): void;
   revoke(agent: Address, onRevoked?: () => void): void;
   changeLimit(agent: Address, limit: Usdc): void;
-  refresh(): void;
+  refresh(): Promise<void>;
 }
 
 export function useMandate(account: ArcAccount | null): MandateScreen {
@@ -81,21 +81,26 @@ export function useMandate(account: ArcAccount | null): MandateScreen {
   const [readError, setReadError] = useState<string | null>(null);
   const [ready, setReady] = useState<boolean | null>(null);
 
-  const refresh = useCallback(() => {
+  /**
+   * Awaitable, so a caller can tell when the answer has arrived.
+   *
+   * The timer below does not care and never did. A pull-to-refresh does: the control has to keep
+   * spinning until there is something new to look at, and a control that stops before the read does
+   * says the figures are current when they are still the old ones.
+   */
+  const refresh = useCallback(async (): Promise<void> => {
     if (!account) return;
-    void (async () => {
-      try {
-        const [deployed, live] = await Promise.all([
-          isPluginDeployed(),
-          listMandates(account.address),
-        ]);
-        setReady(deployed);
-        setMandates(live);
-        setReadError(null);
-      } catch (cause) {
-        setReadError(describeFailure(cause, MANDATE_FAILURES));
-      }
-    })();
+    try {
+      const [deployed, live] = await Promise.all([
+        isPluginDeployed(),
+        listMandates(account.address),
+      ]);
+      setReady(deployed);
+      setMandates(live);
+      setReadError(null);
+    } catch (cause) {
+      setReadError(describeFailure(cause, MANDATE_FAILURES));
+    }
   }, [account]);
 
   /**
@@ -112,7 +117,7 @@ export function useMandate(account: ArcAccount | null): MandateScreen {
     setActionError(null);
   }, [account]);
 
-  useEffect(refresh, [refresh]);
+  useEffect(() => { void refresh(); }, [refresh]);
 
   /**
    * Keep reading while the screen is open.
@@ -126,7 +131,7 @@ export function useMandate(account: ArcAccount | null): MandateScreen {
    */
   useEffect(() => {
     if (!account || busy) return;
-    const timer = setInterval(refresh, POLL_INTERVAL_MS);
+    const timer = setInterval(() => void refresh(), POLL_INTERVAL_MS);
     return () => clearInterval(timer);
   }, [account, busy, refresh]);
 
@@ -143,7 +148,7 @@ export function useMandate(account: ArcAccount | null): MandateScreen {
   useEffect(() => {
     if (!account) return;
     const watch = AppState.addEventListener("change", (next) => {
-      if (next === "active") refresh();
+      if (next === "active") void refresh();
     });
     return () => watch.remove();
   }, [account, refresh]);
@@ -193,7 +198,7 @@ export function useMandate(account: ArcAccount | null): MandateScreen {
             console.log(`[mandate] ${label} — ${hashes.length} user operation(s)`);
             for (const hash of hashes) console.log(`[mandate]   ${hash}`);
           }
-          refresh();
+          void refresh();
           onDone?.(receipt);
         } catch (cause) {
           setActionError(describeFailure(cause, MANDATE_FAILURES));

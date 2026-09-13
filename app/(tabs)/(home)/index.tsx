@@ -1,5 +1,5 @@
 import { useRouter } from "expo-router";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { ActivityIndicator, Linking, Share, StyleSheet, Text, View } from "react-native";
 import { TESTNET_FAUCET_URL } from "../../../src/arc/chain.ts";
 import { ActivityRow } from "../../../src/ui/ActivityRow.tsx";
@@ -35,6 +35,22 @@ export default function AllowancesScreen() {
   const open = useCallback((agent: `0x${string}`) => router.push(agentRoute(agent)), [router]);
   const openReceipt = useOpenReceipt();
 
+  /**
+   * A pull reads the wallet and the allowances again.
+   *
+   * Kept apart from the ten-second poll on purpose, the same way the feed keeps "show earlier" apart
+   * from its routine read: the control has to spin for the read the person asked for and stay still
+   * for the ones nobody did, or the tab twitches every ten seconds. So the flag is set here and
+   * cleared when the allowances come back, rather than tracked inside the hook where the poll would
+   * set it too.
+   */
+  const [pulling, setPulling] = useState(false);
+  const onRefresh = useCallback(() => {
+    setPulling(true);
+    wallet.refresh();
+    void mandate.refresh().finally(() => setPulling(false));
+  }, [wallet, mandate]);
+
   // Without a wallet this tab does not exist: `app/(tabs)/_layout.tsx` has already sent the person
   // to the welcome screen. This is the frame before that redirect lands, not a state to design for.
   if (wallet.account === null) return null;
@@ -45,6 +61,8 @@ export default function AllowancesScreen() {
 
   return (
     <Screen
+      onRefresh={onRefresh}
+      refreshing={pulling}
       footer={
         <Button
           tier="solid"

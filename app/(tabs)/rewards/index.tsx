@@ -1,5 +1,4 @@
-import { useEffect } from "react";
-import { ActivityIndicator, AppState, Linking, StyleSheet, Text, View } from "react-native";
+import { Linking, StyleSheet, Text, View } from "react-native";
 import { explorerTokenUrl, MAZE_URL } from "../../../src/arc/chain.ts";
 import { BadgeArt } from "../../../src/ui/BadgeArt.tsx";
 import { Button } from "../../../src/ui/Button.tsx";
@@ -26,15 +25,6 @@ export default function RewardsScreen() {
   const c = useTheme().color;
   const { badges, loading, error, refresh } = useBadges(wallet.account?.address ?? null);
 
-  // A badge can arrive while the app is away, and nothing here polls: it is minted once and never
-  // changes, so asking again on the way back is enough.
-  useEffect(() => {
-    const watch = AppState.addEventListener("change", (state) => {
-      if (state === "active") refresh();
-    });
-    return () => watch.remove();
-  }, [refresh]);
-
   if (wallet.account === null) {
     return (
       <Screen>
@@ -50,7 +40,10 @@ export default function RewardsScreen() {
   }
 
   return (
-    <Screen>
+    // Nothing here polls, by design: a badge is minted once and never changes. That leaves the pull
+    // as the only way to ask again without leaving the app -- and a badge minted while this tab was
+    // open is exactly how one stayed invisible on a phone that already held it.
+    <Screen onRefresh={refresh} refreshing={loading}>
       {error !== null && <Note tone="warn">{error}</Note>}
 
       {badges.map((badge) => (
@@ -84,7 +77,6 @@ export default function RewardsScreen() {
         </Surface>
       )}
 
-      {loading && <ActivityIndicator color={c.dim} accessibilityLabel="Reading your badges from Arc" />}
     </Screen>
   );
 }

@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import {
-  KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View, type LayoutChangeEvent,
+  KeyboardAvoidingView, Platform, RefreshControl, ScrollView, StyleSheet, View,
+  type LayoutChangeEvent,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTabBarHeight } from "./TabBarInsets.tsx";
@@ -46,7 +47,7 @@ const Gradient: null | ((props: Record<string, unknown>) => ReactNode) = (() => 
 const CLEAR = "00";
 
 export function Screen({
-  children, footer, header, centered = false, fill = false,
+  children, footer, header, centered = false, fill = false, onRefresh, refreshing = false,
 }: {
   readonly children: ReactNode;
   /**
@@ -76,6 +77,20 @@ export function Screen({
    * typed: it grows into the space rather than sitting at the top of it.
    */
   readonly fill?: boolean;
+  /**
+   * Read again, because the person asked. Pulling down is how a phone says "are you sure that is
+   * still true", and every screen here shows something the chain can change without this app being
+   * told: an allowance an agent is spending, a badge minted while the tab was open. The badge was
+   * the one that caught us, because that read is the only one that never polls.
+   *
+   * Given here rather than per screen because this is where the scroll view is, and a screen that
+   * built its own would lose the ground, the insets and the footer this one measures.
+   *
+   * Has no effect on a `fill` screen: there is no scroll view to pull.
+   */
+  readonly onRefresh?: () => void;
+  /** Whether that read is still running, so the control spins until there is an answer. */
+  readonly refreshing?: boolean;
 }) {
   const c = useTheme().color;
   const insets = useSafeAreaInsets();
@@ -123,8 +138,23 @@ export function Screen({
       // `automatic` lets iOS place content under a large title and above the home indicator, and
       // lets the title collapse as the list scrolls. A centred screen has no title to sit under.
       contentInsetAdjustmentBehavior={centered ? "never" : "automatic"}
-      // Off, so a screen whose content fits does not rubber-band as if there were more below.
-      alwaysBounceVertical={false}
+      // Off, so a screen whose content fits does not rubber-band as if there were more below --
+      // except where a pull means something. iOS will not start a pull on a scroll view that cannot
+      // bounce, so without this the control exists and can never be reached on exactly the screens
+      // that need it most: the short ones, like a tab holding a single badge.
+      alwaysBounceVertical={onRefresh !== undefined}
+      refreshControl={onRefresh === undefined ? undefined : (
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          // iOS tints one spinner; Android takes a list of colours and a disc behind them. Both are
+          // named from the theme, so the control belongs to this app rather than to the platform's
+          // default blue on white.
+          tintColor={c.dim}
+          colors={[c.paper]}
+          progressBackgroundColor={c.groundHigh}
+        />
+      )}
       keyboardShouldPersistTaps="handled"
     >
       {children}
