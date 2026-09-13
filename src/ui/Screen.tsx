@@ -173,7 +173,20 @@ const styles = StyleSheet.create({
   fill: { flex: 1 },
   // As tall as what is in it. `flexGrow: 1` here was the bug: stretched to the screen, then given
   // iOS's insets on top, every screen was taller than itself.
-  content: { padding: tokens.space.lg, gap: tokens.space.md },
+  /**
+   * The screen's gutter, and the rhythm between the blocks stacked down it.
+   *
+   * **The gap is never tighter than a card's own padding.** It used to be `md` (12) against a
+   * `Surface` padded at `base` (16), so two separate cards sat closer to each other than each card's
+   * contents sat to its own edge — and a boundary that is tighter than what it contains stops
+   * reading as a boundary at all. That is the muddle, measured: 57.1dp here, 29.0dp before a section
+   * heading, neither of them a step on the scale, both of them the sum of two containers paying for
+   * the same space.
+   *
+   * So: 20 at the edge of the screen, 16 between blocks, 16 inside a card, 12 between a card's own
+   * rows. Monotonic, every value a step, and the same on both platforms.
+   */
+  content: { padding: tokens.space.lg, gap: tokens.space.base },
   footer: {
     position: "absolute",
     left: 0,

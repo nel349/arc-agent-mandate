@@ -46,7 +46,12 @@ const styles = StyleSheet.create({
     borderWidth: tokens.border.hairline,
     borderRadius: tokens.radius.lg,
     padding: tokens.space.base,
-    gap: tokens.space.sm,
+    /**
+     * One step below the padding around them, so a card's rows group more tightly to each other
+     * than to its edge. At `sm` (10) against a 16 padding the two were close enough to read as one
+     * measure, which is what made a card's contents look like they were drifting toward its border.
+     */
+    gap: tokens.space.md,
     ...tokens.shadow.panel,
   },
   raised: { ...tokens.shadow.panel, shadowOpacity: 0.45 },

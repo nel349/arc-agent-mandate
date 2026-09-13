@@ -16,6 +16,18 @@ export const tokens = {
   /**
    * Depth, cast downward. Glass sits above its background rather than being painted onto it, and
    * without a shadow the translucency reads as a lighter patch of the same plane.
+   *
+   * **iOS only, and `elevation` is absent on purpose.** Android cannot cast this shadow under a
+   * translucent fill without the fill picking it up. Measured at 420dpi: every card carried a
+   * second, square-cornered rectangle sitting exactly on its own 16dp padding box, so a card read
+   * as two nested boxes with the inner one lighter. Dropping `elevation` removes it — the step
+   * across that edge falls from (3,4,7) to the (1,1,2) of the background gradient. Raising the
+   * glass opacity had made it worse, which was the tell: it was the card's own fill, drawn twice,
+   * not a stray view.
+   *
+   * Android takes its depth from tone instead, as Material does: the translucent fill lifts the
+   * surface off the gradient and the lit top edge in `Surface` says where the light lands. Both are
+   * already there, and neither needs a render node of its own.
    */
   shadow: {
     panel: {
@@ -23,7 +35,6 @@ export const tokens = {
       shadowOpacity: 0.35,
       shadowRadius: 18,
       shadowOffset: { width: 0, height: 8 },
-      elevation: 6,
     },
   },
   radius: {
@@ -45,26 +56,54 @@ export const tokens = {
    *
    * React Native scales these with the reader's text size setting, so they are starting points
    * rather than fixed sizes. A layout that only works at the default size does not work.
+   *
+   * **Every role states its line height.** Seven did not, and a text node without one is handed the
+   * font's own ascender and descender slack, which differs by platform, weight and glyph. That was
+   * not a detail: it is why one card breathed differently on iOS and Android, why a section heading
+   * sat hard against the edge of the surface holding it, and why the gaps between things measured
+   * 57.1, 29.0, 16.4 and 10.3dp rather than landing on the scale above. A gap nobody chose is the
+   * sum of three nobody looked at.
+   *
+   * The figures are Apple's own at the default size, because this scale was already Apple's — body
+   * 17/22, callout 16/21, subheadline 15/20, footnote 13/18 and caption 12/16 match their table
+   * exactly. So the missing ones are filled in from the same table rather than from a ratio somebody
+   * liked the look of. Note the leading tightens as the type grows: 1.38 at 13pt down to 1.21 at
+   * 34pt. Large text wants proportionally less room between lines, not more.
    */
   type: {
-    /** The one figure a screen is about: what an agent has left. */
-    hero: { fontSize: 44, fontWeight: "700", letterSpacing: -1 },
+    /**
+     * The one figure a screen is about: what an agent has left.
+     *
+     * Larger than Apple's largest style, so its leading continues their curve rather than copying a
+     * row from it — about 1.18 here. Safe this tight because it is one line of tabular figures, and
+     * digits carry no descenders to clip.
+     */
+    hero: { fontSize: 44, lineHeight: 52, fontWeight: "700", letterSpacing: -1 },
     /**
      * An amount being typed, as Kuira's send wizard sets it: very large and very light, so the
      * number is the whole screen and still reads as something in progress rather than a total.
+     *
+     * Tighter again, about 1.15, for the same reason — and because at this size spare leading is
+     * dead space above a number somebody is watching themselves type.
      */
-    amountEntry: { fontSize: 60, fontWeight: "200", letterSpacing: -1 },
-    largeTitle: { fontSize: 34, fontWeight: "700", letterSpacing: 0.4 },
-    title: { fontSize: 22, fontWeight: "700", letterSpacing: -0.3 },
-    headline: { fontSize: 17, fontWeight: "600" },
+    amountEntry: { fontSize: 60, lineHeight: 69, fontWeight: "200", letterSpacing: -1 },
+    largeTitle: { fontSize: 34, lineHeight: 41, fontWeight: "700", letterSpacing: 0.4 },
+    title: { fontSize: 22, lineHeight: 28, fontWeight: "700", letterSpacing: -0.3 },
+    headline: { fontSize: 17, lineHeight: 22, fontWeight: "600" },
     body: { fontSize: 17, lineHeight: 22 },
     callout: { fontSize: 16, lineHeight: 21 },
     subheadline: { fontSize: 15, lineHeight: 20 },
     footnote: { fontSize: 13, lineHeight: 18 },
     caption: { fontSize: 12, lineHeight: 16 },
-    /** Over a group of rows. The only uppercase left, and it earns it by being small. */
-    section: { fontSize: 13, fontWeight: "600", letterSpacing: 0.5, textTransform: "uppercase" },
-    button: { fontSize: 17, fontWeight: "600" },
+    /**
+     * Over a group of rows. The only uppercase left, and it earns it by being small.
+     *
+     * Footnote's metrics, which is what iOS sets its own grouped-list headings at. Without the line
+     * height this was the heading that sat flush against the top edge of the card beneath it.
+     */
+    section: { fontSize: 13, lineHeight: 18, fontWeight: "600", letterSpacing: 0.5, textTransform: "uppercase" },
+    /** Body's metrics: a button's label is a sentence, set at the same rhythm as one. */
+    button: { fontSize: 17, lineHeight: 22, fontWeight: "600" },
     /** An address or a hash. Small enough that a whole address fits one line at the phone's width. */
     data: { fontFamily: "Menlo", fontSize: 13, lineHeight: 18 },
   },
