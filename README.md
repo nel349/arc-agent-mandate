@@ -13,6 +13,14 @@ and cannot go past it: an over-limit payment is refused by the chain, not by the
 behaviour, so a compromised agent gets no further than an honest one. Revoke it with your face and
 it stops mid-task.
 
+[![How an agent spends your money, and why it can't overspend: a phone grants an allowance, an
+agent pays a maze per step under it, and the chain refuses anything past the
+limit](docs/architecture.png)](docs/architecture.png)
+
+The whole run in one picture — the ten steps below, what is deployed and what is only simulated,
+and every contract it touches on Arc testnet. Dashed lines are the parts that are written and
+tested but not on chain yet.
+
 ## Why we built it
 
 We wanted to build something real on Arc and find out what it takes. It turned out to take more
@@ -233,6 +241,8 @@ not the step count, not the amount charged.
 | Payments accepted but never arriving | the fee. Arc's base fee moves between 20 and 66 gwei and an operation at the bare estimate is accepted into the mempool and never included |
 
 ## How it works
+
+[The diagram above](docs/architecture.png) is this section as a picture, with the addresses.
 
 Your wallet is a **smart contract account**, not a key — Circle's Modular Wallet, built to
 **ERC-6900**, which describes an account assembled from swappable pieces. Your passkey does not
