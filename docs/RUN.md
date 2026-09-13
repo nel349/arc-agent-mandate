@@ -15,7 +15,7 @@ You can stop after step 5 and have seen the whole claim; steps 6 and 7 are the f
 | Node | 22.18 or newer (or 23.6+, or any 24) — everything here runs TypeScript directly, and unflagged type stripping starts there. 22.6 has it behind a flag, which is not enough for `node mcp/server.ts`. **Nothing enforces this**: there is no `engines` field and no `.nvmrc`, so an older Node fails at the first `node --experimental-transform-types` rather than at install |
 | git | the contract suite is five git submodules under `contracts/lib`, fetched by `npm install` |
 | Foundry | required by **`npm test`, not only the gate**: the unit suite shells out to `forge`, and `npm run test:integration` also needs `anvil` and `forge script`. Install from [getfoundry.sh](https://getfoundry.sh) |
-| Xcode + CocoaPods, and an iPhone or simulator | passkeys need a real Secure Enclave or a simulator with one. `npm run ios` generates the whole `ios/` project and runs `pod install` on first use — see below |
+| Xcode + CocoaPods, and an iPhone or simulator | passkeys need a real Secure Enclave or a simulator with one, and **Expo Go cannot do passkeys at all** — a dev build is required. `npm run ios` generates the whole `ios/` project and runs `pod install` on first use — see below |
 | Bun | only to run [`arc-maze`](https://github.com/nel349/arc-maze) yourself |
 | A Circle client key | free, from [console.circle.com](https://console.circle.com) → Wallets → Modular Wallets → Client Keys |
 | Network access | the contract and integration suites fork live Arc, and one test calls Circle's live facilitator. None of the gate runs offline |
@@ -67,11 +67,76 @@ EXPO_PUBLIC_ALCHEMY_ARC_TESTNET=…  # carried by the app; inlined into the bund
 With neither set everything uses Arc's public endpoint and works — but that endpoint rate-limits,
 and it is the reason for the `429`s in step 2. `ARC_TESTNET_RPC_URL` is what removes them.
 
-**The passkey domain is not only an `.env` value.** `app.json` hard-codes
-`webcredentials:kuiralabs.github.io` in `associatedDomains`, so pointing the app at your own Circle
-client key means editing `app.json` as well and running `npm run ios` again to regenerate the native
-project — and hosting an AASA file at that domain. Change only `.env` and Circle answers
-`Invalid credentials`, which explains none of this.
+### Pointing it at your own Circle account and domain
+
+The steps above assume the domain this repository is already configured with. Using your own means
+five separate places, and missing any one of them fails with `Invalid credentials` — a message that
+names none of them.
+
+**Do these in order, because the relying party is Circle's and not yours.**
+`getRegistrationOptions` returns the `rpId`; the app does not choose it. So Circle Console comes
+first, and the Associated Domains, the `assetlinks.json` and the app identifiers all have to *match
+what Circle issues*, rather than the other way round.
+
+This is the most common cause of a passkey ceremony failing for reasons that look like code. It is
+configuration, in five places, and none of the failures say so.
+
+The domain itself does two jobs at once. It is the identity Circle validates your domain-bound
+client key against — the app has no `window.location`, so `src/passkey/shim.ts` writes the hostname
+Circle reads as `X-AppInfo` — **and** it is the WebAuthn relying party your phone's OS checks
+against files you must host.
+
+**1. In the Circle console** — [console.circle.com](https://console.circle.com) → Wallets → Modular
+Wallets:
+
+| | |
+|---|---|
+| Configurator → Passkey → Domain Name | your domain, e.g. `example.com` |
+| The app identifiers, in that same Passkey configuration | your iOS **bundle identifier** and your Android **package name**. Circle validates *which app* is asking, not only the domain, so a key that works on web still refuses a native build that is not listed |
+| Keys → Client Key (Web) | created against that domain |
+
+**2. In `.env`** — `EXPO_PUBLIC_CIRCLE_PASSKEY_DOMAIN`, the client key and URL, and the three
+unprefixed copies the connector reads.
+
+**3. In `app.json`** — three values, all of them currently ours:
+
+```json
+"ios":     { "bundleIdentifier": "com.example.yourapp",
+             "associatedDomains": ["webcredentials:example.com"] },
+"android": { "package": "com.example.yourapp" }
+```
+
+**4. Hosted at your domain over HTTPS**, both under `/.well-known/`. iOS reads the first, Android's
+Credential Manager reads the second, and **a passkey cannot be created without them**:
+
+`/.well-known/apple-app-site-association`, where `TEAMID` is your Apple Developer Team ID:
+
+```json
+{ "webcredentials": { "apps": ["TEAMID.com.example.yourapp"] } }
+```
+
+`/.well-known/assetlinks.json`, where the fingerprint is your app signing certificate's SHA-256:
+
+```json
+[{ "relation": ["delegate_permission/common.get_login_creds"],
+   "target": { "namespace": "android_app",
+               "package_name": "com.example.yourapp",
+               "sha256_cert_fingerprints": ["AB:CD:…"] } }]
+```
+
+Ours are public if you want to see the shape that works:
+[apple-app-site-association](https://kuiralabs.github.io/.well-known/apple-app-site-association),
+[assetlinks.json](https://kuiralabs.github.io/.well-known/assetlinks.json). Apple documents the AASA
+as needing `Content-Type: application/json`; GitHub Pages serves ours as `application/octet-stream`
+and iOS accepts it, but a stricter host may not, and that failure looks identical to every other
+domain problem.
+
+**5. Rebuild.** `npm run ios` regenerates the native project — entitlements only change there, so an
+edit to `app.json` without a rebuild changes nothing on the device.
+
+**Expo Go cannot do passkeys**, on either platform. A dev build is required from the start, which is
+what `npm run ios` and `npm run android` produce. Finding this out later costs more than starting
+with one.
 
 ## 2. Prove the rules before touching a phone
 
@@ -205,7 +270,8 @@ the step count, not the amount charged.
 
 | | |
 |---|---|
-| `Invalid credentials` from Circle | the client key is bound to a different domain than `EXPO_PUBLIC_CIRCLE_PASSKEY_DOMAIN` — and remember `app.json` pins it too |
+| `Invalid credentials` from Circle | the one message for every domain mismatch. Work through *Pointing it at your own Circle account and domain* above: the key's domain, `EXPO_PUBLIC_CIRCLE_PASSKEY_DOMAIN`, `app.json`'s `associatedDomains` and identifiers, the bundle id and package name registered with Circle, and whether your domain serves both `/.well-known/` files |
+| A passkey never appears, or registration is refused on device | the OS is checking your domain, not Circle. `apple-app-site-association` must list `TEAMID.bundleid`, `assetlinks.json` must list the package with `common.get_login_creds`, and both must be served over HTTPS |
 | The agent says it has no allowance | it was granted to a different address — ask it for its address again; a new key is generated if none exists |
 | A payment says `unsupported_network` | something is pointed at Circle's **mainnet** Gateway. Arc is testnet-only today |
 | `The allowance contract is not deployed on this network` | the app is on a network other than Arc testnet |
