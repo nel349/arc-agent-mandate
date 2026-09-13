@@ -15,6 +15,14 @@ import type { Address } from "viem";
  */
 
 delete process.env["ARC_ACCOUNT"];
+/**
+ * Both names, or the port nothing listens on is not the endpoint after all.
+ *
+ * `chain.ts` reads `ARC_TESTNET_RPC_URL ?? ARC_RPC_URL`, so setting only the second leaves one
+ * inherited from the shell winning — and the guarantee the comment above rests on, that a test
+ * reaching for the chain fails rather than passing by accident, becomes a chain that answers.
+ */
+process.env["ARC_TESTNET_RPC_URL"] = "http://127.0.0.1:9";
 process.env["ARC_RPC_URL"] = "http://127.0.0.1:9";
 
 const AGENT = "0x000000000000000000000000000000000000dEaD" as Address;

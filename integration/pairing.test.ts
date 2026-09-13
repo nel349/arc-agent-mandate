@@ -94,6 +94,16 @@ describe("pairing, on a forked Arc", () => {
 
   before(async () => {
     const plugin = await arc.start();
+    /**
+     * Both names, or this suite reads a different chain from the one it sets up.
+     *
+     * `mcp/chain.ts` takes `ARC_TESTNET_RPC_URL ?? ARC_RPC_URL`. On a machine with an endpoint
+     * configured — which is what the README now tells people to set — naming only the second leaves
+     * the connector answering from real Arc testnet, while everything around it funds strangers and
+     * takes snapshots on the fork started just above. That would not fail; it would pass, against
+     * the wrong chain, which is the worse of the two outcomes.
+     */
+    process.env["ARC_TESTNET_RPC_URL"] = arc.RPC;
     process.env["ARC_RPC_URL"] = arc.RPC;
     process.env["ARC_SESSION_KEY_PLUGIN"] = plugin;
     // A wallet named by hand takes the place of pairing, and these are about pairing.

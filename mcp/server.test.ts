@@ -191,6 +191,17 @@ test("the pairing code is shown even when the chain cannot be read", async () =>
     ],
     env: {
       ...env,
+      /**
+       * Both names, and that is the point rather than belt and braces.
+       *
+       * The whole ambient environment is copied in above, and the connector reads
+       * `ARC_TESTNET_RPC_URL ?? ARC_RPC_URL`. Setting only the second leaves an inherited
+       * `ARC_TESTNET_RPC_URL` winning, so the chain answers and this test runs against the opposite
+       * of its own premise — it asserts what happens when nothing is reachable. It passed on a
+       * machine with no endpoint configured and failed on one with, which is a gate that depends on
+       * whose laptop it runs on.
+       */
+      ARC_TESTNET_RPC_URL: "http://127.0.0.1:9",
       ARC_RPC_URL: "http://127.0.0.1:9",
       ARC_MANDATE_KEY_PATH: join(scratch, "agent.key"),
       ARC_MANDATE_ACCOUNT_PATH: join(scratch, "accounts.json"),
