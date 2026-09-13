@@ -74,7 +74,7 @@ An earlier design had the agent submit for itself, which meant funding it first 
 in its pocket afterwards that nothing could return. It also left the account paying, unbounded,
 for gas the mandate never counted.
 
-## 4. Twelve things the docs don't warn about
+## 4. Thirteen things the docs don't warn about
 
 See [FINDINGS.md](FINDINGS.md). The dual-decimal USDC trap is the one most likely to cost someone
 real money: `balanceOf` can read zero for an account that holds funds, and a budget enforced on

@@ -67,6 +67,22 @@ review itself.
 | App Review notes | the block above |
 | Export compliance | not asked. `ios.config.usesNonExemptEncryption` is `false` in `app.json`, which is the exempt case: the app uses the platform's own TLS and the passkey signing the OS provides, and adds no encryption of its own |
 
+## Before the first build
+
+Three things are needed that no other part of this repository asks for, and each fails late rather
+than early:
+
+- **`eas-cli`, installed separately.** It is not a dependency of this project and is not in
+  `node_modules`. `eas.json` requires `>= 16.3.3`: `npm i -g eas-cli`, then `eas login`.
+- **The `EXPO_PUBLIC_CIRCLE_*` values, set in EAS.** `eas.json` has no `env` block, so an EAS build
+  does **not** pick up your local `.env`. Expo inlines those three at build time, so a build made
+  without them produces an app that cannot reach Circle — and the symptom on the device is
+  `Invalid credentials`, which names none of this. Set them on the build profile, or with
+  `eas env:create`, before building.
+- **Your own EAS project.** `app.json` pins `extra.eas.projectId` to this account's project. A
+  fresh clone has to replace it, via `eas init`, or the build is pushed at a project you cannot
+  submit from.
+
 ## Order of operations
 
 1. `eas build --platform ios --profile production`

@@ -8,7 +8,7 @@ forty files to work out the shape.
 |---|---|---|
 | The app, the SDK, the MCP connector, the scripts | MIT | [`LICENSE`](LICENSE) |
 | The session-key plugin | **GPL-3.0-or-later** | [`contracts/LICENSE`](contracts/LICENSE) |
-| Vendored helpers inside the plugin | MIT | their own SPDX headers |
+| Vendored helpers inside the plugin | MIT, **except `CastLib.sol`** | their own SPDX headers |
 
 ## Why the plugin is GPL
 
@@ -23,15 +23,28 @@ to read before trusting the port with money.
 
 [alchemy]: https://github.com/alchemyplatform/modular-account
 
-## The MIT files inside the GPL directory
+## The vendored files inside the GPL directory
 
-`contracts/src/session/vendor` holds four files taken from [`modular-account-libs`][libs], which is
-MIT: `PluginStorageLib.sol`, `Constants.sol`, `LinkedListSetLib.sol` and
-`AssociatedLinkedListSetLib.sol`. They keep their own MIT headers.
+`contracts/src/session/vendor` holds **five** files taken from [`modular-account-libs`][libs], and
+they do not all carry the same licence. The SPDX header on each is authoritative:
+
+| file | licence |
+|---|---|
+| `PluginStorageLib.sol` | MIT |
+| `Constants.sol` | MIT |
+| `LinkedListSetLib.sol` | MIT |
+| `AssociatedLinkedListSetLib.sol` | MIT |
+| **`CastLib.sol`** | **GPL-3.0-or-later** |
 
 This is deliberate rather than untidy. MIT code may sit inside a GPL work — the combined result is
-GPL, and each file keeps the licence it arrived with. Anyone extracting one of those four files
+GPL, and each file keeps the licence it arrived with. Anyone extracting one of the four MIT files
 takes it under MIT; anyone taking the plugin takes the whole thing under GPL.
+
+**`CastLib.sol` is the exception, and it is the one worth naming.** It arrived GPL-3.0-or-later and
+stays that way, so it is not available under MIT however it is extracted. This page previously said
+the directory held four files and that all of them were MIT, which was wrong in the direction that
+costs somebody else something: it invited a reader to lift a GPL file under a permissive licence.
+The count and the licence are both taken from the headers now rather than from memory.
 
 [libs]: https://github.com/erc6900/modular-account-libs
 

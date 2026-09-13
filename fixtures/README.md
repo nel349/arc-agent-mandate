@@ -24,9 +24,14 @@ SELLER_ADDRESS=0xYourPayee node fixtures/seller.ts
 | | |
 | --- | --- |
 | `SELLER_ADDRESS` | where payment must land. Required — it decides who gets paid |
-| `SELLER_PRICE` | USDC per query, default `0.05` |
+| `SELLER_PRICE` | USDC per query, default `0.05`, on the **native** rail |
 | `ARC_RPC_URL` | which chain to read, default Arc testnet |
 | `SELLER_PORT` | default `4021` |
+
+`SELLER_PRICE` is parsed at 18 decimals and settlement is checked with `getBalance`, so this shop
+is watching Arc's native USDC and nothing else. A payment made over the ERC-20 view — which is the
+rail the app's allowance actually meters — moves real money and this seller never sees it. That is
+a property of the fixture, not of the mandate; it is one more reason it is not part of any flow.
 
 ## What used to be here
 
@@ -36,8 +41,9 @@ than kept.
 What they demonstrated — that a chain refuses a payment past its limit, and that revoking works —
 is proven far better by the contract and integration suites, which run against the same
 fork without a story wrapped around them. And what they could not demonstrate is the only part
-that was ever interesting: an actual agent deciding to spend. the old `agent.ts` was a function
-called `buy()`.
+that was ever interesting: an actual agent deciding to spend. The old `agent.ts` did not decide
+anything — it was a function called `buy()`, and a script that always buys is not an agent under a
+budget, it is a transfer with extra steps.
 
 The plugin is deployed on Arc testnet now and mandates are granted from a real phone, so the
 demonstration is an agent with the MCP connector installed, paying this seller on a chain anyone

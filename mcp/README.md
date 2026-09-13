@@ -73,11 +73,14 @@ another identity, owned by that one.
 
 | | |
 |---|---|
-| `ARC_RPC_URL` | defaults to Arc testnet |
+| `ARC_TESTNET_RPC_URL` | the endpoint, and **the one that wins**: the connector reads `ARC_TESTNET_RPC_URL ?? ARC_RPC_URL ?? Arc testnet`. This is the name `.env.example` uses, so it is the one already set if you copied that file |
+| `ARC_RPC_URL` | the same knob under an older name, used only when `ARC_TESTNET_RPC_URL` is unset. Setting this one *while the other is set* changes nothing, silently |
 | `ARC_SESSION_KEY_PLUGIN` | the mandate plugin |
 | `CIRCLE_CLIENT_URL`, `CIRCLE_CLIENT_KEY`, `CIRCLE_PASSKEY_DOMAIN` | the bundler the agent submits through. Arc has no public bundler, so without these a payment cannot be sent |
 | `ARC_MANDATE_KEY_PATH` | where the agent's key lives (default `~/.arc-mandate/agent.key`). The code image is saved beside it |
+| `ARC_MANDATE_ACCOUNT_PATH` | where the paired wallet is remembered. Move or delete this and the agent forgets which wallet it spends from, and pairing starts over |
 | `ARC_ACCOUNT` | a wallet to spend from without pairing, for a connector you point at your own wallet by hand. Still checked against the chain before every use |
+| `ARC_CHAIN_ID` | overrides the chain id the connector expects. Set only if you are pointing it at something other than Arc testnet |
 
 ## Installing it
 
@@ -85,12 +88,14 @@ From a clone of this repository, which is how it installs today:
 
 ```bash
 cd /path/to/arc-agent-mandate
+cp .env.example .env                    # the server reads this; see Configuration above
 claude mcp add arc-mandate -s user -- node "$PWD/mcp/server.ts"
 claude mcp list | grep arc-mandate      # confirm the path; $PWD is your shell's, not ours
 ```
 
 The server reads this project's `.env` on its own, so nothing secret goes into your client's
-config. Restart the client afterwards: MCP servers are launched at startup.
+config — which is why the file has to exist before you start. Restart the client afterwards: MCP
+servers are launched at startup.
 
 Without `-s user` this lands in local scope, which is bound to the directory you ran it in and
 shadows every other scope. A wrong path here surfaces later as `CONNECTION_CLOSED` and names
@@ -110,6 +115,11 @@ claude mcp add-json arc-mandate '{
     "CIRCLE_PASSKEY_DOMAIN": "your-passkey-domain"
   } }'
 ```
+
+One thing has to change before that line works, and it is worth knowing now rather than on the day:
+`bin` in `mcp/package.json` points at `server.ts`, and there is no build step. `npx` would hand a
+TypeScript file to whatever Node the user happens to have, so the package either ships compiled
+JavaScript or inherits the same Node floor the clone has. Publishing is `#42`.
 
 ### Why you bring your own key
 

@@ -41,11 +41,25 @@ and have seen the whole claim; steps 6 and 7 are the fun half.
 
 | | |
 |---|---|
-| Node | 22.18 or newer (or 23.6+, or any 24) — everything here runs TypeScript directly, and unflagged type stripping starts there. 22.6 has it behind a flag, which is not enough for `node mcp/server.ts`. |
+| Node | 22.18 or newer (or 23.6+, or any 24) — everything here runs TypeScript directly, and unflagged type stripping starts there. 22.6 has it behind a flag, which is not enough for `node mcp/server.ts`. **Nothing enforces this**: there is no `engines` field and no `.nvmrc`, so an older Node fails at the first `node --experimental-transform-types` rather than at install |
+| git | the contract suite is five git submodules under `contracts/lib`, fetched by `npm install` |
+| Foundry | required by **`npm test`, not only the gate**: the unit suite shells out to `forge`, and `npm run test:integration` also needs `anvil` and `forge script`. Install from [getfoundry.sh](https://getfoundry.sh) |
+| Xcode + CocoaPods, and an iPhone or simulator | passkeys need a real Secure Enclave or a simulator with one. `npm run ios` generates the whole `ios/` project and runs `pod install` on first use — see *A note on the native projects* below |
 | Bun | only to run [`arc-maze`](https://github.com/nel349/arc-maze) yourself |
-| Foundry | required: `npm run gate` runs the Solidity suite with it. Install from [getfoundry.sh](https://getfoundry.sh) |
-| Xcode + an iPhone or simulator | passkeys need a real Secure Enclave or a simulator with one |
 | A Circle client key | free, from [console.circle.com](https://console.circle.com) → Wallets → Modular Wallets → Client Keys |
+| Network access | the contract and integration suites fork live Arc, and one test calls Circle's live facilitator. None of the gate runs offline |
+
+Android works and `npm run android` builds it, but the walk-through below is written for iOS. It
+needs the Android SDK and a JDK, which are not in this table because nothing here has been checked
+against a clean Android toolchain.
+
+### A note on the native projects
+
+`ios/` and `android/` are **generated and gitignored** — `git ls-files` returns nothing for either.
+`npm run ios` creates the iOS project on first run, which takes several minutes and needs CocoaPods.
+Two things follow that are easy to lose an afternoon to: editing anything under `ios/` is futile,
+because the next prebuild overwrites it; and `npm start` on a clean clone fails, because it is
+`expo start --dev-client` and there is no dev build to attach to yet. Run `npm run ios` first.
 
 The client key is **bound to a domain**. Use the same passkey domain the app is configured with, or
 Circle refuses it with `Invalid credentials` and nothing explains why.
@@ -56,14 +70,37 @@ Circle refuses it with `Invalid credentials` and nothing explains why.
 cp .env.example .env
 ```
 
-Fill in three values. They are public by design — Expo inlines them into the bundle — so they are
-not secrets, but they do have to be right.
+`.env.example` ships eight names. Three are what the **app** carries, and they are public by design
+— Expo inlines them into the bundle — so they are not secrets, but they do have to be right:
 
 ```
 EXPO_PUBLIC_CIRCLE_CLIENT_URL=https://modular-sdk.circle.com/v1/rpc/w3s/buidl
 EXPO_PUBLIC_CIRCLE_CLIENT_KEY=TEST_CLIENT_KEY:…
 EXPO_PUBLIC_CIRCLE_PASSKEY_DOMAIN=your-passkey-domain
 ```
+
+Three more are the same Circle credentials without the prefix, read by the **connector** in `mcp/`,
+which runs under Node and never sees an `EXPO_PUBLIC_` variable:
+
+```
+CIRCLE_CLIENT_URL=…      CIRCLE_CLIENT_KEY=…      CIRCLE_PASSKEY_DOMAIN=…
+```
+
+The last two are optional endpoints, and worth setting before you run the gate rather than after:
+
+```
+ARC_TESTNET_RPC_URL=…              # Node only: the tests, the forks, the connector, the scripts
+EXPO_PUBLIC_ALCHEMY_ARC_TESTNET=…  # carried by the app; inlined into the bundle, so treat it as published
+```
+
+With neither set everything uses Arc's public endpoint and works — but that endpoint rate-limits,
+and it is the reason for the `429`s in step 2. `ARC_TESTNET_RPC_URL` is what removes them.
+
+**The passkey domain is not only an `.env` value.** `app.json` hard-codes
+`webcredentials:kuiralabs.github.io` in `associatedDomains`, so pointing the app at your own Circle
+client key means editing `app.json` as well and running `npm run ios` again to regenerate the native
+project — and hosting an AASA file at that domain. Change only `.env` and Circle answers
+`Invalid credentials`, which explains none of this.
 
 ### 2. Prove the rules before touching a phone
 
@@ -76,9 +113,14 @@ That is the typecheck, the unit tests, the Solidity suite **against a fork of Ar
 Circle account and the real EntryPoint**, and the integration tests. If this passes, the mandate
 engine works; everything after it is wiring.
 
-The first run is slow and mostly silent: Foundry clones five submodules it needs, the contract
-suite installs its own dependencies, and the fork tests fetch state from Arc. Several minutes is
+The first run is slow and mostly silent. `npm install` triggers `prepare`, which runs
+`setup:contracts`: that fetches the five git submodules under `contracts/lib` and installs the
+contract suite's own dependencies. The fork tests then pull state from Arc. Several minutes is
 normal once; after that it is seconds.
+
+**If the submodules fail, `npm install` still succeeds.** `prepare` sends that step's output to
+`/dev/null`, so a failed fetch exits 0 and surfaces much later as `forge` not finding its libraries
+inside `npm test`. Run `npm run setup:contracts` on its own to see the real error.
 
 Arc's public RPC rate-limits, so a passing gate still prints some `429` and "rate limit exceeded"
 warnings on the way. They are the endpoint pushing back, not failures; only the final result
@@ -90,7 +132,7 @@ counts.
 npm run ios
 ```
 
-Tap **Create a Wallet** and confirm with Face ID. That is a passkey — there is no seed phrase, and
+Tap **Create a wallet** and confirm with Face ID. That is a passkey — there is no seed phrase, and
 no key leaves the device.
 
 Then fund it with test USDC from [Circle's faucet](https://faucet.circle.com), choosing **Arc
@@ -253,6 +295,7 @@ recipient lists, expiry — are untouched, because they were never the broken pa
 
   | | |
   |---|---|
+  | `npm run typecheck` | `tsc --noEmit` over the app, the connector and the tests — the gate runs this first |
   | `npm test` | parsing, encoding, the money type, mandate formatting, the meter the card reads, the connector |
   | `npm run test:contracts` | the allowance rules, against a fork with the plugin installed on a real Circle account |
   | `npm run test:integration` | the whole path: a signed user operation through the real EntryPoint, money moving, revocation taking effect, and an x402 payment checked against Circle's live facilitator |
@@ -289,8 +332,8 @@ v0.7 — it installs, then reverts at first use), and **Circle wallets on React 
 web-only; `docs.arc.io/integrate` lists no mobile SDK).
 
 - [docs/CONTRIBUTION.md](docs/CONTRIBUTION.md): what we built for the ecosystem and why
-- [docs/FINDINGS.md](docs/FINDINGS.md): twelve things building on Arc taught us that the docs don't
-  cover, including a dual-decimal USDC trap that can read a funded account as empty
+- [docs/FINDINGS.md](docs/FINDINGS.md): thirteen things building on Arc taught us that the docs
+  don't cover, including a dual-decimal USDC trap that can read a funded account as empty
 
 ## Where to look
 
