@@ -10,6 +10,11 @@ testnet underneath. Dashed lines and `NOT DEPLOYED` mark what is written and tes
 `SIMULATED` marks the Chainlink workflow, which runs in the CRE simulator and has not yet read Arc.
 Click for full size.</sub>
 
+<sub>The picture is drawn in [`ARCHITECTURE.html`](ARCHITECTURE.html), which is where to change it:
+open that, edit, and re-export `architecture.png`. It is a PNG, so nothing makes it follow the code
+— if the plugin is redeployed or `MazeVerdict` ships, the image and the table below both need
+updating by hand.</sub>
+
 ## The short version
 
 Your wallet is a **smart contract account**, not a key — Circle's Modular Wallet, built to
