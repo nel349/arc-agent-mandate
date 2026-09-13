@@ -1,355 +1,109 @@
-# Agent Mandate
+<p align="center">
+  <img src="brand/mark.svg" alt="" width="132" height="132">
+</p>
 
-**An agent key that can only spend what you allowed.**
+<h1 align="center">Agent Mandate</h1>
 
-Software that does real work has to pay for things — an API call, a search, a page of data. To let
-it, you hand it something unlimited: the private key to a funded wallet, or an API key with a card
-behind it. Whoever holds that can move everything in reach, for as long as they hold it, and the
-first sign of trouble is the balance.
+<p align="center">
+  <strong>An agent key that can only spend what you allowed.</strong><br>
+  <sub>The full circle is the limit. The drawn part is what is gone.<br>
+  That is the mark, and it is also the whole product.</sub>
+</p>
 
-This makes the key worth nothing on its own. The authority lives on chain instead (*up to $50,
-until Friday*), granted from your phone with Face ID. The agent spends inside it without asking,
-and cannot go past it: an over-limit payment is refused by the chain, not by the agent's good
-behaviour, so a compromised agent gets no further than an honest one. Revoke it with your face and
-it stops mid-task.
+<p align="center">
+  <code>Arc testnet · 5042002</code> &nbsp;·&nbsp;
+  <code>Expo SDK 54 · iOS + Android</code> &nbsp;·&nbsp;
+  <code>MIT, plugin GPL-3.0-or-later</code>
+</p>
 
-[![How an agent spends your money, and why it can't overspend: a phone grants an allowance, an
-agent pays a maze per step under it, and the chain refuses anything past the
-limit](docs/architecture.png)](docs/architecture.png)
+---
 
-The whole run in one picture — the ten steps below, what is deployed and what is only simulated,
-and every contract it touches on Arc testnet. Dashed lines are the parts that are written and
-tested but not on chain yet.
+To let an agent pay for things you hand it something unlimited: a funded wallet's private key, or an
+API key with a card behind it. Whoever holds that can move everything in reach, for as long as they
+hold it, and the first sign of trouble is the balance.
 
-## Why we built it
+This makes the key worth nothing on its own. The authority lives on chain instead — *up to $50,
+until Friday* — granted from your phone with Face ID. The agent spends inside it without asking, and
+**an over-limit payment is refused by the chain rather than by the agent's good behaviour**, so a
+compromised agent gets no further than an honest one. Revoke with your face and it stops mid-task.
 
-We wanted to build something real on Arc and find out what it takes. It turned out to take more
-than expected: session keys are listed as priority infrastructure but the only one deployed on Arc
-cannot serve a Circle wallet, and Circle's wallets do not reach React Native at all — so a phone
-app on a chain whose whole argument is that dollars are the currency was not buildable without
-closing both gaps first.
+<p align="center">
+  <a href="docs/ARCHITECTURE.md"><strong>How it works, in one diagram →</strong></a><br>
+  <sub>Ten steps and three layers, every contract it touches on Arc testnet,<br>
+  and what is deployed against what is only simulated.</sub>
+</p>
 
-So we closed them, and the app is what proves they are closed. The allowance is a genuine product
-and we would ship it; the port and the passkey bridge are the parts anyone else can pick up, and
-[docs/FINDINGS.md](docs/FINDINGS.md) is what we would have wanted to read before starting.
+## Quickstart
 
-That is the intent here — **contribute the plumbing, and use the product to show it works.**
-
-## Run it yourself
-
-Everything below is on **Arc testnet** and nothing in it is simulated. The allowance rules are
-deployed at `0x669Dd1eDb85ABD00f74186d88124614EE81E6670`; the money is test USDC, and the refusals
-are real.
-
-Two repositories are involved. This one is the **wallet and the agent's connector** — the buyer.
-[`arc-maze`](https://github.com/nel349/arc-maze) is a paid maze on Arc — something to buy *from*. You can stop after step 5
-and have seen the whole claim; steps 6 and 7 are the fun half.
-
-### Before you start
-
-| | |
-|---|---|
-| Node | 22.18 or newer (or 23.6+, or any 24) — everything here runs TypeScript directly, and unflagged type stripping starts there. 22.6 has it behind a flag, which is not enough for `node mcp/server.ts`. **Nothing enforces this**: there is no `engines` field and no `.nvmrc`, so an older Node fails at the first `node --experimental-transform-types` rather than at install |
-| git | the contract suite is five git submodules under `contracts/lib`, fetched by `npm install` |
-| Foundry | required by **`npm test`, not only the gate**: the unit suite shells out to `forge`, and `npm run test:integration` also needs `anvil` and `forge script`. Install from [getfoundry.sh](https://getfoundry.sh) |
-| Xcode + CocoaPods, and an iPhone or simulator | passkeys need a real Secure Enclave or a simulator with one. `npm run ios` generates the whole `ios/` project and runs `pod install` on first use — see *A note on the native projects* below |
-| Bun | only to run [`arc-maze`](https://github.com/nel349/arc-maze) yourself |
-| A Circle client key | free, from [console.circle.com](https://console.circle.com) → Wallets → Modular Wallets → Client Keys |
-| Network access | the contract and integration suites fork live Arc, and one test calls Circle's live facilitator. None of the gate runs offline |
-
-Android works and `npm run android` builds it, but the walk-through below is written for iOS. It
-needs the Android SDK and a JDK, which are not in this table because nothing here has been checked
-against a clean Android toolchain.
-
-### A note on the native projects
-
-`ios/` and `android/` are **generated and gitignored** — `git ls-files` returns nothing for either.
-`npm run ios` creates the iOS project on first run, which takes several minutes and needs CocoaPods.
-Two things follow that are easy to lose an afternoon to: editing anything under `ios/` is futile,
-because the next prebuild overwrites it; and `npm start` on a clean clone fails, because it is
-`expo start --dev-client` and there is no dev build to attach to yet. Run `npm run ios` first.
-
-The client key is **bound to a domain**. Use the same passkey domain the app is configured with, or
-Circle refuses it with `Invalid credentials` and nothing explains why.
-
-### 1. Configure
+Needs Node 22.18+, [Foundry](https://getfoundry.sh), Xcode, and a free
+[Circle client key](https://console.circle.com). Full list and the reasons behind each:
+**[docs/RUN.md](docs/RUN.md)**.
 
 ```bash
-cp .env.example .env
+git clone https://github.com/nel349/arc-agent-mandate && cd arc-agent-mandate
+cp .env.example .env        # six Circle values — app and connector — plus two optional endpoints
+npm install                 # also fetches five contract submodules
+npm run gate                # typecheck, unit, contracts on a fork, integration
 ```
 
-`.env.example` ships eight names. Three are what the **app** carries, and they are public by design
-— Expo inlines them into the bundle — so they are not secrets, but they do have to be right:
-
-```
-EXPO_PUBLIC_CIRCLE_CLIENT_URL=https://modular-sdk.circle.com/v1/rpc/w3s/buidl
-EXPO_PUBLIC_CIRCLE_CLIENT_KEY=TEST_CLIENT_KEY:…
-EXPO_PUBLIC_CIRCLE_PASSKEY_DOMAIN=your-passkey-domain
-```
-
-Three more are the same Circle credentials without the prefix, read by the **connector** in `mcp/`,
-which runs under Node and never sees an `EXPO_PUBLIC_` variable:
-
-```
-CIRCLE_CLIENT_URL=…      CIRCLE_CLIENT_KEY=…      CIRCLE_PASSKEY_DOMAIN=…
-```
-
-The last two are optional endpoints, and worth setting before you run the gate rather than after:
-
-```
-ARC_TESTNET_RPC_URL=…              # Node only: the tests, the forks, the connector, the scripts
-EXPO_PUBLIC_ALCHEMY_ARC_TESTNET=…  # carried by the app; inlined into the bundle, so treat it as published
-```
-
-With neither set everything uses Arc's public endpoint and works — but that endpoint rate-limits,
-and it is the reason for the `429`s in step 2. `ARC_TESTNET_RPC_URL` is what removes them.
-
-**The passkey domain is not only an `.env` value.** `app.json` hard-codes
-`webcredentials:kuiralabs.github.io` in `associatedDomains`, so pointing the app at your own Circle
-client key means editing `app.json` as well and running `npm run ios` again to regenerate the native
-project — and hosting an AASA file at that domain. Change only `.env` and Circle answers
-`Invalid credentials`, which explains none of this.
-
-### 2. Prove the rules before touching a phone
+`npm run gate` proves the mandate engine against **a fork of Arc with the real Circle account and
+the real EntryPoint** — before a phone is involved. Everything after it is wiring.
 
 ```bash
-npm install
-npm run gate
+npm run ios                 # tap "Create a wallet", confirm with Face ID
 ```
 
-That is the typecheck, the unit tests, the Solidity suite **against a fork of Arc with the real
-Circle account and the real EntryPoint**, and the integration tests. If this passes, the mandate
-engine works; everything after it is wiring.
-
-The first run is slow and mostly silent. `npm install` triggers `prepare`, which runs
-`setup:contracts`: that fetches the five git submodules under `contracts/lib` and installs the
-contract suite's own dependencies. The fork tests then pull state from Arc. Several minutes is
-normal once; after that it is seconds.
-
-**If the submodules fail, `npm install` still succeeds.** `prepare` sends that step's output to
-`/dev/null`, so a failed fetch exits 0 and surfaces much later as `forge` not finding its libraries
-inside `npm test`. Run `npm run setup:contracts` on its own to see the real error.
-
-Arc's public RPC rate-limits, so a passing gate still prints some `429` and "rate limit exceeded"
-warnings on the way. They are the endpoint pushing back, not failures; only the final result
-counts.
-
-### 3. Make a wallet
+Then give the agent you already run a connector, and a spending limit:
 
 ```bash
-npm run ios
-```
-
-Tap **Create a wallet** and confirm with Face ID. That is a passkey — there is no seed phrase, and
-no key leaves the device.
-
-Then fund it with test USDC from [Circle's faucet](https://faucet.circle.com), choosing **Arc
-testnet**. A dollar is plenty; a step in the maze costs a tenth of a cent.
-
-### 4. Give an agent the connector
-
-```bash
-cd /path/to/arc-agent-mandate                       # the absolute path matters, see below
 claude mcp add arc-mandate -s user -- node "$PWD/mcp/server.ts"
 ```
 
-`$PWD` is expanded by your shell, not by Claude, so running this from anywhere but the repo
-registers a path that does not exist — and the failure arrives later as `CONNECTION_CLOSED`, which
-names nothing. Check what was registered:
-
-```bash
-claude mcp list | grep arc-mandate                  # must end in .../arc-agent-mandate/mcp/server.ts
-```
-
-`-s user` matters too. Without it the server is registered in **local** scope, which is tied to the
-directory you happened to run the command in and takes precedence over every other scope — so a
-stale local entry silently shadows a correct one. If it is already wrong,
-`claude mcp remove arc-mandate -s local` and add it again.
-
-The server reads this repo's `.env` itself, so there are no secrets in your agent's config. Restart
-the agent afterwards — an MCP server is only launched at startup.
-
-Then ask it:
-
 > **you:** what's your payment address?
+> **agent:** *(shows a QR)* — you scan it in the app, set $10 and a week, confirm with Face ID
+> **you:** solve the maze at https://arc-maze.vercel.app/ and spend as little as you can
 
-It prints a QR code and an address. If it does not show you the QR, tell it to: the code is for
-your phone's camera and is useless sitting in tool output. The code carries a one-time pairing code
-that ties the allowance you grant to this agent, and it is also saved as
-`~/.arc-mandate/pairing-code.png`.
+The agent pays per step, the app shows each payment as it lands, and asking for more than you
+granted is refused by the account. **[docs/RUN.md](docs/RUN.md)** walks all seven steps, including
+the ones that bite.
 
-### 5. Grant an allowance, and watch it bind
+## What's built
 
-In the app, scan that QR (or paste the link the agent prints), set an amount and a number of days,
-and confirm with Face ID. An address typed on its own carries no pairing code, and the agent will
-not use an allowance granted that way.
+- **A phone wallet** (iOS + Android) unlocked by Face ID, sending gasless USDC on Arc. Circle
+  supports passkey wallets on web, iOS and Android — **not React Native** — so the ceremony is ours:
+  `modules/arc-passkey`, `src/passkey`.
+- **The allowance, on chain** — `contracts/src/session`, a port of Alchemy's ERC-6900 session-key
+  plugin from EntryPoint v0.6 to v0.7, because the one deployed on Arc cannot serve a Circle wallet.
+  Live at `0x669Dd1eDb85ABD00f74186d88124614EE81E6670` — every address is in
+  [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+- **A connector for agents you already run** — `mcp/`. One line, and Claude Code, Cursor or Codex
+  spends inside the allowance. Pairing is one QR scan with no config file and no server.
+- **One gate.** `npm run gate` is typecheck, unit tests, the Solidity suite on a fork, and
+  integration against Circle's live facilitator.
 
-Now ask the agent to spend:
-
-> **you:** check your allowance
-> **you:** pay $0.05 to 0x000000000000000000000000000000000000dEaD
-
-Then ask for more than you granted. The connector checks the limit first and answers without
-sending anything, so that refusal is free. The point is what happens if it does not: the chain
-refuses the payment itself, so a modified connector that skipped the check gets no further. On the
-rail this app grants (one meter on Arc's ERC-20 view of USDC, which is what lets the phone show a
-single number) that refusal happens when the payment runs: the operation is included and reverts,
-and its gas is paid by Circle's sponsorship, not by you. No money moves.
-
-Revoke in the app and try again: the next payment is refused at the account level, not by the agent
-agreeing to stop.
-
-### 6. Buy something real
-
-The companion maze is live at **[arc-maze.vercel.app](https://arc-maze.vercel.app)**, and every
-step through it costs a tenth of a cent. Its front page gives the sentence to hand your agent:
-
-> **you:** Solve the maze at https://arc-maze.vercel.app/ and spend as little as you can.
-
-The agent starts a run for free, gets a `402` on its first paid call, pays from the escrow your
-allowance funds, and carries on. Each payment shows in the app as it happens. The maze's
-[README](https://github.com/nel349/arc-maze#readme) has the full play-through.
-
-To run the maze yourself instead:
-
-```bash
-git clone https://github.com/nel349/arc-maze && cd arc-maze
-bun install
-SELLER_ADDRESS=<any address you control> bun run start     # then use http://localhost:8790
-```
-
-### 7. Check it without trusting us
-
-Every run is replayable by a stranger, because the maze is seeded from the round id. The run id is
-in the agent's answers and on the maze's [list of every run](https://arc-maze.vercel.app/runs):
-
-```bash
-curl -s https://arc-maze.vercel.app/run/<run-id>/verify
-```
-
-That rebuilds the maze and re-walks the actions, taking nothing on trust — not the ending square,
-not the step count, not the amount charged.
-
-### If something goes wrong
+## Reference
 
 | | |
 |---|---|
-| `Invalid credentials` from Circle | the client key is bound to a different domain than `EXPO_PUBLIC_CIRCLE_PASSKEY_DOMAIN` |
-| The agent says it has no allowance | it was granted to a different address — ask it for its address again; a new key is generated if none exists |
-| A payment says `unsupported_network` | something is pointed at Circle's **mainnet** Gateway. Arc is testnet-only today |
-| `The allowance contract is not deployed on this network` | the app is on a network other than Arc testnet |
-| Payments accepted but never arriving | the fee. Arc's base fee moves between 20 and 66 gwei and an operation at the bare estimate is accepted into the mempool and never included |
+| **[docs/RUN.md](docs/RUN.md)** | prerequisites, the seven steps end to end, and what to do when it breaks |
+| **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** | the diagram, the smart account, the session key, what the chain refuses and when, why Arc, and every address |
+| **[docs/FINDINGS.md](docs/FINDINGS.md)** | thirteen things building on Arc taught us that the docs don't cover |
+| **[docs/CONTRIBUTION.md](docs/CONTRIBUTION.md)** | what this contributes, and where it sits among the standards |
+| [mcp/README.md](mcp/README.md) | the connector: its five tools, how pairing binds, configuration |
+| [contracts/src/session/PORTING.md](contracts/src/session/PORTING.md) | every change from the v0.6 plugin, and why |
+| [LICENSING.md](LICENSING.md) | MIT, except the plugin and one vendored file |
+| [docs/TESTFLIGHT.md](docs/TESTFLIGHT.md) | what App Store Connect asks for, answered |
+| [brand/README.md](brand/README.md) | the mark, generated from the app's own tokens |
 
-## How it works
-
-[The diagram above](docs/architecture.png) is this section as a picture, with the addresses.
-
-Your wallet is a **smart contract account**, not a key — Circle's Modular Wallet, built to
-**ERC-6900**, which describes an account assembled from swappable pieces. Your passkey does not
-own it directly; a piece called `WeightedWebauthnMultisigPlugin` does the face check on its
-behalf. Payments arrive as **ERC-4337 user operations**: you sign an instruction, and the account
-validates it before anything moves.
-
-An allowance is a **session key**: a second key with limited authority, which the account checks
-against rules stored on-chain. Granting one installs a piece that holds those rules: a spend cap,
-an expiry and a gas budget, and optionally a list of who may be paid.
-
-**What the chain refuses, and when.** A revoked or expired allowance is refused during validation,
-before anything runs. The app meters an allowance on one rail (see *Why Arc*), where an over-limit
-payment is refused when it runs instead: the operation is included and reverts, no money moves, and
-the gas is Circle's sponsorship rather than yours. The connector checks the limit before sending,
-so only a connector that skipped the check ever reaches that refusal.
-
-Revoking removes the agent's authority at the account level in one transaction. A cancelled card
-still leaves recurring charges; a rotated API key still leaves live sessions. What a revoke cannot
-recall is money the agent had already moved into its x402 escrow, which counted against the
-allowance when it moved. The connector moves only what the next purchase needs, unless it is asked
-to top up ahead of time.
-
-### Why this did not already work on Arc
-
-**ERC-4337 changed shape between v0.6 and v0.7.** Gas figures that used to have their own fields
-were packed into single words, which changes the validation function's signature and therefore its
-selector:
-
-```solidity
-userOpValidationFunction(uint8, UserOperation,       bytes32)   // v0.6
-userOpValidationFunction(uint8, PackedUserOperation, bytes32)   // v0.7
-```
-
-**Circle's accounts run EntryPoint v0.7.** The only ERC-6900 session key plugin deployed on Arc is
-built for **v0.6**. They cannot talk to each other, and you only discover it by trying to use both
-together.
-
-Done properly, installation fails on an interface check. The trap is the obvious shortcut around
-it, which makes installation *succeed* and moves the failure to the first time an agent tries to
-spend.
-
-`contracts/src/session` is that plugin rebuilt against v0.7. The rules themselves — caps,
-recipient lists, expiry — are untouched, because they were never the broken part.
-[PORTING.md](contracts/src/session/PORTING.md) records every change and why.
-
-## What's actually built
-
-- **A phone wallet** (iOS + Android) unlocked by Face ID, sending real gasless USDC on Arc. Circle
-  supports this on web, iOS and Android — **not React Native** — so the passkey ceremony is ours
-  (`modules/arc-passkey`, `src/passkey`).
-- **The allowance rules on-chain** (`contracts/src/session`) — spend caps, payee lists, expiry, gas
-  budgets — running against Circle's real deployed account contracts.
-- **A connector for agents you already run** (`mcp/`). One install line and Claude Code, Cursor or
-  Codex can spend inside an allowance. The agent makes its own key, shows you a public address, and
-  after you grant it finds the rest by itself: it watches for the `SessionKeyAdded` event naming
-  its own address and carrying the one-time pairing code its QR showed, so a grant from anyone else
-  is not used. One scan, no config file. See [mcp/README.md](mcp/README.md).
-- **One gate.** `npm run gate` must be green before anything ships:
-
-  | | |
-  |---|---|
-  | `npm run typecheck` | `tsc --noEmit` over the app, the connector and the tests — the gate runs this first |
-  | `npm test` | parsing, encoding, the money type, mandate formatting, the meter the card reads, the connector |
-  | `npm run test:contracts` | the allowance rules, against a fork with the plugin installed on a real Circle account |
-  | `npm run test:integration` | the whole path: a signed user operation through the real EntryPoint, money moving, revocation taking effect, and an x402 payment checked against Circle's live facilitator |
-
-  Run `test:integration` on its own. It forks live Arc, and sharing the RPC with another suite has
-  produced spurious failures with tests taking twenty times as long.
-
-## Why Arc
-
-On most chains a dollar is a token contract, and a spending limit is whatever you manage to parse
-out of calldata. On Arc **the dollar is the currency itself**, with an ERC-20 view over the same
-balance, so the account's own rules can meter it directly. The plugin supports both: a limit on the
-native value field, and a limit on the ERC-20 view.
-
-The app grants on the ERC-20 view, because it is the only rail that covers everything an agent
-does. A direct payment and the `approve` that funds an x402 escrow both go through it, so one limit
-bounds all of it and the phone can show a single number that is the whole truth. The native limit
-is left at zero, which refuses any payment carrying value, so there is no second meter to escape
-through. `contracts/test/ArcOneMeter.t.sol` is the evidence.
-
-Two costs come with that, and neither is hidden. An over-limit payment is refused when it runs
-rather than before it runs (the gas is sponsored, and the connector checks the limit first). And
-the allowance cannot be narrowed to named payees, because on this rail the account sees the token
-contract as the target, not the recipient. The contracts also support a scoped allowance: a payee
-list on the native rail, where an over-limit payment is refused during validation and costs
-nothing. The app does not offer it yet, because an agent shopping the open web does not know who
-it will pay.
-
-## What this contributes to Arc
-
-Two pieces outlive the demo, and both fill gaps Arc's own docs make visible: **session keys that
-work with Circle Modular Wallets** (the one deployed on Arc is EntryPoint v0.6 against Circle's
-v0.7 — it installs, then reverts at first use), and **Circle wallets on React Native** (App Kit is
-web-only; `docs.arc.io/integrate` lists no mobile SDK).
-
-- [docs/CONTRIBUTION.md](docs/CONTRIBUTION.md): what we built for the ecosystem and why
-- [docs/FINDINGS.md](docs/FINDINGS.md): thirteen things building on Arc taught us that the docs
-  don't cover, including a dual-decimal USDC trap that can read a funded account as empty
-
-## Where to look
+Where to look in the code:
 
 | | |
 |---|---|
-| `fixtures/` | a fake shop, for exercising a 402 flow by hand. Nothing uses it |
-| `contracts/src/session` | the allowance rules, and `PORTING.md` on what we changed and why |
-| `src/passkey/cose.ts` | the piece Circle assumes a browser did: attestation → public key |
+| `src/arc/mandate.ts` | granting, reading and revoking an allowance |
 | `src/arc/usdc.ts` | why a dollar on Arc has two decimal scales, and how that trap is closed |
+| `src/passkey/cose.ts` | the piece Circle assumes a browser did: attestation → public key |
+| `mcp/server.ts` | the five tools an agent gets |
+| `fixtures/` | a fake shop for exercising a 402 by hand. Nothing else uses it |
+
+The companion seller is **[arc-maze](https://github.com/nel349/arc-maze)** — a maze that charges by
+the step and pays out ERC-8004 reputation, which is what the agent above is buying from.
