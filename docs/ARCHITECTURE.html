@@ -1,0 +1,409 @@
+<title>Agent Mandate Architecture</title>
+<style>
+:root{
+  --ground:#faf9f7; --band:#f1efea; --surface:#ffffff; --edge:#d9d5cc;
+  --text:#12110f; --muted:#6b6862; --signal:#b4541f; --untested:#5d86b8; --good:#2f6f4f;
+  --sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --ground:#12110f; --band:#171613; --surface:#1f1d1a; --edge:#35322c;
+  --text:#eae7de; --muted:#8f897e; --signal:#e8874a; --untested:#7aa6d8; --good:#6bbf8f;
+}}
+:root[data-theme="dark"]{
+  --ground:#12110f; --band:#171613; --surface:#1f1d1a; --edge:#35322c;
+  --text:#eae7de; --muted:#8f897e; --signal:#e8874a; --untested:#7aa6d8; --good:#6bbf8f;
+}
+*{box-sizing:border-box}
+body{background:var(--ground);color:var(--text);font-family:var(--sans);font-size:15px;line-height:1.55;padding:40px 24px 64px}
+.wrap{max-width:1320px;margin:0 auto;display:grid;gap:40px}
+header{display:grid;gap:10px;max-width:72ch}
+.eyebrow{font:600 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+h1{font-size:clamp(28px,4vw,40px);line-height:1.1;margin:0;letter-spacing:-.02em;text-wrap:balance}
+h2{font-size:20px;margin:0;letter-spacing:-.01em;text-wrap:balance}
+p{margin:0}
+.lede{color:var(--muted);font-size:17px}
+code,.mono{font-family:var(--mono);font-size:.9em}
+
+.legend{display:flex;flex-wrap:wrap;gap:10px 28px;color:var(--muted);font-size:13.5px;align-items:center}
+.legend span{display:inline-flex;align-items:center;gap:8px}
+
+.figure{margin:0;display:grid;gap:12px}
+.scroll{overflow-x:auto;border-radius:16px}
+.scroll svg{display:block;width:100%;min-width:1180px;height:auto}
+figcaption{color:var(--muted);font-size:13.5px;max-width:90ch}
+
+/* diagram marks */
+.band{fill:var(--band)}
+.bandlabel{fill:var(--muted);font:600 11px var(--mono);letter-spacing:.14em}
+.bx{fill:var(--surface);stroke:var(--edge);stroke-width:1}
+.chip{fill:var(--band);stroke:var(--edge);stroke-width:1}
+.key{fill:var(--surface);stroke:var(--text);stroke-width:1.5}
+.dash{fill:var(--surface);stroke:var(--untested);stroke-width:1.5;stroke-dasharray:6 5}
+.tee{fill:none;stroke:var(--untested);stroke-width:1.25;stroke-dasharray:4 4}
+.ey{fill:var(--muted);font:600 11px var(--mono);letter-spacing:.1em}
+.ey.u{fill:var(--untested)}
+.ti{fill:var(--text);font:600 17px var(--sans)}
+.ts{fill:var(--text);font:600 14px var(--sans)}
+.mo{fill:var(--muted);font:12.5px var(--mono)}
+.li{fill:var(--text);font:13.5px var(--sans)}
+.lm{fill:var(--muted);font:13px var(--sans)}
+.ln{fill:none;stroke:var(--muted);stroke-width:1.5}
+.ln.s{stroke:var(--signal);stroke-width:2.25}
+.ln.u{stroke:var(--untested);stroke-width:1.75;stroke-dasharray:7 5}
+.ah{fill:var(--muted)} .ah.s{fill:var(--signal)} .ah.u{fill:var(--untested)}
+.el{fill:var(--text);font:500 13px var(--sans)}
+.el2{fill:var(--muted);font:12px var(--sans)}
+.mk circle{fill:var(--text)} .mk text{fill:var(--ground);font:700 11.5px var(--sans)}
+.mk.u circle{fill:var(--untested)}
+
+/* steps */
+.steps{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px 36px}
+.steps li{display:grid;grid-template-columns:28px 1fr;gap:12px;align-items:start}
+.num{width:24px;height:24px;border-radius:50%;background:var(--text);color:var(--ground);font:700 12px/24px var(--sans);text-align:center;margin-top:1px}
+.num.u{background:var(--untested)}
+.steps b{display:block;font-weight:600}
+.steps p{color:var(--muted);font-size:14px}
+.tag{display:inline-block;font:600 10.5px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;padding:4px 6px;border-radius:4px;border:1px solid currentColor;margin-left:6px;vertical-align:2px}
+.tag.u{color:var(--untested)} .tag.g{color:var(--good)}
+
+.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:40px;align-items:start}
+section{display:grid;gap:16px}
+.props{display:grid;gap:14px}
+.props div{border-top:1px solid var(--edge);padding-top:12px;display:grid;gap:4px}
+.props p{color:var(--muted);font-size:14.5px}
+.status{margin:0;padding-left:18px;color:var(--muted);font-size:14.5px;display:grid;gap:6px}
+.status strong{color:var(--text);font-weight:600}
+
+.tablewrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:9px 12px 9px 0;border-bottom:1px solid var(--edge);vertical-align:top;white-space:nowrap}
+th{font:600 11px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+td.addr{font-family:var(--mono);font-size:12.5px}
+td.addr.u{color:var(--untested)}
+footer{color:var(--muted);font-size:13.5px;display:flex;flex-wrap:wrap;gap:8px 24px;border-top:1px solid var(--edge);padding-top:16px}
+footer a{color:var(--text)}
+a:focus-visible{outline:2px solid var(--untested);outline-offset:2px}
+</style>
+
+<div class="wrap">
+<header>
+  <div class="eyebrow">Agent Mandate · Toll · Arc testnet</div>
+  <h1>How an agent spends your money, and why it can't overspend</h1>
+  <p class="lede">You grant an allowance from your phone. Your smart wallet enforces it on Arc. The agent pays per step in a maze, earns a score it can't write itself, and Chainlink CRE replays the run to check that score.</p>
+</header>
+
+<div class="legend" aria-label="Legend">
+  <span><svg width="36" height="10" aria-hidden="true"><line x1="0" y1="5" x2="36" y2="5" stroke="var(--muted)" stroke-width="1.5"/></svg>calls, built and running</span>
+  <span><svg width="36" height="10" aria-hidden="true"><line x1="0" y1="5" x2="36" y2="5" stroke="var(--signal)" stroke-width="2.5"/></svg>USDC moves</span>
+  <span><svg width="36" height="10" aria-hidden="true"><line x1="0" y1="5" x2="36" y2="5" stroke="var(--untested)" stroke-width="2" stroke-dasharray="7 5"/></svg>written, not deployed</span>
+  <span><svg width="22" height="22" aria-hidden="true"><circle cx="11" cy="11" r="10" fill="var(--text)"/><text x="11" y="15" text-anchor="middle" fill="var(--ground)" font-size="11.5" font-weight="700" font-family="system-ui">4</text></svg>step in the run, listed below</span>
+</div>
+
+<figure class="figure">
+<div class="scroll">
+<svg viewBox="0 0 1530 1000" role="img" aria-label="Architecture: a phone app and an agent connector talk to Circle's bundler and paymaster, which submit operations to the user's smart wallet on Arc, where a session key plugin enforces the allowance. The agent pays the Toll maze over x402 through Circle Gateway. The maze stores run records in Upstash and writes reputation and badges on Arc. A Chainlink CRE workflow in an enclave reads a run record, replays it, and signs a report meant for a verdict contract that is not deployed yet.">
+<defs>
+  <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker>
+  <marker id="ahs" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah s"/></marker>
+  <marker id="ahu" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah u"/></marker>
+</defs>
+
+<!-- bands -->
+<rect class="band" x="12" y="12" width="1506" height="328" rx="14"/>
+<rect class="band" x="12" y="356" width="1506" height="168" rx="14"/>
+<rect class="band" x="12" y="540" width="1506" height="448" rx="14"/>
+<text class="bandlabel" transform="translate(32 176) rotate(-90)" text-anchor="middle">OFF-CHAIN</text>
+<text class="bandlabel" transform="translate(32 440) rotate(-90)" text-anchor="middle">SERVICES</text>
+<text class="bandlabel" transform="translate(32 764) rotate(-90)" text-anchor="middle">ARC TESTNET · 5042002</text>
+
+<g transform="translate(38 0)">
+
+<!-- ============ edges (drawn first, under boxes) ============ -->
+<!-- 0 phone -> passkey RP -->
+<path class="ln" d="M125 300V402" marker-end="url(#ah)"/>
+<!-- 2 / R phone -> bundler -->
+<path class="ln" d="M270 300V402" marker-end="url(#ah)"/>
+<!-- 1 connector -> phone : QR -->
+<path class="ln" d="M410 150H292" marker-end="url(#ah)"/>
+<!-- connector -> bundler -->
+<path class="ln" d="M540 300V402" marker-end="url(#ah)"/>
+<!-- bundler -> entrypoint -->
+<path class="ln" d="M460 496V590" marker-end="url(#ah)"/>
+<path class="ln" d="M460 626V644" marker-end="url(#ah)"/>
+<!-- 5 connector <-> maze -->
+<path class="ln s" d="M670 140H788" marker-end="url(#ahs)"/>
+<path class="ln" d="M790 196H672" marker-end="url(#ah)"/>
+<!-- 6 maze -> gateway -> escrow -->
+<path class="ln s" d="M880 300V402" marker-end="url(#ahs)"/>
+<path class="ln s" d="M880 496V590" marker-end="url(#ahs)"/>
+<!-- wallet -> usdc -->
+<path class="ln" d="M250 726H212" marker-end="url(#ah)"/>
+<!-- 4 wallet -> escrow -->
+<path class="ln s" d="M670 670H788" marker-end="url(#ahs)"/>
+<!-- 3 wallet -> identity -->
+<path class="ln" d="M460 806V848" marker-end="url(#ah)"/>
+<!-- 7 maze -> run records -->
+<path class="ln" d="M1045 300V402" marker-end="url(#ah)"/>
+<!-- 7 maze -> reputation + badge -->
+<path class="ln" d="M1010 300V790M895 790H1340"/>
+<path class="ln" d="M895 790V848" marker-end="url(#ah)"/>
+<path class="ln" d="M1340 790V848" marker-end="url(#ah)"/>
+<!-- 8 CRE -> run records -->
+<path class="ln" d="M1190 324V402" marker-end="url(#ah)"/>
+<!-- 9 CRE -> verdict -> reputation (not deployed) -->
+<path class="ln u" d="M1420 324V590" marker-end="url(#ahu)"/>
+<path class="ln u" d="M1420 712V848" marker-end="url(#ahu)"/>
+
+<!-- edge labels + step markers -->
+<g class="mk"><circle cx="125" cy="340" r="10"/><text x="125" y="344" text-anchor="middle">0</text></g>
+<text class="el" x="140" y="345">create passkey</text>
+
+<g class="mk"><circle cx="270" cy="334" r="10"/><text x="270" y="338" text-anchor="middle">2</text></g>
+<text class="el" x="286" y="339">grant</text>
+<g class="mk"><circle cx="270" cy="370" r="10"/><text x="270" y="374" text-anchor="middle">R</text></g>
+<text class="el" x="286" y="375">revoke</text>
+
+<g class="mk"><circle cx="350" cy="150" r="10"/><text x="350" y="154" text-anchor="middle">1</text></g>
+<text class="el" x="350" y="130" text-anchor="middle">scan QR</text>
+<text class="el2" x="350" y="178" text-anchor="middle">pairing code</text>
+
+<text class="el" x="554" y="348">agent's UserOps</text>
+<text class="el2" x="554" y="366">signed by agent key</text>
+
+<text class="el2" x="474" y="552">sponsored UserOps</text>
+
+<g class="mk"><circle cx="730" cy="168" r="10"/><text x="730" y="172" text-anchor="middle">5</text></g>
+<text class="el" x="730" y="128" text-anchor="middle">request · retry</text>
+<text class="el2" x="730" y="220" text-anchor="middle">402 · price</text>
+
+<g class="mk"><circle cx="880" cy="340" r="10"/><text x="880" y="344" text-anchor="middle">6</text></g>
+<text class="el" x="866" y="369" text-anchor="end">verify + settle</text>
+<text class="el2" x="866" y="552" text-anchor="end">batched, ~15 min</text>
+
+<g class="mk"><circle cx="730" cy="670" r="10"/><text x="730" y="674" text-anchor="middle">4</text></g>
+<text class="el" x="730" y="652" text-anchor="middle">depositFor</text>
+
+<g class="mk"><circle cx="460" cy="827" r="10"/><text x="460" y="831" text-anchor="middle">3</text></g>
+<text class="el" x="476" y="832">register() · setAgentWallet</text>
+
+<text class="el2" x="1058" y="390">run + digest</text>
+
+<g class="mk"><circle cx="1010" cy="574" r="10"/><text x="1010" y="578" text-anchor="middle">7</text></g>
+<text class="el" x="1026" y="578">score + badge</text>
+<text class="el2" x="1026" y="596">maze's own key</text>
+
+<g class="mk"><circle cx="1190" cy="352" r="10"/><text x="1190" y="356" text-anchor="middle">8</text></g>
+<text class="el" x="1206" y="357">reads record</text>
+<text class="el2" x="1206" y="374">with secret token</text>
+
+<g class="mk u"><circle cx="1420" cy="404" r="10"/><text x="1420" y="408" text-anchor="middle">9</text></g>
+<text class="el" x="1404" y="448" text-anchor="end">signed report</text>
+<text class="el2" x="1404" y="465" text-anchor="end">via CRE forwarder</text>
+<text class="el2" x="1404" y="770" text-anchor="end">giveFeedback</text>
+
+<!-- ============ band 1: off-chain ============ -->
+<!-- phone -->
+<rect class="bx" x="40" y="60" width="250" height="240" rx="10"/>
+<text class="ey" x="58" y="86">PERSON · PHONE</text>
+<text class="ti" x="58" y="112">Agent Mandate app</text>
+<text class="mo" x="58" y="132">Expo · React Native</text>
+<text class="li" x="58" y="164">Face ID passkey wallet</text>
+<text class="li" x="58" y="186">Grants and revokes</text>
+<text class="li" x="58" y="208">Shows spend and rewards</text>
+<rect class="chip" x="56" y="240" width="218" height="40" rx="6"/>
+<text class="mo" x="70" y="265">arc-passkey native module</text>
+
+<!-- connector -->
+<rect class="bx" x="410" y="60" width="260" height="240" rx="10"/>
+<text class="ey" x="428" y="86">AGENT · LAPTOP</text>
+<text class="ti" x="428" y="112">arc-mandate connector</text>
+<text class="mo" x="428" y="132">MCP server · Claude Code</text>
+<text class="li" x="428" y="164">Own key, holds no funds</text>
+<text class="li" x="428" y="186">Finds its grant on chain</text>
+<text class="li" x="428" y="208">Pays x402 sellers</text>
+<rect class="chip" x="426" y="240" width="228" height="40" rx="6"/>
+<text class="mo" x="440" y="265">check_allowance · buy</text>
+
+<!-- maze -->
+<rect class="bx" x="790" y="60" width="260" height="240" rx="10"/>
+<text class="ey" x="808" y="86">SELLER · VERCEL</text>
+<text class="ti" x="808" y="112">Toll maze server</text>
+<text class="mo" x="808" y="132">arc-maze.vercel.app</text>
+<text class="li" x="808" y="164">New maze every hour</text>
+<text class="li" x="808" y="186">Charges per step, x402</text>
+<text class="li" x="808" y="208">Checks identity = payer</text>
+<rect class="chip" x="806" y="240" width="228" height="40" rx="6"/>
+<text class="mo" x="820" y="265">move 0.1¢ · map 1¢</text>
+
+<!-- Chainlink CRE -->
+<rect class="bx" x="1130" y="52" width="334" height="272" rx="10"/>
+<text class="ey u" x="1148" y="78">CHAINLINK CRE · SIMULATED</text>
+<text class="ti" x="1148" y="103">verdict workflow</text>
+<rect class="chip" x="1148" y="116" width="140" height="46" rx="6"/>
+<text class="ts" x="1160" y="136">Cron trigger</text>
+<text class="mo" x="1160" y="153">every minute</text>
+<rect class="chip" x="1306" y="116" width="140" height="46" rx="6"/>
+<text class="ts" x="1318" y="136">Vault DON</text>
+<text class="mo" x="1318" y="153">ARCHIVE_TOKEN</text>
+<path class="ln" d="M1218 162V176" marker-end="url(#ah)"/>
+<path class="ln" d="M1376 162V176" marker-end="url(#ah)"/>
+<rect class="tee" x="1148" y="178" width="298" height="90" rx="6"/>
+<text class="ey u" x="1160" y="198">ENCLAVE · AWS NITRO · us-west-2</text>
+<text class="lm" x="1160" y="220">read the run record</text>
+<text class="lm" x="1160" y="239">replay every move</text>
+<text class="lm" x="1160" y="258">recompute score + sha256 digest</text>
+<path class="ln" d="M1297 268V278" marker-end="url(#ah)"/>
+<rect class="chip" x="1148" y="280" width="298" height="34" rx="6"/>
+<text class="ts" x="1160" y="302">DON consensus → signed report</text>
+
+<!-- ============ band 2: services ============ -->
+<rect class="bx" x="40" y="404" width="170" height="92" rx="10"/>
+<text class="ey" x="58" y="428">CIRCLE</text>
+<text class="ti" x="58" y="452">Passkey RP</text>
+<text class="lm" x="58" y="474">registration only</text>
+
+<rect class="bx" x="250" y="404" width="420" height="92" rx="10"/>
+<text class="ey" x="268" y="428">CIRCLE</text>
+<text class="ti" x="268" y="452">Bundler + Paymaster</text>
+<text class="lm" x="268" y="474">submits UserOps · Circle pays the gas</text>
+
+<rect class="bx" x="790" y="404" width="200" height="92" rx="10"/>
+<text class="ey" x="808" y="428">CIRCLE</text>
+<text class="ti" x="808" y="452">Gateway</text>
+<text class="lm" x="808" y="474">x402 verify · settle</text>
+
+<rect class="bx" x="1030" y="404" width="220" height="92" rx="10"/>
+<text class="ey" x="1048" y="428">UPSTASH REDIS</text>
+<text class="ti" x="1048" y="452">Run records</text>
+<text class="lm" x="1048" y="474">replayable evidence</text>
+
+<!-- ============ band 3: Arc ============ -->
+<!-- USDC -->
+<rect class="bx" x="40" y="646" width="170" height="160" rx="10"/>
+<text class="ey" x="58" y="670">TOKEN</text>
+<text class="ti" x="58" y="694">USDC</text>
+<text class="mo" x="58" y="714">0x3600…</text>
+<text class="lm" x="58" y="744">one balance,</text>
+<text class="lm" x="58" y="762">two views:</text>
+<text class="lm" x="58" y="780">native 18 dp,</text>
+<text class="lm" x="58" y="798">ERC-20 6 dp</text>
+
+<!-- EntryPoint + wallet -->
+<rect class="chip" x="250" y="592" width="420" height="34" rx="6"/>
+<text class="mo" x="460" y="614" text-anchor="middle" style="fill:var(--text)">EntryPoint v0.7</text>
+<rect class="bx" x="250" y="646" width="420" height="160" rx="10"/>
+<text class="ey" x="268" y="670">EACH PERSON'S WALLET</text>
+<text class="ti" x="268" y="694">Circle smart account (MSCA)</text>
+<text class="mo" x="268" y="713">owned by the passkey · ERC-6900</text>
+<rect class="key" x="266" y="724" width="388" height="70" rx="6"/>
+<text class="ts" x="280" y="745">SessionKeyPlugin — our v0.7 port</text>
+<text class="lm" x="280" y="765">limit on the USDC token view · native rail closed</text>
+<text class="lm" x="280" y="783">expiry · allowlist · pairing tag · revocable</text>
+
+<!-- Identity -->
+<rect class="bx" x="250" y="850" width="420" height="110" rx="10"/>
+<text class="ey" x="268" y="874">ERC-8004</text>
+<text class="ti" x="268" y="898">Identity registry</text>
+<text class="lm" x="268" y="920">the agent's identity, owned by the person's wallet</text>
+<text class="lm" x="268" y="940">agent key linked as its agent wallet</text>
+
+<!-- Gateway escrow -->
+<rect class="bx" x="790" y="592" width="200" height="120" rx="10"/>
+<text class="ey" x="808" y="616">CIRCLE · ON CHAIN</text>
+<text class="ti" x="808" y="640">Gateway escrow</text>
+<text class="lm" x="808" y="662">the agent's balance</text>
+<text class="lm" x="808" y="682">pays the seller</text>
+<text class="lm" x="808" y="700">stays after a revoke</text>
+
+<!-- MazeVerdict -->
+<rect class="dash" x="1250" y="592" width="214" height="120" rx="10"/>
+<text class="ey u" x="1268" y="616">NOT DEPLOYED</text>
+<text class="ti" x="1268" y="640">MazeVerdict</text>
+<text class="mo" x="1268" y="660">onReport()</text>
+<text class="lm" x="1268" y="686">no private key</text>
+<text class="lm" x="1268" y="704">behind the write</text>
+
+<!-- Badge -->
+<rect class="bx" x="790" y="850" width="210" height="110" rx="10"/>
+<text class="ey" x="808" y="874">ERC-721</text>
+<text class="ti" x="808" y="898">CohortZero badge</text>
+<text class="lm" x="808" y="920">100 places, minted to</text>
+<text class="lm" x="808" y="940">the identity's owner</text>
+
+<!-- Reputation -->
+<rect class="bx" x="1250" y="850" width="214" height="110" rx="10"/>
+<text class="ey" x="1268" y="874">ERC-8004</text>
+<text class="ti" x="1268" y="898">Reputation registry</text>
+<text class="mo" x="1268" y="918">giveFeedback()</text>
+<text class="lm" x="1268" y="940">no self-feedback</text>
+</g>
+</svg>
+</div>
+<figcaption>The phone and the agent never talk directly: the agent shows a QR code, the phone writes a grant carrying its pairing code, and the agent finds that grant on chain. Every limit is checked by the plugin inside the person's wallet, not by the agent.</figcaption>
+</figure>
+
+<section>
+  <h2>The run, in order</h2>
+  <ol class="steps">
+    <li><span class="num">0</span><div><b>Create a wallet</b><p>Face ID makes a passkey, and Circle's relying party registers it. The smart account's address exists at once and deploys on its first operation.</p></div></li>
+    <li><span class="num">1</span><div><b>Pair</b><p>The connector makes its own key and shows a QR code: its address plus a one-time pairing code. The phone scans it.</p></div></li>
+    <li><span class="num">2</span><div><b>Grant</b><p>The phone signs one operation that adds the agent's key to the plugin, with a limit, an end date, an allowlist and the pairing tag. Circle submits it and pays the gas.</p></div></li>
+    <li><span class="num">3</span><div><b>Identity</b><p>On its first check, the agent registers an ERC-8004 identity from the person's wallet, which owns it, and links its own key as the identity's agent wallet.</p></div></li>
+    <li><span class="num">4</span><div><b>Top up</b><p>Before each purchase the agent's key moves just enough USDC into its own Gateway escrow. The plugin counts it against the limit. Gateway only accepts payers with a plain key, so the wallet can't pay directly.</p></div></li>
+    <li><span class="num">5</span><div><b>Pay</b><p>The maze answers 402 with a price. The agent signs the payment with its key and retries. The map plus twelve moves on run 25b9f044 came to 13 payments and $0.022.</p></div></li>
+    <li><span class="num">6</span><div><b>Settle</b><p>The maze verifies and settles through Gateway. Circle batches the transfers onto Arc about every fifteen minutes.</p></div></li>
+    <li><span class="num">7</span><div><b>Reward</b><p>On a solve, the maze checks the identity's agent wallet is the payer, stores the run and its digest, writes the score to the Reputation registry and mints a badge to the identity's owner. Today it signs these with its own key.</p></div></li>
+    <li><span class="num">8</span><div><b>Replay</b> <span class="tag g">simulated</span><p>The CRE workflow reads the run record inside an enclave and replays every move. It got the same score and digest the maze wrote on chain.</p></div></li>
+    <li><span class="num u">9</span><div><b>Deliver the verdict</b> <span class="tag u">not deployed</span><p>The signed report would go through Chainlink's forwarder to MazeVerdict, which writes the feedback. Then no private key would be behind the score.</p></div></li>
+    <li><span class="num">R</span><div><b>Revoke, any time</b><p>The phone signs one operation that removes the agent's key. Its next operation is refused. Money already in its Gateway escrow stays there.</p></div></li>
+  </ol>
+</section>
+
+<div class="two">
+<section>
+  <h2>Why the verdict runs on Chainlink CRE</h2>
+  <p style="color:var(--muted);max-width:65ch">The maze computes the score and signs it. The registry only refuses <em>self</em>-feedback, so nothing stops a seller from flattering its own customers. The fix uses two separate CRE properties for two separate jobs.</p>
+  <div class="props">
+    <div><b>Consensus: we can't fake the verdict</b><p>A network that didn't play the run re-derives the score from the public record and signs it together.</p></div>
+    <div><b>Enclave: we can't leak the token</b><p>The token that reads run records can also rewrite them. The Vault DON releases it only into an attested enclave.</p></div>
+  </div>
+</section>
+<section>
+  <h2>Where it stands</h2>
+  <ul class="status">
+    <li><strong>Simulated</strong> with the CRE CLI on runs 25b9f044 and 83031b89. The simulator states it is not a real enclave.</li>
+    <li><strong>Matched on chain by hand:</strong> the workflow does not read Arc yet.</li>
+    <li><strong>MazeVerdict</strong> is written and tested, not deployed. Deploying waits on Confidential Workflows beta access.</li>
+    <li><strong>Trusts the record</strong> for the payer and the identity. The maze checks these; the workflow does not yet.</li>
+    <li><strong>Revoke</strong> stops the agent's key, not money already in its escrow.</li>
+  </ul>
+</section>
+</div>
+
+<section>
+  <h2>Contracts on Arc testnet</h2>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>Contract</th><th>Role</th><th>Address</th></tr></thead>
+    <tbody>
+      <tr><td>SessionKeyPlugin</td><td>Our EntryPoint v0.7 port; enforces the allowance</td><td class="addr">0x669Dd1eDb85ABD00f74186d88124614EE81E6670</td></tr>
+      <tr><td>WeightedWebauthnMultisigPlugin</td><td>Circle's owner plugin; the passkey</td><td class="addr">0x0000000C984AFf541D6cE86Bb697e68ec57873C8</td></tr>
+      <tr><td>EntryPoint v0.7</td><td>Validates and runs UserOps</td><td class="addr">0x0000000071727De22E5E9d8BAf0edAc6f37da032</td></tr>
+      <tr><td>USDC (ERC-20 view)</td><td>The metered rail</td><td class="addr">0x3600000000000000000000000000000000000000</td></tr>
+      <tr><td>GatewayWallet</td><td>Agent escrow; x402 settlement</td><td class="addr">0x0077777d7EBA4688BDeF3E311b846F25870A19B9</td></tr>
+      <tr><td>ERC-8004 Identity</td><td>Agent identity, owned by the wallet</td><td class="addr">0x8004A818BFB912233c491871b3d84c89A494BD9e</td></tr>
+      <tr><td>ERC-8004 Reputation</td><td>Scores from third parties</td><td class="addr">0x8004B663056A597Dffe9eCcC1965A193B7388713</td></tr>
+      <tr><td>CohortZero</td><td>Badge, 100 places</td><td class="addr">0xe5A8fAEf7139d04582C7E17C3F615710343b53a3</td></tr>
+      <tr><td>MazeVerdict</td><td>Receives CRE reports</td><td class="addr u">not deployed</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<footer>
+  <span>Wallet and connector: <a href="https://github.com/nel349/arc-agent-mandate">nel349/arc-agent-mandate</a></span>
+  <span>Maze and CRE workflow: <a href="https://github.com/nel349/arc-maze">nel349/arc-maze</a></span>
+  <span>Testnet. The money is fake, the refusals are real.</span>
+</footer>
+</div>
