@@ -299,6 +299,18 @@ interface WebAuthnCredentialsApi {
  * boundary — which is what a boundary is for.
  */
 export function installWebAuthnShim(passkeyDomain: string): void {
+  // In a browser there is nothing to shim: WebAuthn and `crypto.subtle` are the browser's own, and
+  // Circle reads the real hostname for `X-AppInfo`. What has to be true instead is that the page
+  // is served from the passkey domain, because a passkey belongs to a domain and Circle checks
+  // the client key against it. Said plainly here, since Circle's own error names neither.
+  if (Platform.OS === "web") {
+    const host = (globalThis as { location?: { hostname?: string } }).location?.hostname;
+    if (host !== passkeyDomain) {
+      console.warn(`[passkey] this page is on ${host ?? "no host"}, not the passkey domain ${passkeyDomain}; ` +
+        "Circle will refuse the client key and no passkey can be made or used here");
+    }
+    return;
+  }
   // Install at app startup, not lazily on first use: the runtime audit runs before any button
   // is tapped, and a shim that only exists after `connectArcAccount` makes the audit lie.
   const globals = globalThis as unknown as {

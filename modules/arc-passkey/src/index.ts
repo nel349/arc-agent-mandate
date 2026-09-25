@@ -1,4 +1,5 @@
 import { requireNativeModule } from "expo-modules-core";
+import { Platform } from "react-native";
 
 /** Raw output of the iOS ceremony. Android returns WebAuthn JSON instead — see below. */
 export interface NativeRegistration {
@@ -50,6 +51,24 @@ export interface ArcPasskeyNative {
   authenticateJson(requestJson: string): Promise<string>;
 }
 
+/**
+ * What stands in for the module in a browser, where there is no native code to load.
+ *
+ * A browser does not need one: it has WebAuthn itself, and Circle's SDK calls it directly, so the
+ * shim never reaches for these on the web (see `installWebAuthnShim`). They say so if anything
+ * ever does, rather than failing somewhere less obvious. The optional Keychain functions are left
+ * out, so the wallet is remembered in the browser's own storage instead.
+ */
+const inTheBrowser: ArcPasskeyNative = {
+  isSupported: async () => typeof globalThis.PublicKeyCredential === "function",
+  register: () => Promise.reject(new Error("the browser's own WebAuthn does this on the web")),
+  authenticate: () => Promise.reject(new Error("the browser's own WebAuthn does this on the web")),
+  registerJson: () => Promise.reject(new Error("the browser's own WebAuthn does this on the web")),
+  authenticateJson: () => Promise.reject(new Error("the browser's own WebAuthn does this on the web")),
+};
+
 /** Named rather than default: a default export on a non-component costs the consumer the
  *  ability to rely on a stable identifier, and hides the symbol from auto-import. */
-export const arcPasskey = requireNativeModule<ArcPasskeyNative>("ArcPasskey");
+export const arcPasskey: ArcPasskeyNative = Platform.OS === "web"
+  ? inTheBrowser
+  : requireNativeModule<ArcPasskeyNative>("ArcPasskey");
