@@ -67,6 +67,19 @@ The agent pays per step, the app shows each payment as it lands, and asking for 
 granted is refused by the account. **[docs/RUN.md](docs/RUN.md)** walks all seven steps, including
 the ones that bite.
 
+### In a browser
+
+The same app runs on mobile web, with the browser's own passkeys in place of the native module:
+
+```bash
+npm run web:export -- --to ../kuiralabs.github.io   # built from a commit, into the site's mandate/
+```
+
+A passkey belongs to a domain, so the page has to be served from the passkey domain your Circle
+client key is bound to, over HTTPS. The script refuses a working tree with changes, writes
+`BUILD.json` naming the commit, and writes the site's `404.html` so a reload on an inner screen
+still opens the app. Live at https://kuiralabs.github.io/mandate/.
+
 ## What's built
 
 - **A phone wallet** (iOS + Android) unlocked by Face ID, sending gasless USDC on Arc. Circle

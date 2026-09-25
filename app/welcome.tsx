@@ -1,6 +1,6 @@
 import { Redirect } from "expo-router";
 import { useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Platform, StyleSheet, Text, View } from "react-native";
 import { ArcRing } from "../src/ui/ArcRing.tsx";
 import { Button } from "../src/ui/Button.tsx";
 import { ERROR_LINES, Note } from "../src/ui/Note.tsx";
@@ -77,13 +77,20 @@ function Welcome() {
           date you choose, and you can take it back at any time.
         </Text>
         <Text style={[styles.welcomeNote, { color: c.dim }]}>
-          Your wallet opens with Face ID. There is no password, and nothing to write down.
+          Your wallet opens with {OPENS_WITH}. There is no password, and nothing to write down.
         </Text>
         {wallet.error !== null && <Note tone="warn" lines={ERROR_LINES}>{wallet.error}</Note>}
       </View>
     </Screen>
   );
 }
+
+/**
+ * What unlocks the wallet, said as the person will meet it. An iPhone's passkey is Face ID; in a
+ * browser or on Android it is whatever the device uses, a fingerprint, a face, a screen lock, or a
+ * phone held up to a laptop, so it is named as the passkey it is.
+ */
+const OPENS_WITH = Platform.OS === "ios" ? "Face ID" : "a passkey";
 
 /** Between launch and the wallet: the ring and one line. */
 function Opening() {

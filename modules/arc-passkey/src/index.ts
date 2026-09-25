@@ -59,12 +59,15 @@ export interface ArcPasskeyNative {
  * ever does, rather than failing somewhere less obvious. The optional Keychain functions are left
  * out, so the wallet is remembered in the browser's own storage instead.
  */
+const BROWSER_DOES_THIS = "the browser's own WebAuthn does this on the web";
+const notHere = () => Promise.reject(new Error(BROWSER_DOES_THIS));
+
 const inTheBrowser: ArcPasskeyNative = {
   isSupported: async () => typeof globalThis.PublicKeyCredential === "function",
-  register: () => Promise.reject(new Error("the browser's own WebAuthn does this on the web")),
-  authenticate: () => Promise.reject(new Error("the browser's own WebAuthn does this on the web")),
-  registerJson: () => Promise.reject(new Error("the browser's own WebAuthn does this on the web")),
-  authenticateJson: () => Promise.reject(new Error("the browser's own WebAuthn does this on the web")),
+  register: notHere,
+  authenticate: notHere,
+  registerJson: notHere,
+  authenticateJson: notHere,
 };
 
 /** Named rather than default: a default export on a non-component costs the consumer the
