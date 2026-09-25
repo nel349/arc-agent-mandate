@@ -1,5 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Redirect } from "expo-router";
+import { Redirect, Tabs } from "expo-router";
 import { Platform } from "react-native";
 import { NativeTabs, Icon, Label, VectorIcon } from "expo-router/unstable-native-tabs";
 import { ROUTES } from "../../src/ui/routes.ts";
@@ -50,6 +50,38 @@ export default function TabsLayout() {
   // and no bar worth drawing. Gated here rather than in the allowances screen so that Rewards is
   // covered by the same rule — a branch inside one screen left the bar itself on display.
   if (wallet.account === null) return <Redirect href={ROUTES.welcome} />;
+
+  // A browser has no native bar, and expo-router draws its stand-in as a pill floating over the top
+  // of the screen, on the header. The web gets the ordinary tab bar instead, at the bottom where a
+  // phone's thumb expects it, in the theme's colours, since here there is no system material to defer to.
+  if (Platform.OS === "web") {
+    return (
+      <Tabs
+        screenOptions={{
+          // Each tab draws its own header, from its own stack.
+          headerShown: false,
+          tabBarActiveTintColor: c.paper,
+          tabBarInactiveTintColor: c.dim,
+          tabBarStyle: { backgroundColor: c.groundLow, borderTopColor: c.glass },
+        }}
+      >
+        <Tabs.Screen
+          name="(home)"
+          options={{
+            title: "Allowances",
+            tabBarIcon: ({ color, size }) => <Ionicons name="card-outline" color={color} size={size} />,
+          }}
+        />
+        <Tabs.Screen
+          name="rewards"
+          options={{
+            title: "Rewards",
+            tabBarIcon: ({ color, size }) => <Ionicons name="ribbon-outline" color={color} size={size} />,
+          }}
+        />
+      </Tabs>
+    );
+  }
 
   return (
     <NativeTabs

@@ -26,9 +26,10 @@ export function stackChrome(color: Theme["color"]) {
     headerShadowVisible: false,
     headerLargeTitleShadowVisible: false,
     contentStyle: { backgroundColor: color.groundMid },
-    // Android draws a bar with a fill; iOS is given a transparent one per screen, below. Without
-    // this the Android header is the system's default grey over the app's own dark ground.
-    ...(Platform.OS === "android" ? { headerStyle: { backgroundColor: color.groundMid } } : {}),
+    // Android and the web draw a bar with a fill; iOS is given a transparent one per screen, below.
+    // Without this the Android header is the system's default grey over the app's own dark ground,
+    // and the web's is a white strip with the title faint on it, above a dark screen.
+    ...(Platform.OS !== "ios" ? { headerStyle: { backgroundColor: color.groundMid } } : {}),
   };
 }
 
