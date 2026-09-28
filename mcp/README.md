@@ -4,10 +4,10 @@ An MCP server, so the agent you already run — Claude Code, Cursor, Codex — c
 wallet inside limits you set on your phone and take back with your face.
 
 ```bash
-git clone https://github.com/nel349/arc-agent-mandate && cd arc-agent-mandate && npm install
-claude mcp add arc-mandate -s user -- node "$PWD/mcp/server.ts"
+claude mcp add arc-mandate -s user -- npx -y @kuiralabs/arc-mandate
 ```
 
+The wallet it spends from opens in your phone's browser at https://kuiralabs.github.io/mandate/.
 Then, in the agent:
 
 > **you:** what's your payment address?
@@ -76,7 +76,7 @@ another identity, owned by that one.
 | `ARC_TESTNET_RPC_URL` | the endpoint, and **the one that wins**: the connector reads `ARC_TESTNET_RPC_URL ?? ARC_RPC_URL ?? Arc testnet`. This is the name `.env.example` uses, so it is the one already set if you copied that file |
 | `ARC_RPC_URL` | the same knob under an older name, used only when `ARC_TESTNET_RPC_URL` is unset. Setting this one *while the other is set* changes nothing, silently |
 | `ARC_SESSION_KEY_PLUGIN` | the mandate plugin |
-| `CIRCLE_CLIENT_URL`, `CIRCLE_CLIENT_KEY`, `CIRCLE_PASSKEY_DOMAIN` | the bundler the agent submits through. Arc has no public bundler, so without these a payment cannot be sent |
+| `CIRCLE_CLIENT_URL`, `CIRCLE_CLIENT_KEY`, `CIRCLE_PASSKEY_DOMAIN` | the bundler the agent submits through. Arc has no public bundler. **On testnet, leave all three unset** and the connector uses the shared testnet key; set all three to use your own. Set only some and nothing is filled in: the missing ones are named |
 | `ARC_MANDATE_KEY_PATH` | where the agent's key lives (default `~/.arc-mandate/agent.key`). The code image is saved beside it |
 | `ARC_MANDATE_ACCOUNT_PATH` | where the paired wallet is remembered. Move or delete this and the agent forgets which wallet it spends from, and pairing starts over |
 | `ARC_ACCOUNT` | a wallet to spend from without pairing, for a connector you point at your own wallet by hand. Still checked against the chain before every use |
@@ -84,57 +84,59 @@ another identity, owned by that one.
 
 ## Installing it
 
-From a clone of this repository, which is how it installs today:
+One line, with Node 22 or later:
+
+```bash
+claude mcp add arc-mandate -s user -- npx -y @kuiralabs/arc-mandate
+```
+
+On testnet that is all: nothing to clone and nothing to configure. Restart the client afterwards;
+MCP servers are launched at startup. Without `-s user` this lands in local scope, which is bound to
+the directory you ran it in and shadows every other scope.
+
+The package is the compiled JavaScript of this folder, one file per source file, neither minified
+nor bundled: it holds a key and signs payments, so what it does should be readable where it is
+installed. Values of your own, such as a Circle key on mainnet, go in the client's config as an
+`env` block.
+
+### From a clone
+
+For working on the connector itself:
 
 ```bash
 cd /path/to/arc-agent-mandate
-cp .env.example .env                    # the server reads this; see Configuration above
 claude mcp add arc-mandate -s user -- node "$PWD/mcp/server.ts"
 claude mcp list | grep arc-mandate      # confirm the path; $PWD is your shell's, not ours
 ```
 
-The server reads this project's `.env` on its own, so nothing secret goes into your client's
-config — which is why the file has to exist before you start. Restart the client afterwards: MCP
-servers are launched at startup.
+This runs the TypeScript directly, which needs Node 22.18 or later. The server reads this
+project's `.env` if there is one; do not copy `.env.example` just to have one, since its values
+are placeholders and a placeholder endpoint is worse than none.
 
-Without `-s user` this lands in local scope, which is bound to the directory you ran it in and
-shadows every other scope. A wrong path here surfaces later as `CONNECTION_CLOSED` and names
-nothing, so it is worth the one extra line to check.
+### Publishing
 
-### Once the package is published
+From this folder, `npm publish --access public`. Packing builds `dist/` first (`prepack`), and
+`package.test.ts` builds it the same way and starts it as an MCP client would, so a change that
+would break the package fails the gate instead of a stranger's install.
 
-The connector is packaged as `@kuiralabs/arc-mandate` but is not on npm yet, so this answers 404
-until it is. Then it installs without a clone, with the values in the client's config:
-
-```bash
-claude mcp add-json arc-mandate '{
-  "command": "npx", "args": ["-y", "@kuiralabs/arc-mandate"],
-  "env": {
-    "CIRCLE_CLIENT_URL": "https://modular-sdk.circle.com/v1/rpc/w3s/buidl",
-    "CIRCLE_CLIENT_KEY": "TEST_CLIENT_KEY:…",
-    "CIRCLE_PASSKEY_DOMAIN": "your-passkey-domain"
-  } }'
-```
-
-One thing has to change before that line works, and it is worth knowing now rather than on the day:
-`bin` in `mcp/package.json` points at `server.ts`, and there is no build step. `npx` would hand a
-TypeScript file to whatever Node the user happens to have, so the package either ships compiled
-JavaScript or inherits the same Node floor the clone has. Publishing is `#42`.
-
-### Why you bring your own key
+### Whose key pays the gas
 
 Arc has no public bundler. Circle's is the only way to get a user operation on chain, and their
-Gas Station is what pays the gas so that neither you nor the agent has to — which means somebody's
-account is paying, and for a developer tool that is yours.
+Gas Station is what pays the gas so that neither you nor the agent has to. Somebody's account is
+behind that.
 
-Shipping a key in the package would make this install a single line with nothing to configure. It
-would also mean every user's gas came out of one policy, which is a bill rather than a design. The
-honest version of a tool at this stage is that you bring your own; the version that hides the key
-is a service, and a service charges for it up front.
+**On testnet it is ours.** With none of the three Circle values set, the connector uses the client
+key the wallet's web build already publishes at https://kuiralabs.github.io/mandate/, bound to that
+domain. Nothing about it is secret: it is a TEST key, which Circle refuses on mainnet, and it
+authorises nothing on its own, since a spend still needs a signature your allowance permits. What
+it shares is the gas, which on testnet is test money. That was chosen on 25 September, so that
+connecting an agent needs no Circle account. It reverses the earlier "bring your own key" for
+testnet only.
 
-**You do not need it to start.** Pairing and reading an allowance use a public RPC and work with no
-configuration at all. The first time you try to *pay*, the connector explains exactly what to do —
-it does not simply fail with the names of three environment variables.
+**On mainnet you bring your own.** A shared key there would put every user's gas on one policy,
+which is a bill rather than a design. The first time a payment needs a key you have not set, the
+connector explains exactly what to do, rather than failing with the names of three environment
+variables.
 
 That is the whole developer setup. Everything after it is scanning.
 

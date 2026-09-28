@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import {
-  createPublicClient, defineChain, formatEther, http, parseAbi, parseAbiItem,
+  createPublicClient, defineChain, formatEther, getAddress, http, parseAbi, parseAbiItem,
   type Address,
 } from "viem";
 import { isPairingCode, pairingTag } from "./pairing.ts";
@@ -96,8 +96,12 @@ export interface EscrowTally {
  */
 export const ARC_RPC =
   process.env.ARC_TESTNET_RPC_URL ?? process.env.ARC_RPC_URL ?? "https://rpc.testnet.arc.network";
-export const SESSION_KEY_PLUGIN =
-  process.env.ARC_SESSION_KEY_PLUGIN ?? "0x669Dd1eDb85ABD00f74186d88124614EE81E6670";
+/**
+ * The mandate plugin, checked as an address when the connector starts. A value set in the
+ * environment was taken on trust, so a typo surfaced later as a failed read naming nothing.
+ */
+export const SESSION_KEY_PLUGIN: Address =
+  getAddress(process.env.ARC_SESSION_KEY_PLUGIN ?? "0x669Dd1eDb85ABD00f74186d88124614EE81E6670");
 
 /**
  * Arc, described rather than just dialled.

@@ -1,0 +1,29 @@
+{
+  /*
+   * The connector as published: plain JavaScript that any Node runs, one file per source file.
+   *
+   * Not minified and not bundled. It holds a key and signs payments, so whoever installs it should
+   * be able to read exactly what it does, and a bundle would also freeze its dependencies' code
+   * into ours instead of letting npm resolve them.
+   *
+   * Standalone rather than extending the root config, which is the app's: Expo's base, JSX, and
+   * resolution for a bundler. The sources import each other as `.ts`, which the checkout runs
+   * directly; the rewrite turns those into `.js` for the build.
+   */
+  "compilerOptions": {
+    "target": "es2023",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "rewriteRelativeImportExtensions": true,
+    "rootDir": ".",
+    "outDir": "dist",
+    "strict": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
+    "skipLibCheck": true,
+    "types": ["node"],
+    "newLine": "lf"
+  },
+  "include": ["*.ts", "../types/qrcode-terminal.d.ts", "../types/qrcode-terminal-vendor.d.ts"],
+  "exclude": ["*.test.ts", "dist"]
+}

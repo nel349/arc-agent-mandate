@@ -41,11 +41,58 @@ import { http } from "viem";
  * It survived review because the check used to confirm the fix — reading an allowance — needs no
  * credentials at all. Only paying does.
  */
-const clientUrl = () => process.env.CIRCLE_CLIENT_URL ?? process.env.EXPO_PUBLIC_CIRCLE_CLIENT_URL;
-const clientKey = () => process.env.CIRCLE_CLIENT_KEY ?? process.env.EXPO_PUBLIC_CIRCLE_CLIENT_KEY;
-const passkeyDomain = () =>
-  process.env.CIRCLE_PASSKEY_DOMAIN ?? process.env.EXPO_PUBLIC_CIRCLE_PASSKEY_DOMAIN;
-const chainPath = () => process.env.ARC_CIRCLE_CHAIN_PATH ?? "arcTestnet";
+const chainPath = () => process.env.ARC_CIRCLE_CHAIN_PATH ?? TESTNET_CHAIN_PATH;
+
+/** Circle's path for Arc testnet, and the only chain the shared values below serve. */
+const TESTNET_CHAIN_PATH = "arcTestnet";
+
+interface CircleConfig {
+  readonly clientUrl: string | undefined;
+  readonly clientKey: string | undefined;
+  readonly passkeyDomain: string | undefined;
+}
+
+/**
+ * The published testnet values, so a stranger's agent can pay on testnet with nothing to set up.
+ *
+ * Nothing here is secret. The key is the one the wallet's web build already carries, readable by
+ * anyone who opens https://kuiralabs.github.io/mandate/, with the domain it is bound to. It is a
+ * TEST key, which Circle refuses on mainnet, and it authorises nothing on its own: a spend still
+ * needs a session-key signature that the owner's allowance permits.
+ *
+ * What it shares is the gas: every agent using it is sponsored by the one testnet policy behind the
+ * key. That is test money, and the trade was chosen on 25 September so that connecting an agent
+ * needs no Circle account. Mainnet has no such default; there you bring your own.
+ */
+const SHARED_TESTNET: CircleConfig = {
+  clientUrl: "https://modular-sdk.circle.com/v1/rpc/w3s/buidl",
+  clientKey: "TEST_CLIENT_KEY:cceea9ab4ce9e98783a9cf383500c81e:44f6b849d8c6ef8542136087fcf0ba31",
+  passkeyDomain: "kuiralabs.github.io",
+};
+
+const own = (): CircleConfig => ({
+  clientUrl: process.env.CIRCLE_CLIENT_URL ?? process.env.EXPO_PUBLIC_CIRCLE_CLIENT_URL,
+  clientKey: process.env.CIRCLE_CLIENT_KEY ?? process.env.EXPO_PUBLIC_CIRCLE_CLIENT_KEY,
+  passkeyDomain: process.env.CIRCLE_PASSKEY_DOMAIN ?? process.env.EXPO_PUBLIC_CIRCLE_PASSKEY_DOMAIN,
+});
+
+/**
+ * Your own values if you set any, the shared ones on testnet if you set none.
+ *
+ * All or nothing: set one of your own and none of the shared ones fill the gaps, because a key of
+ * yours sent with our domain, or ours with yours, is refused as "Invalid credentials" and names
+ * neither. A partial setup is reported as missing instead, which names what to add.
+ */
+function circle(): CircleConfig {
+  const mine = own();
+  const setAny = Boolean(mine.clientUrl || mine.clientKey || mine.passkeyDomain);
+  return !setAny && chainPath() === TESTNET_CHAIN_PATH ? SHARED_TESTNET : mine;
+}
+
+/** Whether payments go through the shared testnet key rather than one of your own. */
+export function usesSharedTestnetKey(): boolean {
+  return circle() === SHARED_TESTNET;
+}
 
 
 /**
@@ -59,14 +106,16 @@ export function circleTransport() {
 }
 
 export function bundlerConfigured() {
-  return Boolean(clientUrl() && clientKey() && passkeyDomain());
+  const c = circle();
+  return Boolean(c.clientUrl && c.clientKey && c.passkeyDomain);
 }
 
 export function missingBundlerConfig() {
+  const c = circle();
   return [
-    !clientUrl() && "CIRCLE_CLIENT_URL",
-    !clientKey() && "CIRCLE_CLIENT_KEY",
-    !passkeyDomain() && "CIRCLE_PASSKEY_DOMAIN",
+    !c.clientUrl && "CIRCLE_CLIENT_URL",
+    !c.clientKey && "CIRCLE_CLIENT_KEY",
+    !c.passkeyDomain && "CIRCLE_PASSKEY_DOMAIN",
   ].filter(Boolean);
 }
 
@@ -78,9 +127,8 @@ export function missingBundlerConfig() {
  * they have never heard of. Everything except paying works without any of it — pairing and reading
  * an allowance need only a public RPC — so this arrives at the moment it is needed and not before.
  *
- * The alternative was shipping a default key so nothing had to be configured. It was rejected on
- * purpose: a shared key means everyone's gas comes out of one policy, and the honest version of
- * this product is that you bring your own.
+ * On testnet it arrives only for a partial setup, since with nothing set the shared testnet values
+ * are used; on mainnet, which has no shared key, it arrives for everyone.
  */
 export function bundlerSetupInstructions() {
   const missing = `Missing right now: ${missingBundlerConfig().join(", ")}.`;
@@ -89,6 +137,9 @@ export function bundlerSetupInstructions() {
     "Paying needs a Circle account, because Arc has no public bundler — Circle's is the only way",
     "to get a user operation on chain, and their Gas Station is what pays the gas so neither you",
     "nor the agent has to.",
+    "",
+    "On testnet this is only needed if you set some of these values but not all: set all three, or",
+    "none and the connector uses the shared testnet key. On mainnet you need your own.",
     "",
     "It takes about five minutes, once:",
     "",
@@ -155,7 +206,7 @@ function envPath() {
 }
 
 
-const endpoint = () => `${clientUrl().replace(/\/$/, "")}/${chainPath()}`;
+const endpoint = () => `${(circle().clientUrl ?? "").replace(/\/$/, "")}/${chainPath()}`;
 
 /**
  * Circle validates the domain-bound client key against the `uri` in this header. Without it every
@@ -163,7 +214,7 @@ const endpoint = () => `${clientUrl().replace(/\/$/, "")}/${chainPath()}`;
  */
 const headers = () => ({
   "content-type": "application/json",
-  Authorization: `Bearer ${clientKey()}`,
-  "X-AppInfo": `platform=web;version=1.0.0;uri=${passkeyDomain()}`,
+  Authorization: `Bearer ${circle().clientKey}`,
+  "X-AppInfo": `platform=web;version=1.0.0;uri=${circle().passkeyDomain}`,
 });
 

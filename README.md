@@ -56,7 +56,7 @@ npm run ios                 # tap "Create a wallet", confirm with Face ID
 Then give the agent you already run a connector, and a spending limit:
 
 ```bash
-claude mcp add arc-mandate -s user -- node "$PWD/mcp/server.ts"
+claude mcp add arc-mandate -s user -- npx -y @kuiralabs/arc-mandate
 ```
 
 > **you:** what's your payment address?

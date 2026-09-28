@@ -95,12 +95,20 @@ async function pairingInstructions(): Promise<string> {
     `Grant an allowance to:\n\n${await pairingCode(link)}\n    ${agent.address}\n\n` +
     `The code carries a one-time pairing code, so only an allowance granted by scanning it reaches ` +
     `this agent.${saved}\n\n` +
-    `Step 3 of 5, on your phone: open the Agent Mandate app, tap New allowance, then Scan the ` +
-    `agent's code and point the camera at this one (or paste this link: ${link}). Set a limit and ` +
-    `how long it lasts, and confirm with Face ID. Tell me when it is done.` +
+    `Step 3 of 5, on your phone: open the Agent Mandate wallet (${WALLET_URL}), tap New ` +
+    `allowance, then Scan the agent's code and point the camera at this one (or paste this link: ` +
+    `${link}). Set a limit and how long it lasts, and confirm with your passkey. Tell me when it ` +
+    `is done.` +
     `${created ? "\n\n(A new key was generated for this agent.)" : ""}`
   );
 }
+
+/**
+ * Where the owner's wallet is: the Agent Mandate app, built for the web, on the domain the shared
+ * testnet key is bound to. It opens in any phone's browser, so a person told to use "the app" can
+ * be given a link rather than a store search that finds nothing.
+ */
+const WALLET_URL = "https://kuiralabs.github.io/mandate/";
 
 /**
  * What the agent is told the moment it connects, before it has done anything.
@@ -118,7 +126,8 @@ const INSTRUCTIONS = [
     "Agent Mandate app on their phone. The chain enforces the limit; you cannot exceed it.",
   "",
   "The path, in five steps, the same words the app and the maze page use:",
-  "1. Get the app, and add test USDC (their phone).",
+  `1. Get the app, and add test USDC (their phone). It opens in the phone's browser at ${WALLET_URL}, ` +
+    "with nothing to install, and makes a wallet with a passkey.",
   "2. Connect your agent (their laptop). You are connected, so this one is done.",
   "3. Scan to grant (their phone): New allowance, then Scan the agent's code.",
   "4. Tell your agent to play (their laptop): they give you the task.",
@@ -175,8 +184,9 @@ function unreachable(cause: unknown): string {
 
 /** Said when no grant carries this agent's code, and no wallet was ever paired with it. */
 const NO_ALLOWANCE =
-  `No allowance yet.\n\nStep 3 of 5, on the user's phone: in the Agent Mandate app, tap New ` +
-  `allowance, then Scan the agent's code, set a limit and how long, and confirm with Face ID. Call ` +
+  `No allowance yet.\n\nStep 3 of 5, on the user's phone: in the Agent Mandate wallet ` +
+  `(${WALLET_URL}), tap New allowance, then Scan the agent's code, set a limit and how long, and ` +
+  `confirm with their passkey. Call ` +
   `get_pairing_address to show the code. It carries a one-time pairing code, and an allowance ` +
   `granted by typing this agent's address alone is not tied to it and will not be used.\n\n` +
   `Wait for the user to say it is done, then check once.`;

@@ -2,26 +2,26 @@
   "name": "@kuiralabs/arc-mandate",
   "version": "0.1.0",
   "description": "Let a coding agent spend a bounded USDC allowance on Arc, granted from your phone and enforced by the chain.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nel349/arc-agent-mandate.git",
+    "directory": "mcp"
+  },
+  "homepage": "https://github.com/nel349/arc-agent-mandate/tree/main/mcp#readme",
   "type": "module",
   "bin": {
-    "arc-mandate": "server.ts"
+    "arc-mandate": "dist/server.js"
   },
   "files": [
-    "server.ts",
-    "chain.ts",
-    "pairing.ts",
-    "pairing-image.ts",
-    "erc8004.ts",
-    "identity.ts",
-    "spend.ts",
-    "bundler.ts",
-    "session-account.ts",
-    "gateway.ts",
-    "x402.ts",
+    "dist",
     "README.md"
   ],
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "prepack": "npm run build"
+  },
   "engines": {
-    "node": "^22.18.0 || >=23.6.0"
+    "node": ">=22"
   },
   "keywords": [
     "mcp",
