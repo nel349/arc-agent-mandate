@@ -115,7 +115,7 @@ are placeholders and a placeholder endpoint is worse than none.
 
 ### Publishing
 
-From this folder, `npm publish --access public`. Packing builds `dist/` first (`prepack`), and
+From this folder, `npm publish`; the package says it is public, since npm makes a scoped package private unless told. Packing builds `dist/` first (`prepack`), and
 `package.test.ts` builds it the same way and starts it as an MCP client would, so a change that
 would break the package fails the gate instead of a stranger's install.
 

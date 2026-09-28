@@ -20,6 +20,9 @@
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "prepack": "npm run build"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=22"
   },
