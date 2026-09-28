@@ -1,6 +1,6 @@
 {
   "name": "@kuiralabs/arc-mandate",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "Let a coding agent spend a bounded USDC allowance on Arc, granted from your phone and enforced by the chain.",
   "repository": {
     "type": "git",

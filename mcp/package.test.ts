@@ -22,6 +22,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 
 const here = dirname(fileURLToPath(import.meta.url));
 const manifest = JSON.parse(readFileSync(join(here, "package.json"), "utf8")) as {
+  readonly version: string;
   readonly bin: Readonly<Record<string, string>>;
   readonly files: readonly string[];
 };
@@ -52,6 +53,8 @@ test("the published build starts, and offers the five tools", async () => {
   try {
     const { tools } = await client.listTools();
     assert.deepEqual(tools.map((t) => t.name).sort(), TOOLS);
+    // Written in two places, the manifest and the server's own hello, and they must say the same.
+    assert.equal(client.getServerVersion()?.version, manifest.version, "the server reports another version than the package");
   } finally {
     await client.close();
   }

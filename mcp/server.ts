@@ -149,7 +149,7 @@ const INSTRUCTIONS = [
     "can be revoked in the app.",
 ].join("\n");
 
-const server = new McpServer({ name: "arc-mandate", version: "0.1.0" }, { instructions: INSTRUCTIONS });
+const server = new McpServer({ name: "arc-mandate", version: "0.0.1" }, { instructions: INSTRUCTIONS });
 
 const usd = (wei: bigint): string => `$${formatEther(wei)}`;
 /** Escrow and the online budget are both ERC-20 scale — six decimals, not eighteen. */
