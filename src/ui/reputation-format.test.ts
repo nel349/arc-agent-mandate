@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Feedback } from "../arc/reputation.ts";
-import { scoreLabel, scoreMeaning, scoreOf, writtenBy } from "./reputation-format.ts";
+import { BENCH_SCRIBE } from "../arc/chain.ts";
+import { scoreLabel, scoreMeaning, scoreOf, scoreTitle, writtenBy } from "./reputation-format.ts";
 
 const said = (over: Partial<Feedback> = {}): Feedback => ({
   client: "0x2B853e07219205B2952a39b720a169b71ffe3C30",
@@ -33,8 +34,33 @@ test("the scale says which way it runs", () => {
   assert.match(scoreMeaning(said({ value: 62 })) ?? "", /Higher is better/);
 });
 
+test("a row is titled by the writer's tag, or Score when there is none", () => {
+  assert.equal(scoreTitle(said()), "arc-maze");
+  assert.equal(scoreTitle(said({ tag1: "" })), "Score");
+});
+
 test("who wrote it is named, because an agent cannot write its own", () => {
   assert.match(writtenBy(said()), /arc-maze/);
   // An untagged writer is still named, by address rather than by nothing.
   assert.match(writtenBy(said({ tag1: "" })), /0x2B853e07/);
+});
+
+/** What Bench's scribe writes when a run is ranked: the problem, and the cost in USDC. */
+const ranked = (over: Partial<Feedback> = {}): Feedback =>
+  said({ client: BENCH_SCRIBE, value: 250000, decimals: 6, tag1: "bench:toll", tag2: "cost-usdc", ...over });
+
+test("a run ranked on Bench reads as what solving it cost, and which way the scale runs", () => {
+  assert.equal(scoreTitle(ranked()), "Bench: toll");
+  assert.equal(scoreLabel(ranked()), "Solved for $0.25");
+  assert.equal(scoreMeaning(ranked()), "Ranked on Bench: toll, and what solving it cost. Lower is better.");
+  assert.match(writtenBy(ranked()), /^Written by Bench,/);
+});
+
+/** The tags are free text: anyone can write them, so only the scribe's own entries are called Bench's. */
+test("Bench's tags from anyone else are not called Bench's", () => {
+  const copied = ranked({ client: "0x2B853e07219205B2952a39b720a169b71ffe3C30" });
+  assert.equal(scoreTitle(copied), "bench:toll");
+  assert.equal(scoreLabel(copied), "0.25");
+  assert.equal(scoreMeaning(copied), null);
+  assert.doesNotMatch(writtenBy(copied), /Written by Bench,/);
 });

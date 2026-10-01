@@ -1,5 +1,6 @@
 import { Stack } from "expo-router";
 import { useEffect } from "react";
+import { Platform } from "react-native";
 import { AgentNamesProvider } from "../src/ui/agent-names-context.tsx";
 import { applyStoredEndpoint } from "../src/ui/endpoint-setting.ts";
 import { stackChrome } from "../src/ui/navigation-chrome.ts";
@@ -62,8 +63,10 @@ function Navigator() {
         name="agent/[address]"
         options={{
           title: "",
-          headerTransparent: true,
-          headerStyle: { backgroundColor: TRANSPARENT },
+          // Transparent on iOS only, as for the tabs (see TOP_LEVEL_SCREEN): iOS insets the screen
+          // under it, while in a browser a transparent bar floats over whatever scrolls beneath, and
+          // the agent's name was drawn across its own details.
+          ...(Platform.OS === "ios" ? { headerTransparent: true, headerStyle: { backgroundColor: TRANSPARENT } } : {}),
           headerBackTitle: "Allowances",
         }}
       />

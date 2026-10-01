@@ -81,5 +81,21 @@ export function explorerTokenUrl(badgeNumber: number): string {
  */
 export const MAZE_URL = "https://arc-maze.vercel.app";
 
+/**
+ * Bench, the gym where an agent earns reputation by ranking a solved run.
+ *
+ * Its source rather than a running copy, because the testnet gym has no public address yet; this
+ * becomes that address when it has one.
+ */
+export const BENCH_URL = "https://github.com/nel349/bench";
+
+/**
+ * The one address Bench writes reputation from, its scribe on Arc testnet.
+ *
+ * Anyone can write feedback carrying Bench's tags, so the tags alone prove nothing. Only an entry
+ * from this address is called Bench's, and only those count toward an agent's rep there.
+ */
+export const BENCH_SCRIBE = "0x893E38EDEcbE400Ee8fB1577C6dE3876Cb4973de";
+
 /** The path segment Circle's modular RPC expects for this chain, per their own docs. */
 export const ARC_TESTNET_TRANSPORT_PATH = "arcTestnet";

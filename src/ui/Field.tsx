@@ -39,7 +39,13 @@ export function Field({
    * enough to fit one line. An amount or a count is read as a number, and gets the body size.
    */
   readonly data?: boolean;
-  /** Called when editing ends, for a value that is kept as soon as the person is done with it. */
+  /**
+   * Called when editing ends, for a value that is kept as soon as the person is done with it.
+   *
+   * Wired to the field losing focus, which is how editing ends everywhere: Return, tapping away,
+   * closing the keyboard. It was `onEndEditing`, which react-native-web does not have, so in a
+   * browser a name typed into the agent's page was never kept.
+   */
   readonly onDone?: () => void;
   readonly maxLength?: number;
 }) {
@@ -79,7 +85,7 @@ export function Field({
         placeholder={placeholder}
         placeholderTextColor={c.dim}
         keyboardType={keyboardType}
-        onEndEditing={onDone}
+        onBlur={onDone}
         maxLength={maxLength}
         // Words for a name, nothing for an address or a number: capitalising "0x" would break it.
         autoCapitalize={data || keyboardType !== undefined ? "none" : "words"}

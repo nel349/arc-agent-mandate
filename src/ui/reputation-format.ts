@@ -1,4 +1,5 @@
 import type { Feedback } from "../arc/reputation.ts";
+import { BENCH_SCRIBE } from "../arc/chain.ts";
 import { shortAddress } from "./mandate-format.ts";
 
 /**
@@ -19,14 +20,36 @@ const EFFICIENCY = "efficiency-pct";
 /** A perfect score on that scale: the shortest route the maze has. */
 const PERFECT = 100;
 
+/**
+ * What Bench writes when it ranks a run: the problem in the first tag, and what solving it cost, in
+ * USDC, in the second. Lower is better, the opposite of the maze's scale.
+ */
+const BENCH_PROBLEM = "bench:";
+const COST = "cost-usdc";
+
+/** A ranked run on Bench, recognised by who wrote it rather than by tags anyone could copy. */
+function benchRun(feedback: Feedback): string | null {
+  if (feedback.client.toLowerCase() !== BENCH_SCRIBE.toLowerCase()) return null;
+  if (!feedback.tag1.startsWith(BENCH_PROBLEM) || feedback.tag2 !== COST) return null;
+  return feedback.tag1.slice(BENCH_PROBLEM.length);
+}
+
 /** The score as a number, with its decimal places applied. */
 export function scoreOf(feedback: Feedback): number {
   return feedback.value / 10 ** feedback.decimals;
 }
 
+/** What the entry is about, for its row: the Bench problem by name, or the writer's own tag. */
+export function scoreTitle(feedback: Feedback): string {
+  const problem = benchRun(feedback);
+  if (problem !== null) return `Bench: ${problem}`;
+  return feedback.tag1.length > 0 ? feedback.tag1 : "Score";
+}
+
 /** The figure, in the units its writer recorded. */
 export function scoreLabel(feedback: Feedback): string {
   const score = scoreOf(feedback);
+  if (benchRun(feedback) !== null) return `Solved for $${score}`;
   return feedback.tag2 === EFFICIENCY ? `${score}% efficiency` : `${score}`;
 }
 
@@ -37,6 +60,8 @@ export function scoreLabel(feedback: Feedback): string {
  * agent's owner reading "100" next to a maze has no way to know which kind of number this is.
  */
 export function scoreMeaning(feedback: Feedback): string | null {
+  const problem = benchRun(feedback);
+  if (problem !== null) return `Ranked on Bench: ${problem}, and what solving it cost. Lower is better.`;
   if (feedback.tag2 !== EFFICIENCY) return null;
   return scoreOf(feedback) >= PERFECT
     ? "The shortest route there is."
@@ -50,6 +75,7 @@ export function scoreMeaning(feedback: Feedback): string | null {
  * else — which is the whole reason the score counts for anything.
  */
 export function writtenBy(feedback: Feedback): string {
-  const who = feedback.tag1.length > 0 ? feedback.tag1 : shortAddress(feedback.client);
+  const who = benchRun(feedback) !== null ? "Bench"
+    : feedback.tag1.length > 0 ? feedback.tag1 : shortAddress(feedback.client);
   return `Written by ${who}, which the agent cannot do for itself.`;
 }

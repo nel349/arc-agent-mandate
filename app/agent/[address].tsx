@@ -20,7 +20,7 @@ import {
   agentHoldingNote, allowanceSentence, endsLine, fractionUsed, hasEnded, identityLabel, lastUsedLabel,
   revokeWarning, spentPercentLabel,
 } from "../../src/ui/mandate-format.ts";
-import { scoreLabel, scoreMeaning, writtenBy } from "../../src/ui/reputation-format.ts";
+import { scoreLabel, scoreMeaning, scoreTitle, writtenBy } from "../../src/ui/reputation-format.ts";
 import { activityRoute } from "../../src/ui/routes.ts";
 import { useAgentIdentity } from "../../src/ui/useAgentIdentity.ts";
 import { useAgentReputation } from "../../src/ui/useAgentReputation.ts";
@@ -193,7 +193,7 @@ export default function AgentScreen() {
               {reputation.map((said, index) => (
                 <DetailRow
                   key={`${said.client}:${index}`}
-                  label={said.tag1.length > 0 ? said.tag1 : "Score"}
+                  label={scoreTitle(said)}
                   value={scoreLabel(said)}
                   first={index === 0}
                 />
