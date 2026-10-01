@@ -1,7 +1,7 @@
-import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { isAddress } from "viem";
+import { useLeave } from "../src/ui/useLeave.ts";
 import { AgentChip } from "../src/ui/AgentChip.tsx";
 import { AmountHero } from "../src/ui/AmountHero.tsx";
 import { ArcRing } from "../src/ui/ArcRing.tsx";
@@ -54,7 +54,7 @@ const TITLES: Readonly<Record<Step, string>> = {
 export default function GrantScreen() {
   const { wallet, mandate } = useSession();
   const { nameGranted } = useAgentNames();
-  const router = useRouter();
+  const leave = useLeave();
   const c = useTheme().color;
 
   const [step, setStep] = useState<Step>("agent");
@@ -121,9 +121,9 @@ export default function GrantScreen() {
 
   const back = useCallback(() => {
     const previous = ORDER[ORDER.indexOf(step) - 1];
-    if (step === "done" || previous === undefined) router.back();
+    if (step === "done" || previous === undefined) leave();
     else setStep(previous);
-  }, [step, router]);
+  }, [step, leave]);
 
   /**
    * An allowance bounds **how much and for how long**, not who.
@@ -317,7 +317,7 @@ export default function GrantScreen() {
 
   if (step === "done" && terms !== null) {
     return (
-      <Screen centered header={bar()} footer={<Button tier="solid" title="Done" onPress={() => router.back()} />}>
+      <Screen centered header={bar()} footer={<Button tier="solid" title="Done" onPress={leave} />}>
         <View style={styles.done}>
           <ArcRing spent={0} size={tokens.size.ring.welcome} label="" />
           <Text style={[styles.doneTitle, { color: c.paper }]}>Allowance granted</Text>

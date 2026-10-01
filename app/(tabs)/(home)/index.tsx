@@ -1,6 +1,6 @@
 import { useRouter } from "expo-router";
 import { useCallback, useState } from "react";
-import { ActivityIndicator, Linking, Share, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Linking, StyleSheet, Text, View } from "react-native";
 import { TESTNET_FAUCET_URL } from "../../../src/arc/chain.ts";
 import { ActivityRow } from "../../../src/ui/ActivityRow.tsx";
 import { AgentRowLive } from "../../../src/ui/AgentRowLive.tsx";
@@ -18,6 +18,7 @@ import { shortAddress } from "../../../src/ui/mandate-format.ts";
 import { useSession } from "../../../src/ui/session-context.tsx";
 import { useTheme } from "../../../src/ui/theme-context.tsx";
 import { tokens } from "../../../src/ui/tokens.ts";
+import { useShareAddress } from "../../../src/ui/useShareAddress.ts";
 
 /**
  * The product: what you hold, which agents may spend it, and how much each has left.
@@ -53,6 +54,7 @@ export default function AllowancesScreen() {
 
   // Without a wallet this tab does not exist: `app/(tabs)/_layout.tsx` has already sent the person
   // to the welcome screen. This is the frame before that redirect lands, not a state to design for.
+  const shareAddress = useShareAddress(wallet.account?.address ?? "");
   if (wallet.account === null) return null;
 
   const address = wallet.account.address;
@@ -99,8 +101,8 @@ export default function AllowancesScreen() {
           <Button
             compact
             icon="share-outline"
-            title="Share address"
-            onPress={() => void Share.share({ message: address })}
+            title={shareAddress.title}
+            onPress={() => void shareAddress.share()}
           />
         </View>
         <Text style={[styles.address, { color: c.dim }]}>{shortAddress(address)} on Arc testnet</Text>

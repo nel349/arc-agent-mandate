@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useCallback, useRef, useState } from "react";
-import { Linking, Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { Linking, Modal, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button } from "./Button.tsx";
 import { Note } from "./Note.tsx";
@@ -124,15 +124,20 @@ function Viewfinder({
         {permission.canAskAgain ? (
           <>
             {/*
-              No way out on this screen, on purpose. Apple asks that a screen shown before the
-              system's camera prompt lead to that prompt, not around it; the prompt itself has
+              No way out on this screen in the app, on purpose. Apple asks that a screen shown before
+              the system's camera prompt lead to that prompt, not around it; the prompt itself has
               "Don't Allow", which is the honest place to decline.
+
+              A browser is different. It reports a camera that was blocked, or one that is not
+              there, as still askable, so Continue does nothing and the screen held the person with
+              no way back. There the way out is always offered.
             */}
             <Text style={[styles.permissionTitle, { color: c.paper }]}>Scan with the camera</Text>
             <Text style={[styles.permissionBody, { color: c.muted }]}>
               The app reads the agent's pairing code and nothing else. Nothing is recorded.
             </Text>
             <Button tier="solid" title="Continue" onPress={() => void requestPermission()} />
+            {Platform.OS === "web" && <Button title="Type the address instead" onPress={onClose} />}
           </>
         ) : (
           <>

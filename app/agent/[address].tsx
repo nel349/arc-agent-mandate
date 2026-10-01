@@ -1,6 +1,6 @@
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, Platform, Share, StyleSheet, Text, View } from "react-native";
+import { Alert, Platform, StyleSheet, Text, View } from "react-native";
 import { ActivityRow } from "../../src/ui/ActivityRow.tsx";
 import { ArcRing } from "../../src/ui/ArcRing.tsx";
 import { MoreRow } from "../../src/ui/MoreRow.tsx";
@@ -28,6 +28,8 @@ import { useOpenReceipt } from "../../src/ui/useOpenReceipt.ts";
 import { useSession } from "../../src/ui/session-context.tsx";
 import { useTheme } from "../../src/ui/theme-context.tsx";
 import { tokens } from "../../src/ui/tokens.ts";
+import { useLeave } from "../../src/ui/useLeave.ts";
+import { useShareAddress } from "../../src/ui/useShareAddress.ts";
 
 /**
  * One allowance in full: what is left, what it means, who holds it, and the way to end it.
@@ -41,12 +43,14 @@ export default function AgentScreen() {
   const { mandate, activity } = useSession();
   const { ofAllowance, inCurrentAllowance, renameAllowance } = useAgentNames();
   const router = useRouter();
+  const leave = useLeave();
   const c = useTheme().color;
 
   const openReceipt = useOpenReceipt();
 
   const found = mandate.mandates.find((m) => m.agent.toLowerCase() === String(address).toLowerCase()) ?? null;
   const name = found === null ? null : ofAllowance(found.agent);
+  const shareAddress = useShareAddress(found?.agent ?? "");
   /** Confirmed against the registry before it is shown; see `useAgentIdentity`. */
   const identity = useAgentIdentity(found?.agent ?? null, activity.items);
   /**
@@ -85,7 +89,7 @@ export default function AgentScreen() {
     const message = revokeWarning(name, found.escrow);
     const revoke = () => mandate.revoke(found.agent, () => {
       feelWarning();
-      if (open.current) router.back();
+      if (open.current) leave();
     });
     if (Platform.OS === "web") {
       confirmInBrowser({ title, message }, revoke);
@@ -95,7 +99,7 @@ export default function AgentScreen() {
       { text: "Cancel", style: "cancel" },
       { text: "Revoke", style: "destructive", onPress: revoke },
     ]);
-  }, [found, name, mandate, router]);
+  }, [found, name, mandate, leave]);
 
   if (found === null) {
     return (
@@ -107,7 +111,7 @@ export default function AgentScreen() {
             <Text style={[styles.goneBody, { color: c.dim }]}>
               It may have been revoked. Allowances that are still active are listed on the first screen.
             </Text>
-            <Button title="Back to allowances" onPress={() => router.back()} />
+            <Button title="Back to allowances" onPress={leave} />
           </Surface>
         </Screen>
       </>
@@ -214,7 +218,7 @@ export default function AgentScreen() {
           />
           <Text style={[styles.caption, { color: c.muted }]}>Address on Arc testnet</Text>
           <Text selectable style={[styles.address, { color: c.paper }]}>{found.agent}</Text>
-          <Button compact icon="share-outline" title="Share address" onPress={() => void Share.share({ message: found.agent })} />
+          <Button compact icon="share-outline" title={shareAddress.title} onPress={() => void shareAddress.share()} />
         </Surface>
 
         {/* Spins only for this agent's own revoke. Anything else running, a grant landing in the
