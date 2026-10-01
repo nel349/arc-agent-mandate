@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { escrowLedger, topUpCalls } from "./gateway.ts";
+import { escrowLedger, topUpCalls, untilCredited } from "./gateway.ts";
 
 /**
  * The first tests the connector has ever had. `npm test` globbed `src/**` only, so every module
@@ -113,4 +113,27 @@ test("a top-up is still an approval and a deposit, in that order", () => {
   const calls = topUpCalls(agent, USD(0.5));
   assert.equal(calls.length, 2);
   assert.equal(calls[0]?.value, 0n, "the ERC-20 rail carries no native value");
+});
+
+// ---- waiting for Circle to see a top-up ------------------------------------------
+
+const noSleep = { sleep: async () => {} };
+
+test("a top-up Circle already shows is not waited for", async () => {
+  let reads = 0;
+  assert.equal(await untilCredited(5n, async () => { reads++; return 5n; }, noSleep), true);
+  assert.equal(reads, 1);
+});
+
+test("a top-up Circle has not seen yet is asked about again until it shows", async () => {
+  const seen = [0n, 0n, 7n];
+  assert.equal(await untilCredited(5n, async () => seen.shift() ?? 7n, noSleep), true);
+  assert.equal(seen.length, 0);
+});
+
+test("waiting gives up after its time, and an unanswered question ends it at once", async () => {
+  let reads = 0;
+  assert.equal(await untilCredited(5n, async () => { reads++; return 0n; }, { waitMs: 3, everyMs: 1, ...noSleep }), false);
+  assert.equal(reads, 4);
+  assert.equal(await untilCredited(5n, async () => { throw new Error("down"); }, noSleep), false);
 });

@@ -1,4 +1,4 @@
-import { encodeFunctionData, parseAbi, type Address, type Hex } from "viem";
+import { encodeFunctionData, parseAbi, parseUnits, type Address, type Hex } from "viem";
 import { publicClient, USDC_ERC20_VIEW, type EscrowTally } from "./chain.ts";
 
 /** One call in a batch, as `executeWithSessionKey` takes it. */
@@ -108,6 +108,58 @@ export async function readEscrow(agentAddress: Address): Promise<bigint> {
     functionName: "availableBalance",
     args: [USDC_ERC20_VIEW, agentAddress],
   });
+}
+
+/** Circle's Gateway service on testnet, which keeps the balances x402 payments are checked against. */
+const GATEWAY_API = "https://gateway-api-testnet.circle.com";
+/** Arc's number among Gateway's chains, as `GET /v1/info` lists it. */
+const ARC_DOMAIN = 26;
+/** How long to wait for Circle to see a top-up, and how often to ask. */
+const CREDIT_WAIT_MS = 30_000;
+const CREDIT_POLL_MS = 1_500;
+
+/**
+ * What Circle says the agent holds, at ERC-20 scale: the figure a payment is checked against.
+ *
+ * The chain records a deposit when it lands, but Circle accepts payments against its own ledger,
+ * which catches up after. A payment sent in between is refused although the money is there.
+ */
+export async function circleEscrow(agentAddress: Address): Promise<bigint> {
+  const res = await fetch(`${GATEWAY_API}/v1/balances`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ token: "USDC", sources: [{ domain: ARC_DOMAIN, depositor: agentAddress }] }),
+  });
+  if (!res.ok) throw new Error(`Gateway's balance service answered ${res.status}`);
+  const body = (await res.json()) as { balances?: { balance?: string }[] };
+  const balance = body.balances?.[0]?.balance;
+  if (balance === undefined) throw new Error("Gateway's balance service named no balance");
+  return parseUnits(balance, 6);
+}
+
+/**
+ * Wait, briefly, until Circle has credited at least `atLeast`, after a top-up.
+ *
+ * A top-up is followed at once by the payment it was for, and on 1 October one of those was refused
+ * because Circle had not yet seen the deposit; asked again a moment later, the same payment went
+ * through. Usually Circle has it by the time the deposit lands, so this returns on the first read.
+ * If it never shows, or the service will not answer, the payment is tried anyway and any refusal
+ * is reported as before: waiting is a courtesy, never a gate.
+ */
+export async function untilCredited(
+  atLeast: bigint,
+  read: () => Promise<bigint>,
+  { waitMs = CREDIT_WAIT_MS, everyMs = CREDIT_POLL_MS, sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms)) } = {},
+): Promise<boolean> {
+  for (let waited = 0; ; waited += everyMs) {
+    try {
+      if ((await read()) >= atLeast) return true;
+    } catch {
+      return false;
+    }
+    if (waited >= waitMs) return false;
+    await sleep(everyMs);
+  }
 }
 
 /**

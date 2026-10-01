@@ -33,7 +33,7 @@ import { pairingLink } from "./pairing.ts";
 import { writeQrPng } from "./pairing-image.ts";
 import { REFUSED_BY_ALLOWANCE, submitSpend } from "./spend.ts";
 import { bundlerConfigured, bundlerSetupInstructions } from "./bundler.ts";
-import { escrowLedger, gatewayAccepting, readEscrow, topUpCalls, type Call } from "./gateway.ts";
+import { circleEscrow, escrowLedger, gatewayAccepting, readEscrow, topUpCalls, untilCredited, type Call } from "./gateway.ts";
 import { fetchWithPayment, SELLER_WENT_QUIET, type BuyOutcome, type Funding } from "./x402.ts";
 import qrcode from "qrcode-terminal";
 
@@ -149,7 +149,7 @@ const INSTRUCTIONS = [
     "can be revoked in the app.",
 ].join("\n");
 
-const server = new McpServer({ name: "arc-mandate", version: "0.0.1" }, { instructions: INSTRUCTIONS });
+const server = new McpServer({ name: "arc-mandate", version: "0.0.2" }, { instructions: INSTRUCTIONS });
 
 const usd = (wei: bigint): string => `$${formatEther(wei)}`;
 /** Escrow and the online budget are both ERC-20 scale — six decimals, not eighteen. */
@@ -652,6 +652,8 @@ async function fundEscrow({ account, allowance, needed }: EscrowRequest): Promis
     if ("setup" in result) return { ok: false, reason: result.reason };
     return { ok: false, reason: `The top-up was refused: ${result.reason}` };
   }
+  // The payment comes next, and Circle checks it against its own ledger, not the chain's.
+  await untilCredited(needed, () => circleEscrow(agent.address));
   return { ok: true, toppedUp: shortfall };
 }
 
