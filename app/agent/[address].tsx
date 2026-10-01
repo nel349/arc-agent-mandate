@@ -1,11 +1,12 @@
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, Share, StyleSheet, Text, View } from "react-native";
+import { Alert, Platform, Share, StyleSheet, Text, View } from "react-native";
 import { ActivityRow } from "../../src/ui/ActivityRow.tsx";
 import { ArcRing } from "../../src/ui/ArcRing.tsx";
 import { MoreRow } from "../../src/ui/MoreRow.tsx";
 import { activityRowText, formatAmount, lastSpentAt } from "../../src/ui/activity-format.ts";
 import { Button } from "../../src/ui/Button.tsx";
+import { confirmInBrowser } from "../../src/ui/confirm-in-browser.ts";
 import { DetailRow } from "../../src/ui/DetailRow.tsx";
 import { Field } from "../../src/ui/Field.tsx";
 import { Label } from "../../src/ui/Label.tsx";
@@ -74,24 +75,26 @@ export default function AgentScreen() {
    * that cannot be undone. The sentence names the agent and says the one thing a revoke does not
    * do, with the amount it leaves behind, because a person who assumes it claws money back is making
    * a decision on a false premise.
+   *
+   * In a browser the same question goes through the browser's own dialog: `Alert.alert` is an empty
+   * function on the web, so asking through it there revoked nothing. See `confirm-in-browser.ts`.
    */
   const confirmRevoke = useCallback(() => {
     if (found === null) return;
-    Alert.alert(
-      "Revoke this allowance?",
-      revokeWarning(name, found.escrow),
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Revoke",
-          style: "destructive",
-          onPress: () => mandate.revoke(found.agent, () => {
-            feelWarning();
-            if (open.current) router.back();
-          }),
-        },
-      ],
-    );
+    const title = "Revoke this allowance?";
+    const message = revokeWarning(name, found.escrow);
+    const revoke = () => mandate.revoke(found.agent, () => {
+      feelWarning();
+      if (open.current) router.back();
+    });
+    if (Platform.OS === "web") {
+      confirmInBrowser({ title, message }, revoke);
+      return;
+    }
+    Alert.alert(title, message, [
+      { text: "Cancel", style: "cancel" },
+      { text: "Revoke", style: "destructive", onPress: revoke },
+    ]);
   }, [found, name, mandate, router]);
 
   if (found === null) {
