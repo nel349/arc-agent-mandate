@@ -57,6 +57,8 @@ function Navigator() {
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       {/* Before the app: no bar, and no title over a screen that cannot have allowances yet. */}
       <Stack.Screen name="welcome" options={{ headerShown: false }} />
+      {/* A site asking which wallet is yours: before or after there is one, so outside the tabs too. */}
+      <Stack.Screen name="connect" options={{ headerShown: false }} />
       {/* Pushed: drilling into one item of the list. Its title is the agent's name, set by the
           screen once it knows it. */}
       <Stack.Screen

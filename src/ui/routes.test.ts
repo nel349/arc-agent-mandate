@@ -19,6 +19,7 @@ test("an agent's screen and the fixed screens are where every caller expects", (
     allowances: "/",
     rewards: "/rewards",
     welcome: "/welcome",
+    connect: "/connect",
     grant: "/grant",
     activity: "/activity",
     settings: "/settings",

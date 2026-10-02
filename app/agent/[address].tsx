@@ -1,6 +1,6 @@
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, Platform, StyleSheet, Text, View } from "react-native";
+import { Alert, Linking, Platform, StyleSheet, Text, View } from "react-native";
 import { ActivityRow } from "../../src/ui/ActivityRow.tsx";
 import { ArcRing } from "../../src/ui/ArcRing.tsx";
 import { MoreRow } from "../../src/ui/MoreRow.tsx";
@@ -30,6 +30,8 @@ import { useTheme } from "../../src/ui/theme-context.tsx";
 import { tokens } from "../../src/ui/tokens.ts";
 import { useLeave } from "../../src/ui/useLeave.ts";
 import { useShareAddress } from "../../src/ui/useShareAddress.ts";
+import { useConnectedSite } from "../../src/ui/useConnectedSite.ts";
+import { connectedUrl } from "../../src/ui/connect.ts";
 
 /**
  * One allowance in full: what is left, what it means, who holds it, and the way to end it.
@@ -40,7 +42,9 @@ import { useShareAddress } from "../../src/ui/useShareAddress.ts";
  */
 export default function AgentScreen() {
   const { address } = useLocalSearchParams<{ address: string }>();
-  const { mandate, activity } = useSession();
+  const { mandate, activity, wallet } = useSession();
+  const site = useConnectedSite();
+  const walletAddress = wallet.account?.address ?? null;
   const { ofAllowance, inCurrentAllowance, renameAllowance } = useAgentNames();
   const router = useRouter();
   const leave = useLeave();
@@ -203,6 +207,12 @@ export default function AgentScreen() {
               {[scoreMeaning(newest), writtenBy(newest)].filter((line): line is string => line !== null).join(" ")}
             </Note>
           </>
+        )}
+
+        {/* Back to the site that asked to know this wallet, where the agent's runs and rep are shown. */}
+        {site !== null && walletAddress !== null && (
+          <Button compact icon="open-outline" title={`See it on ${site.host}`}
+                  onPress={() => void Linking.openURL(connectedUrl(site, walletAddress))} />
         )}
 
         <Label>Agent</Label>

@@ -9,6 +9,8 @@ import { useSession } from "../../../src/ui/session-context.tsx";
 import { useTheme } from "../../../src/ui/theme-context.tsx";
 import { tokens } from "../../../src/ui/tokens.ts";
 import { useBadges } from "../../../src/ui/useBadges.ts";
+import { useConnectedSite } from "../../../src/ui/useConnectedSite.ts";
+import { connectedUrl } from "../../../src/ui/connect.ts";
 
 /**
  * What the agents earned: the badges this wallet holds, and where the rest of it is kept.
@@ -27,6 +29,9 @@ export default function RewardsScreen() {
   const { wallet } = useSession();
   const c = useTheme().color;
   const { badges, loading, error, refresh } = useBadges(wallet.account?.address ?? null);
+  const site = useConnectedSite();
+  // The site this wallet connected to shows its agents' reputation; until one is connected, Bench's source.
+  const benchHref = site !== null && wallet.account !== null ? connectedUrl(site, wallet.account.address) : BENCH_URL;
 
   if (wallet.account === null) {
     return (
@@ -79,7 +84,7 @@ export default function RewardsScreen() {
             shows here.
           </Text>
           <View style={styles.links}>
-            <Button compact icon="open-outline" title="See Bench" onPress={() => void Linking.openURL(BENCH_URL)} />
+            <Button compact icon="open-outline" title="See Bench" onPress={() => void Linking.openURL(benchHref)} />
             <Button compact icon="open-outline" title="See the maze" onPress={() => void Linking.openURL(MAZE_URL)} />
           </View>
         </Surface>

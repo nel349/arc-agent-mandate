@@ -16,6 +16,8 @@ export const ROUTES = {
   rewards: "/rewards",
   /** Before there is a wallet, and outside the tabs: see `app/welcome.tsx`. */
   welcome: "/welcome",
+  /** A site asking to know this wallet: see `app/connect.tsx`. */
+  connect: "/connect",
   grant: "/grant",
   activity: "/activity",
   settings: "/settings",
