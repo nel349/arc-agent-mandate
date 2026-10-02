@@ -1,3 +1,4 @@
+import { circleEscrow } from "../../mcp/gateway-balance.ts";
 import {
   BaseError, ContractFunctionRevertedError, encodeAbiParameters, encodeFunctionData, keccak256,
   parseAbi, parseAbiItem, parseAbiParameters, parseEventLogs, toFunctionSelector, toHex,
@@ -844,7 +845,7 @@ export function meterInForce(
 }
 
 export async function readMandate(address: Address, agent: Address): Promise<Mandate> {
-  const [spend, range, agentBalance, onlineLimit, escrowHeld] = await Promise.all([
+  const [spend, range, agentBalance, onlineLimit, escrowHeld, circleHeld] = await Promise.all([
     arcPublicClient.readContract({
       address: SESSION_KEY_PLUGIN, abi: pluginAbi,
       functionName: "getNativeTokenSpendLimitInfo", args: [address, agent],
@@ -862,6 +863,10 @@ export async function readMandate(address: Address, agent: Address): Promise<Man
       address: ARC_CONTRACTS.gatewayWallet, abi: gatewayAbi,
       functionName: "availableBalance", args: [ARC_CONTRACTS.usdc, agent],
     }),
+    // Circle's own figure, which leaves out payments it has accepted and not yet settled; the chain's
+    // counts them, and overstated an agent's escrow by more than a dollar. The chain's stands in
+    // only when Circle's service does not answer.
+    circleEscrow(agent).catch(() => null),
   ]);
   const meter = meterInForce(spend, onlineLimit);
   const { limit, spent } = meter;
@@ -876,7 +881,7 @@ export async function readMandate(address: Address, agent: Address): Promise<Man
     ...(range[1] === 0 ? {} : { expiresAt: Number(range[1]) }),
     agentFloat: Usdc.fromNativeUnits(agentBalance),
     // Gateway counts in the ERC-20 view's six decimals.
-    escrow: Usdc.fromErc20Units(escrowHeld),
+    escrow: Usdc.fromErc20Units(circleHeld ?? escrowHeld),
     lastUsedAt: meter.lastUsedTime === 0 ? null : Number(meter.lastUsedTime),
   };
 }

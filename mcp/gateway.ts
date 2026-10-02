@@ -1,4 +1,4 @@
-import { encodeFunctionData, parseAbi, parseUnits, type Address, type Hex } from "viem";
+import { encodeFunctionData, parseAbi, type Address, type Hex } from "viem";
 import { publicClient, USDC_ERC20_VIEW, type EscrowTally } from "./chain.ts";
 
 /** One call in a batch, as `executeWithSessionKey` takes it. */
@@ -87,6 +87,8 @@ export function escrowLedger(
 /** Circle's Gateway Wallet. Same address on every chain Gateway supports. */
 export const GATEWAY_WALLET: Address = "0x0077777d7EBA4688BDeF3E311b846F25870A19B9";
 
+export { circleEscrow } from "./gateway-balance.ts";
+
 // Re-exported so a caller working with escrow does not have to know it lives in `chain.ts`.
 // Not redefined: the address is one fact, and a second copy is a second thing to get wrong.
 export { USDC_ERC20_VIEW };
@@ -110,32 +112,9 @@ export async function readEscrow(agentAddress: Address): Promise<bigint> {
   });
 }
 
-/** Circle's Gateway service on testnet, which keeps the balances x402 payments are checked against. */
-const GATEWAY_API = "https://gateway-api-testnet.circle.com";
-/** Arc's number among Gateway's chains, as `GET /v1/info` lists it. */
-const ARC_DOMAIN = 26;
 /** How long to wait for Circle to see a top-up, and how often to ask. */
 const CREDIT_WAIT_MS = 30_000;
 const CREDIT_POLL_MS = 1_500;
-
-/**
- * What Circle says the agent holds, at ERC-20 scale: the figure a payment is checked against.
- *
- * The chain records a deposit when it lands, but Circle accepts payments against its own ledger,
- * which catches up after. A payment sent in between is refused although the money is there.
- */
-export async function circleEscrow(agentAddress: Address): Promise<bigint> {
-  const res = await fetch(`${GATEWAY_API}/v1/balances`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ token: "USDC", sources: [{ domain: ARC_DOMAIN, depositor: agentAddress }] }),
-  });
-  if (!res.ok) throw new Error(`Gateway's balance service answered ${res.status}`);
-  const body = (await res.json()) as { balances?: { balance?: string }[] };
-  const balance = body.balances?.[0]?.balance;
-  if (balance === undefined) throw new Error("Gateway's balance service named no balance");
-  return parseUnits(balance, 6);
-}
 
 /**
  * Wait, briefly, until Circle has credited at least `atLeast`, after a top-up.
