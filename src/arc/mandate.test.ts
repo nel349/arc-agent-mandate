@@ -6,7 +6,7 @@ import {
   parseAbi, parseAbiParameters, RawContractError, type Hex,
 } from "viem";
 import {
-  buildChangeCallData, buildGrantPlan, keyIsGone, meterInForce, SESSION_KEY_PLUGIN,
+  buildChangeCallData, buildGrantPlan, keyIsGone, meterInForce, ownerGasStart, SESSION_KEY_PLUGIN,
   SESSION_KEY_PLUGIN_MANIFEST_HASH, type MandateTerms,
 } from "./mandate.ts";
 import { Amount } from "./amount.ts";
@@ -547,4 +547,16 @@ test("on Monad a grant meters MON, allows the agent's identity and its payees, a
 
 test("on Monad a limit finer than USDC's six decimals is fine, since MON has no ERC-20 view to truncate it", () => {
   assert.doesNotThrow(() => buildGrantPlan(terms({ payees: [PAYEE], limit: Amount.parse("0.0000001") }), true, MONAD_TESTNET));
+});
+
+/**
+ * Found granting on Monad testnet, 5 Oct: every owner operation after the first asked for Face ID twice,
+ * because it started from the figures that make the wallet, which the bundler refused as wasteful.
+ */
+test("on Monad an owner's operation starts from figures that fit the wallet, so one passkey signature lands it", () => {
+  assert.equal(ownerGasStart(MONAD_TESTNET, false), MONAD_TESTNET.gas.grant, "the one that makes the wallet verifies more");
+  assert.equal(ownerGasStart(MONAD_TESTNET, true), MONAD_TESTNET.gas.owner);
+  // inside what the bundler accepted on a passkey wallet: at least what is used, at most 2.5 times it
+  const used = 323_446n * 2n / 5n;
+  assert.ok(MONAD_TESTNET.gas.owner.verificationGasLimit >= used && MONAD_TESTNET.gas.owner.verificationGasLimit <= 323_446n);
 });

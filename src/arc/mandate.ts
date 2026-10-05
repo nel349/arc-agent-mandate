@@ -11,7 +11,7 @@ import { ARC_CONTRACTS } from "./chain.ts";
 import type { ArcAccount } from "./account.ts";
 import { Amount } from "./amount.ts";
 import {
-  ARC_TESTNET, GrantError, grantCallData, identityCalls, sendCorrectingGas, type NetworkProfile, SESSION_KEY_PLUGIN_MANIFEST_HASH as CORE_MANIFEST_HASH, type GrantTerms,
+  ARC_TESTNET, GrantError, grantCallData, identityCalls, sendCorrectingGas, type GasLimits, type NetworkProfile, SESSION_KEY_PLUGIN_MANIFEST_HASH as CORE_MANIFEST_HASH, type GrantTerms,
 } from "@kuiralabs/mandate-core";
 
 /**
@@ -453,6 +453,13 @@ export async function isPluginInstalled(address: Address, network: NetworkProfil
  * The multisig implements no runtime validation, so the account refuses its own administration.
  * See `GrantPlan`.
  */
+/** Where an owner's operation starts on a network that does not estimate them: making the wallet, or not. */
+export const ownerGasStart = (network: NetworkProfile, deployed: boolean): GasLimits => (deployed ? network.gas.owner : network.gas.grant);
+
+async function ownerGasFor(account: ArcAccount): Promise<GasLimits> {
+  return ownerGasStart(account.network, await isDeployed(account.address, account.network));
+}
+
 async function sendManagement(account: ArcAccount, callData: Hex): Promise<Hash> {
   const { network } = account;
   if (network.gas.estimatesOwnerOperations) {
@@ -462,7 +469,9 @@ async function sendManagement(account: ArcAccount, callData: Hex): Promise<Hash>
   // start from the network's figures and are corrected from what it names, with a doubled bid, as proven
   const price = await fees(account);
   const bid = { maxFeePerGas: price.maxFeePerGas * 2n, maxPriorityFeePerGas: price.maxPriorityFeePerGas * 2n };
-  const { sent } = await sendCorrectingGas(network.gas.grant, (gas) =>
+  // Every refusal is another signature, so another Face ID: start from the figures that fit, the large
+  // ones only for the operation that also makes the wallet.
+  const { sent } = await sendCorrectingGas(await ownerGasFor(account), (gas) =>
     account.bundler.sendUserOperation({ account: account.smartAccount, callData, ...gas, ...bid }));
   return sent;
 }

@@ -76,6 +76,12 @@ export interface NetworkProfile {
     /** the owner's operation that makes the wallet if need be and grants the mandate */
     readonly grant: GasLimits;
     /**
+     * An owner's operation on a wallet already made, signed with a passkey: a later grant, a revoke, a
+     * change. Its own figures because a bundler that bills the whole limit refuses one far above what is
+     * used, and each refusal is another Face ID for the person.
+     */
+    readonly owner: GasLimits;
+    /**
      * Whether the owner's operations are priced by asking the bundler. Arc's estimates them; on Monad
      * they start from `grant` and are corrected from what the bundler names, with a doubled bid, as
      * proven there.
@@ -123,6 +129,8 @@ export const ARC_TESTNET: NetworkProfile = {
     // what the connector has sent for every payment on Arc; Arc's bundler takes generous limits
     agent: { callGasLimit: 500_000n, verificationGasLimit: 500_000n, preVerificationGas: 100_000n, ...PAYMASTER_GAS },
     grant: { callGasLimit: 1_500_000n, verificationGasLimit: 1_500_000n, preVerificationGas: 150_000n, ...PAYMASTER_GAS },
+    // never sent as they stand: Arc's bundler estimates owner operations
+    owner: { callGasLimit: 1_500_000n, verificationGasLimit: 1_500_000n, preVerificationGas: 150_000n, ...PAYMASTER_GAS },
     estimatesOwnerOperations: true,
   },
 };
@@ -148,6 +156,9 @@ export const MONAD_TESTNET: NetworkProfile = {
     // so its bundler wants preVerificationGas in the millions and a verification limit mostly used
     agent: { callGasLimit: 500_000n, verificationGasLimit: 310_000n, preVerificationGas: 1_300_000n, ...PAYMASTER_GAS },
     grant: { callGasLimit: 1_500_000n, verificationGasLimit: 1_500_000n, preVerificationGas: 3_520_000n, ...PAYMASTER_GAS },
+    // a passkey wallet's grant and revoke on Monad testnet, 5 Oct, landed with verification limits of
+    // 323,446 and 320,340 after the bundler refused 1.5M as wasteful; 300k sits inside what it accepts
+    owner: { callGasLimit: 1_500_000n, verificationGasLimit: 300_000n, preVerificationGas: 3_520_000n, ...PAYMASTER_GAS },
     estimatesOwnerOperations: false,
   },
 };
