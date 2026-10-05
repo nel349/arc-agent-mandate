@@ -3,11 +3,12 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import {
-  createPublicClient, defineChain, formatEther, getAddress, http, parseAbi, parseAbiItem,
+  createPublicClient, defineChain, formatEther, getAddress, parseAbi, parseAbiItem,
   type Address,
 } from "viem";
 import { ARC_TESTNET, isPairingCode, pairingTag } from "@kuiralabs/mandate-core";
 import { NETWORK } from "./network.ts";
+import { politeHttp } from "./polite.ts";
 
 /** Which meter bounds a mandate. Named so the two strings cannot be spelled wrong in four places. */
 export type Rail = "native" | "erc20";
@@ -120,7 +121,7 @@ export const chain = defineChain({
   rpcUrls: { default: { http: [RPC] } },
 });
 
-export const publicClient = createPublicClient({ chain, transport: http(RPC) });
+export const publicClient = createPublicClient({ chain, transport: politeHttp(RPC) });
 
 export const pluginAbi = parseAbi([
   "event SessionKeyAdded(address indexed account, address indexed sessionKey, bytes32 indexed tag)",

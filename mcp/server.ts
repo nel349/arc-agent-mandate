@@ -158,7 +158,7 @@ const INSTRUCTIONS = [
 
 // what the package says it is; package.test.ts fails when the two drift, since an agent that asks
 // which connector it is talking to is told this
-const server = new McpServer({ name: "arc-mandate", version: "0.1.1" }, { instructions: INSTRUCTIONS });
+const server = new McpServer({ name: "arc-mandate", version: "0.1.2" }, { instructions: INSTRUCTIONS });
 
 /** An amount of the network's coin as a person reads it: dollars on Arc, MON on Monad. */
 const inCoin = (wei: bigint): string => amountIn(NETWORK, wei);
