@@ -100,7 +100,10 @@ export default function GrantScreen() {
 
   /** What to call the agent: the name typed, or its address. */
   const who = cleanAgentName(name) || (isAddress(agent) ? shortAddress(agent) : agent);
-  const canGrant = terms !== null && !wallet.busy && !mandate.busy && mandate.ready === true && onItsNetwork;
+  // Not while this wallet already grants this agent: the plugin allows one allowance per agent per wallet
+  // and refuses a second only after the passkey has been asked. The allowances may still be loading
+  // when a scan lands on the card, so this is checked here and not only at the first step.
+  const canGrant = terms !== null && !wallet.busy && !mandate.busy && mandate.ready === true && onItsNetwork && !already;
 
   const go = useCallback((next: GrantStep) => setTrail((was) => [...was, next]), []);
   const back = useCallback(() => {
