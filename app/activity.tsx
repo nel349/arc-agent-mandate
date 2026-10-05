@@ -11,6 +11,7 @@ import { activityRowText, groupByDay } from "../src/ui/activity-format.ts";
 import { useAgentNames } from "../src/ui/agent-names-context.tsx";
 import { clockTime, weekdayDayMonth } from "../src/ui/calendar.ts";
 import { shortAddress } from "../src/ui/mandate-format.ts";
+import { rowKey } from "../src/arc/activity.ts";
 import { useOpenReceipt } from "../src/ui/useOpenReceipt.ts";
 import { useSession } from "../src/ui/session-context.tsx";
 import { useTheme } from "../src/ui/theme-context.tsx";
@@ -25,7 +26,7 @@ import { tokens } from "../src/ui/tokens.ts";
  */
 export default function ActivityScreen() {
   const { agent } = useLocalSearchParams<{ agent?: string }>();
-  const { activity } = useSession();
+  const { activity, wallet } = useSession();
   const { ofAllowance, ofRow } = useAgentNames();
   const c = useTheme().color;
 
@@ -57,7 +58,8 @@ export default function ActivityScreen() {
               const text = activityRowText(item, { name: ofRow(item), withAgent: scoped === null, underDayHeading: true });
               return (
                 <ActivityRow
-                  key={`${item.tx}:${item.logIndex}`}
+                  key={rowKey(item)}
+                  network={wallet.network}
                   item={item}
                   text={text}
                   onPress={open}
@@ -68,7 +70,7 @@ export default function ActivityScreen() {
           </Section>
         ))}
 
-        {activity.loading && <ActivityIndicator color={c.dim} accessibilityLabel="Reading activity from Arc" />}
+        {activity.loading && <ActivityIndicator color={c.dim} accessibilityLabel={`Reading activity from ${wallet.network.name}`} />}
 
         {activity.since !== null && (
           <Text style={[styles.since, { color: c.dim }]}>

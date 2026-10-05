@@ -9,9 +9,9 @@ import {
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import * as arc from "./harness.ts";
-import { pairingTag } from "../mcp/pairing.ts";
+import { pairingTag } from "@kuiralabs/mandate-core";
 import { buildGrantPlan, grantedIn } from "../src/arc/mandate.ts";
-import { Usdc } from "../src/arc/usdc.ts";
+import { Amount } from "../src/arc/amount.ts";
 import { GRANT_LABEL, mandateTermsFor } from "../src/ui/grant-entry.ts";
 
 /**
@@ -50,7 +50,7 @@ const DAYS = 7;
 
 /** The phone's grant: the terms the grant screen makes, as the calldata the app sends, from the owner. */
 async function ownerGrant(agent: Address, pairing: string | null) {
-  const terms = mandateTermsFor({ agent, limit: Usdc.parse(LIMIT), days: DAYS }, pairing, Date.now());
+  const terms = mandateTermsFor({ agent, limit: Amount.parse(LIMIT), days: DAYS }, pairing, Date.now());
   const receipt = await arc.asOwner(buildGrantPlan(terms, true).management);
   assert.equal(receipt.status, "success", "the owner's grant did not land");
   return { terms, receipt };
@@ -277,7 +277,7 @@ describe("pairing, on a forked Arc", () => {
     await ownerGrant(agent, null);
 
     const again = buildGrantPlan(
-      mandateTermsFor({ agent, limit: Usdc.parse(LIMIT), days: DAYS }, CODE, Date.now()), true,
+      mandateTermsFor({ agent, limit: Amount.parse(LIMIT), days: DAYS }, CODE, Date.now()), true,
     ).management;
     const refusal = (await arc.ownerRefusal(again)).toLowerCase();
     assert.ok(refusal.includes(toFunctionSelector("InvalidSessionKey(address)").slice(2)),

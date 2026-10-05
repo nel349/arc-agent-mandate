@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { NetworkProfile } from "@kuiralabs/mandate-core";
 import { reputationOf, type Feedback } from "../arc/reputation.ts";
 
 /**
@@ -11,21 +12,21 @@ import { reputationOf, type Feedback } from "../arc/reputation.ts";
  * Keyed on the identity rather than the agent's address, because that is what the registry knows
  * and what a seller credits.
  */
-export function useAgentReputation(agentId: bigint | null): readonly Feedback[] {
+export function useAgentReputation(agentId: bigint | null, network: NetworkProfile): readonly Feedback[] {
   const [said, setSaid] = useState<readonly Feedback[]>([]);
 
   useEffect(() => {
     let current = true;
     setSaid([]);
     if (agentId === null) return;
-    void reputationOf(agentId)
+    void reputationOf(agentId, network)
       .then((found) => { if (current) setSaid(found); })
       .catch(() => {
         // Unreadable is not the same as none, and neither is worth interrupting anyone over. The
         // panel simply does not appear, which is where the screen started.
       });
     return () => { current = false; };
-  }, [agentId]);
+  }, [agentId, network]);
 
   return said;
 }

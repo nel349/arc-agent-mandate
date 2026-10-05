@@ -1,0 +1,23 @@
+{
+  /*
+   * The core as published: plain JavaScript and its types, one file per source file, like the connector.
+   * Inside the repository nothing is built: the "mandate-source" condition points every program at the .ts.
+   */
+  "compilerOptions": {
+    "target": "es2023",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "rewriteRelativeImportExtensions": true,
+    "rootDir": "src",
+    "outDir": "dist",
+    "declaration": true,
+    "strict": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
+    "skipLibCheck": true,
+    "types": ["node"],
+    "newLine": "lf"
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/**/*.test.ts", "src/fixtures", "dist"]
+}

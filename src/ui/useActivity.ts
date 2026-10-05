@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
-import type { Address } from "viem";
+import type { NetworkProfile } from "@kuiralabs/mandate-core";
+import type { ArcAccount } from "../arc/account.ts";
 import {
-  blockTime, covering, earlierWindows, EMPTY_FEED, FEED_PACE_MS, hasEarlier, mergeFeed, newWindows,
-  nextBackoff, parseFeed, readActivityWindow, serializeFeed, type Activity, type Feed,
+  blockTime, covering, earlierWindows, EMPTY_FEED, FEED_PACE_MS, feedKeyOf, feedRulesOf, hasEarlier, mergeFeed,
+  newWindows, nextBackoff, parseFeed, readActivityWindow, serializeFeed, tooFarBehind, type Activity, type Feed, type Window,
 } from "../arc/activity.ts";
-import { arcPublicClient, isRateLimited } from "../arc/client.ts";
-import { ARC_BUSY } from "./failure.ts";
+import { clientFor, isRateLimited } from "../arc/client.ts";
+import { busyOn } from "./failure.ts";
 import { readPreference, writePreference } from "./preference-store.ts";
 
 declare const __DEV__: boolean;
@@ -30,11 +31,9 @@ const POLL_INTERVAL_MS = 10_000;
 /** How long after the app opens the feed starts, so the allowances and balance are read first. */
 const FIRST_READ_DELAY_MS = 3_000;
 
-/** One stored feed per account, so switching wallets never shows one account another's history. */
-const FEED_KEY_PREFIX = "arc.activity.";
-
 /** What a failed read says. The rows already shown stay, because they are still true. */
-const FEED_UNREADABLE = "Could not read recent activity from Arc. It will try again shortly.";
+const feedUnreadable = (network: NetworkProfile): string =>
+  `Could not read recent activity from ${network.name}. It will try again shortly.`;
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 const pace = () => wait(FEED_PACE_MS);
@@ -65,7 +64,13 @@ interface Backoff {
   readonly until: number;
 }
 
-export function useActivity(account: Address | null): ActivityFeed {
+/**
+ * One wallet's feed on the network it is open on. Keyed by both, so switching wallets or networks
+ * never shows one another's history.
+ */
+export function useActivity(wallet: ArcAccount | null): ActivityFeed {
+  const account = wallet?.address ?? null;
+  const network = wallet?.network ?? null;
   const [feed, setFeed] = useState<Feed>(EMPTY_FEED);
   /** Which kind of read is running, if any. */
   const [reading, setReading] = useState<Direction | null>(null);
@@ -73,8 +78,8 @@ export function useActivity(account: Address | null): ActivityFeed {
 
   /** The feed as of the last window read, for the next scan to continue from. */
   const latest = useRef<Feed>(EMPTY_FEED);
-  /** The account the screen is showing now. A scan started for another one stops writing. */
-  const current = useRef<Address | null>(account);
+  /** The feed the screen is showing now. A scan started for another one stops writing. */
+  const current = useRef<string | null>(null);
   /** One scan at a time: two overlapping would read the same windows twice and race to save. */
   const running = useRef(false);
   /** Set when Arc refused a read for being too frequent; polls do nothing until it passes. */
@@ -82,23 +87,30 @@ export function useActivity(account: Address | null): ActivityFeed {
 
   const scan = useCallback(async (direction: Direction) => {
     const owner = account;
-    if (owner === null || running.current) return;
+    if (owner === null || network === null || running.current) return;
     if (backoff.current !== null && Date.now() < backoff.current.until) return;
     running.current = true;
     setReading(direction);
-    const key = `${FEED_KEY_PREFIX}${owner.toLowerCase()}`;
+    const key = feedKeyOf(network, owner);
+    const rules = feedRulesOf(network);
 
     try {
-      const start = latest.current;
-      const windows = direction === "new"
-        ? newWindows(start.coverage, await arcPublicClient.getBlockNumber())
-        : start.coverage === null ? [] : earlierWindows(start.coverage);
+      let start = latest.current;
+      let windows: readonly Window[] = [];
+      if (direction === "new") {
+        const head = await clientFor(network).getBlockNumber();
+        // Too far behind to catch up quickly: start again from the latest blocks.
+        if (tooFarBehind(start.coverage, head, rules.mostBehind)) start = EMPTY_FEED;
+        windows = newWindows(start.coverage, head, rules.floor, rules.span, rules.window);
+      } else if (start.coverage !== null) {
+        windows = earlierWindows(start.coverage, rules.floor, rules.span, rules.window);
+      }
 
       let next = start;
       for (const window of windows) {
         await pace();
-        const found = await readActivityWindow(owner, window, pace);
-        if (current.current !== owner) return;
+        const found = await readActivityWindow(owner, window, pace, network);
+        if (current.current !== key) return;
         next = mergeFeed({ ...next, coverage: covering(next.coverage, window) }, found);
         // Shown and kept after every window, so a long first read fills in as it goes and a read
         // that is interrupted keeps what it had reached, and resumes from there.
@@ -110,8 +122,8 @@ export function useActivity(account: Address | null): ActivityFeed {
       // How far back the feed reaches, in time, once per change to where it starts.
       if (next.coverage !== null && (next.since === null || next.coverage.low !== start.coverage?.low)) {
         await pace();
-        const since = await blockTime(next.coverage.low);
-        if (current.current !== owner) return;
+        const since = await blockTime(next.coverage.low, network);
+        if (current.current !== key) return;
         next = { ...next, since };
         latest.current = next;
         setFeed(next);
@@ -120,34 +132,35 @@ export function useActivity(account: Address | null): ActivityFeed {
       backoff.current = null;
       setError(null);
     } catch (cause) {
-      if (current.current !== owner) return;
+      if (current.current !== key) return;
       if (isRateLimited(cause)) {
         const delay = nextBackoff(backoff.current?.delay ?? null);
         backoff.current = { delay, until: Date.now() + delay };
-        if (__DEV__) console.warn(`[activity] Arc asked the feed to slow down; next read in ${delay / 1000}s`);
-        setError(ARC_BUSY);
+        if (__DEV__) console.warn(`[activity] ${network.name} asked the feed to slow down; next read in ${delay / 1000}s`);
+        setError(busyOn(network));
       } else {
         if (__DEV__) console.warn("[activity] read failed", cause);
-        setError(FEED_UNREADABLE);
+        setError(feedUnreadable(network));
       }
     } finally {
       running.current = false;
-      if (current.current === owner) setReading(null);
+      if (current.current === key) setReading(null);
     }
-  }, [account]);
+  }, [account, network]);
 
   // A new account starts from what this phone kept for it, then catches up once the allowances
   // and balance have had the endpoint to themselves for a moment.
   useEffect(() => {
-    current.current = account;
+    const key = account === null || network === null ? null : feedKeyOf(network, account);
+    current.current = key;
     latest.current = EMPTY_FEED;
     backoff.current = null;
     setFeed(EMPTY_FEED);
     setError(null);
-    if (account === null) return;
+    if (key === null) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    void readPreference(`${FEED_KEY_PREFIX}${account.toLowerCase()}`).then((stored) => {
+    void readPreference(key).then((stored) => {
       if (cancelled) return;
       const kept = parseFeed(stored);
       latest.current = kept;
@@ -158,7 +171,7 @@ export function useActivity(account: Address | null): ActivityFeed {
       cancelled = true;
       if (timer !== undefined) clearTimeout(timer);
     };
-  }, [account, scan]);
+  }, [account, network, scan]);
 
   // Keep reading while the app is open, and again the moment it returns, because timers do not
   // run in a backgrounded app. Same reasoning as the allowances in `useMandate`.
@@ -182,7 +195,7 @@ export function useActivity(account: Address | null): ActivityFeed {
     loadingEarlier: reading === "earlier",
     error,
     since: feed.since,
-    canLoadEarlier: hasEarlier(feed.coverage),
+    canLoadEarlier: network !== null && hasEarlier(feed.coverage, network.logs.floor),
     loadEarlier,
   };
 }

@@ -1,3 +1,4 @@
+import { ARC_TESTNET, type NetworkProfile } from "@kuiralabs/mandate-core";
 import { isRateLimited } from "../arc/client.ts";
 import { INVALID_SESSION_KEY } from "../arc/mandate.ts";
 import { NO_PASSKEY_TO_OFFER } from "../passkey/errors.ts";
@@ -114,10 +115,12 @@ export function isCancellation(cause: unknown): boolean {
  * not scattered across the app.
  */
 /**
- * What a refusal for asking too often says. It names the cause as Arc's, because it is, and says
+ * What a refusal for asking too often says. It names the network as the cause, because it is, and says
  * nothing needs doing, because nothing does: the next read is already scheduled.
  */
-export const ARC_BUSY = "Arc is busy right now. The figures will catch up in a few seconds.";
+export const busyOn = (network: NetworkProfile): string =>
+  `${network.name} is busy right now. The figures will catch up in a few seconds.`;
+export const ARC_BUSY = busyOn(ARC_TESTNET);
 
 /**
  * The plugin's refusal of a second grant to one agent from one wallet, `InvalidSessionKey(address)`,
@@ -149,7 +152,7 @@ export const WALLET_FAILURES = [
  * change, where it reassures; on the welcome screen, under "Create a wallet", it read as a warning
  * about nothing. So every wallet path asks this one question, and only a real failure is shown.
  */
-export function walletFailure(cause: unknown): string | null {
+export function walletFailure(cause: unknown, network: NetworkProfile = ARC_TESTNET): string | null {
   if (isCancellation(cause)) return null;
   if (wasAnOffer(cause)) {
     // Logged, because it is worth knowing while debugging that the launch found nothing to offer,
@@ -158,7 +161,7 @@ export function walletFailure(cause: unknown): string | null {
     console.log(`[wallet] ${NO_PASSKEY_TO_OFFER}`);
     return null;
   }
-  return describeFailure(cause, WALLET_FAILURES);
+  return describeFailure(cause, WALLET_FAILURES, network);
 }
 
 /**
@@ -179,6 +182,8 @@ export function describeFailure(
    * missing allowance contract means something to the mandate screen and nothing to a wallet.
    */
   domainRules: readonly (readonly [RegExp, string])[] = [],
+  /** the network the failure happened on, which the sentences name, and whose coin */
+  network: NetworkProfile = ARC_TESTNET,
 ): string {
   const chain = causeChain(cause);
   const raw = chain.join("\n");
@@ -195,16 +200,16 @@ export function describeFailure(
   else console.error(report);
 
   if (/insufficient|exceeds balance/i.test(raw)) {
-    return "Not enough USDC in the wallet to cover this.";
+    return `Not enough ${network.coin.symbol} in the wallet to cover this.`;
   }
   if (wasCancelled(raw)) return "Cancelled. Nothing changed.";
-  if (busy) return ARC_BUSY;
+  if (busy) return busyOn(network);
 
   for (const [pattern, message] of domainRules) {
     if (pattern.test(raw)) return message;
   }
   if (/network|fetch failed|timeout|ECONN/i.test(raw)) {
-    return "Could not reach Arc. Check the connection and try again.";
+    return `Could not reach ${network.name}. Check the connection and try again.`;
   }
   // Unknown: the innermost message, which is the one that says what actually happened — the outer
   // links are our own wrappers. The whole chain is in the console above.

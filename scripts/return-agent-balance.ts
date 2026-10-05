@@ -14,7 +14,8 @@
  * itself, so the agent ends at zero rather than at another, smaller pile of dust.
  */
 import { createPublicClient, createWalletClient, defineChain, formatEther, http, isAddress, type Address } from "viem";
-import { loadOrCreateAgent } from "../mcp/identity.ts";
+import { loadOrCreateAgent } from "@kuiralabs/mandate-core/node";
+import { agentKeyPath } from "../mcp/keyPath.ts";
 
 const arc = defineChain({
   id: 5042002,
@@ -31,7 +32,7 @@ if (argument === undefined || !isAddress(argument)) {
 }
 const to: Address = argument;
 
-const { account: agent, path } = loadOrCreateAgent();
+const { account: agent, path } = loadOrCreateAgent(agentKeyPath());
 const publicClient = createPublicClient({ chain: arc, transport: http() });
 const balance = await publicClient.getBalance({ address: agent.address });
 

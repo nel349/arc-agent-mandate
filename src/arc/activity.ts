@@ -1,12 +1,12 @@
 import {
-  formatLog, getAddress, isAddress, isHash, numberToHex, pad, parseAbiItem, parseEventLogs,
-  toEventSelector, zeroAddress, type Address, type Hash, type Hex,
+  decodeFunctionData, formatLog, getAddress, isAddress, isHash, numberToHex, pad, parseAbiItem, parseEventLogs,
+  toEventSelector, zeroAddress, type Address, type Hash, type Hex, type PublicClient,
 } from "viem";
-import { entryPoint07Address } from "viem/account-abstraction";
-import { ARC_CONTRACTS } from "./chain.ts";
-import { arcPublicClient } from "./client.ts";
-import { SESSION_KEY_PLUGIN, SESSION_KEY_PLUGIN_DEPLOY_BLOCK } from "./mandate.ts";
-import { Usdc } from "./usdc.ts";
+import { entryPoint07Abi, entryPoint07Address } from "viem/account-abstraction";
+import { ARC_TESTNET, sessionKeyExecutionAbi, type NetworkProfile } from "@kuiralabs/mandate-core";
+import { clientFor } from "./client.ts";
+import { SESSION_KEY_PLUGIN_DEPLOY_BLOCK, type MandateRail } from "./mandate.ts";
+import { Amount } from "./amount.ts";
 
 /**
  * What an account's agents did with its money, read from Arc's own logs.
@@ -30,6 +30,11 @@ import { Usdc } from "./usdc.ts";
  * operation's nonce, so the key is in the nonce (`agentInNonce`). Grants and revokes come from the
  * plugin's own events, so an agent's history is complete.
  *
+ * **On a network whose agents pay in its own coin** (Monad's MON), a payment is a call carrying value,
+ * which leaves no log at all. The EntryPoint's `UserOperationEvent` still names the wallet, so each
+ * operation an agent signed is read from its transaction, and what it paid is read out of the calls
+ * it made: the same calldata the plugin checked against the grant.
+ *
  * **Reading under the RPC's cap.** `eth_getLogs` refuses spans over 10,000 blocks, and Arc makes
  * about two a second, so a day is seventeen windows. The feed starts with the most recent day,
  * then reads only new blocks, and reaches further back only when asked. What has been read is
@@ -52,9 +57,14 @@ export interface Activity {
   readonly kind: ActivityKind;
   readonly agent: Address;
   /** What moved: into the agent's escrow on a draw, to whoever was paid on a payment. */
-  readonly amount: Usdc | null;
+  readonly amount: Amount | null;
   /** Who was paid, on a `paid` row and nowhere else. */
   readonly to?: Address;
+  /**
+   * Which call of its operation, on a `paid` row read from calldata: one operation can pay several
+   * people, and each is its own row. Absent where the row is its own log.
+   */
+  readonly call?: number;
   /** The ERC-8004 identity number, on a `registered` row and nowhere else. */
   readonly identity?: bigint;
   /** Unix seconds, from the block. */
@@ -129,21 +139,49 @@ const max = (a: bigint, b: bigint) => (a > b ? a : b);
 const min = (a: bigint, b: bigint) => (a < b ? a : b);
 
 /** Windows from `high` down to `low`, newest first, so the most recent rows arrive first. */
-function downward(low: bigint, high: bigint): Window[] {
+function downward(low: bigint, high: bigint, span: bigint): Window[] {
   const windows: Window[] = [];
-  for (let to = high; to >= low; to -= LOG_WINDOW + 1n) {
-    windows.push({ from: max(low, to - LOG_WINDOW), to });
+  for (let to = high; to >= low; to -= span + 1n) {
+    windows.push({ from: max(low, to - span), to });
   }
   return windows;
 }
 
 /** Windows from `low` up to `high`, each adjacent to what is already read. */
-function upward(low: bigint, high: bigint): Window[] {
+function upward(low: bigint, high: bigint, span: bigint): Window[] {
   const windows: Window[] = [];
-  for (let from = low; from <= high; from += LOG_WINDOW + 1n) {
-    windows.push({ from, to: min(high, from + LOG_WINDOW) });
+  for (let from = low; from <= high; from += span + 1n) {
+    windows.push({ from, to: min(high, from + span) });
   }
   return windows;
+}
+
+/** How a network's feed is read: its query window, the plugin's first block, and how far one read reaches. */
+export interface FeedRules {
+  /** one less than the most blocks a query may span, since both ends count */
+  readonly window: bigint;
+  readonly floor: bigint;
+  readonly span: bigint;
+  readonly mostBehind: bigint | null;
+}
+
+/** A network's feed rules, from its profile. */
+export const feedRulesOf = (network: NetworkProfile): FeedRules => ({
+  window: network.logs.window,
+  floor: network.logs.floor,
+  span: network.logs.feed.span,
+  mostBehind: network.logs.feed.mostBehind,
+});
+
+/**
+ * Whether the feed fell so far behind that it starts again from the latest blocks.
+ *
+ * Catching up reads oldest first, so on a network that allows only small queries a feed left for a day
+ * would show nothing new for minutes. Starting again shows the recent rows at once; the older ones it
+ * drops cannot stay, since what has been read must remain one unbroken span.
+ */
+export function tooFarBehind(coverage: Coverage | null, head: bigint, mostBehind: bigint | null): boolean {
+  return coverage !== null && mostBehind !== null && head - coverage.high > mostBehind;
 }
 
 /**
@@ -155,9 +193,10 @@ export function newWindows(
   head: bigint,
   floor: bigint = SESSION_KEY_PLUGIN_DEPLOY_BLOCK,
   backfill: bigint = BLOCKS_PER_DAY,
+  window: bigint = LOG_WINDOW,
 ): readonly Window[] {
-  if (coverage === null) return downward(max(floor, head - backfill + 1n), head);
-  return head > coverage.high ? upward(coverage.high + 1n, head) : [];
+  if (coverage === null) return downward(max(floor, head - backfill + 1n), head, window);
+  return head > coverage.high ? upward(coverage.high + 1n, head, window) : [];
 }
 
 /** One more day below what has been read, or nothing once the floor is reached. */
@@ -165,9 +204,10 @@ export function earlierWindows(
   coverage: Coverage,
   floor: bigint = SESSION_KEY_PLUGIN_DEPLOY_BLOCK,
   span: bigint = BLOCKS_PER_DAY,
+  window: bigint = LOG_WINDOW,
 ): readonly Window[] {
   if (coverage.low <= floor) return [];
-  return downward(max(floor, coverage.low - span), coverage.low - 1n);
+  return downward(max(floor, coverage.low - span), coverage.low - 1n, window);
 }
 
 /** Whether anything older than what has been read could exist. */
@@ -182,11 +222,13 @@ export function covering(coverage: Coverage | null, window: Window): Coverage {
     : { low: min(coverage.low, window.from), high: max(coverage.high, window.to) };
 }
 
-const keyOf = (item: Activity) => `${item.tx}:${item.logIndex}`;
+/** What tells one row from every other: its log, and its call where one operation paid several people. */
+export const rowKey = (item: Pick<Activity, "tx" | "logIndex" | "call">): string => `${item.tx}:${item.logIndex}:${item.call ?? ""}`;
 
 function newestFirst(a: Activity, b: Activity): number {
   if (a.block !== b.block) return a.block > b.block ? -1 : 1;
-  return b.logIndex - a.logIndex;
+  if (a.logIndex !== b.logIndex) return b.logIndex - a.logIndex;
+  return (b.call ?? 0) - (a.call ?? 0);
 }
 
 /**
@@ -197,7 +239,7 @@ function newestFirst(a: Activity, b: Activity): number {
  */
 export function mergeFeed(feed: Feed, incoming: readonly Activity[], cap: number = FEED_CAP): Feed {
   const byKey = new Map<string, Activity>();
-  for (const item of [...feed.items, ...incoming]) byKey.set(keyOf(item), item);
+  for (const item of [...feed.items, ...incoming]) byKey.set(rowKey(item), item);
   const all = [...byKey.values()].sort(newestFirst);
   if (all.length <= cap) return { ...feed, items: all };
 
@@ -213,6 +255,10 @@ export function mergeFeed(feed: Feed, incoming: readonly Activity[], cap: number
 export interface LogFields {
   readonly agent: Address | undefined;
   readonly value?: bigint | undefined;
+  /** What `value` counts in: the ERC-20 view's six decimals unless it is the coin itself. */
+  readonly rail?: MandateRail;
+  /** Which call of its operation a payment was, when it was read from calldata. */
+  readonly call?: number;
   readonly to?: Address | undefined;
   readonly identity?: bigint | undefined;
   readonly tag?: Hex | undefined;
@@ -228,11 +274,11 @@ export function activityFromLog(kind: ActivityKind, log: LogFields): Activity | 
   if (agent === undefined || blockNumber === null || timestamp === null) return null;
   if (transactionHash === null || logIndex === null) return null;
 
-  let amount: Usdc | null = null;
+  let amount: Amount | null = null;
   if (kind === "draw" || kind === "paid") {
     if (log.value === undefined) return null;
-    // Gateway and the ERC-20 view both count in six decimals.
-    amount = Usdc.fromErc20Units(log.value);
+    // Gateway and the ERC-20 view both count in six decimals; the coin itself in its own.
+    amount = log.rail === "native" ? Amount.fromNativeUnits(log.value) : Amount.fromErc20Units(log.value);
   }
   // A payment nobody can address is not shown: the whole point of the row is who was paid.
   if (kind === "paid" && log.to === undefined) return null;
@@ -241,6 +287,7 @@ export function activityFromLog(kind: ActivityKind, log: LogFields): Activity | 
   return {
     kind, agent, amount, at: Number(timestamp), block: blockNumber, tx: transactionHash, logIndex,
     ...(kind === "paid" && log.to !== undefined ? { to: log.to } : {}),
+    ...(kind === "paid" && log.call !== undefined ? { call: log.call } : {}),
     ...(kind === "registered" && log.identity !== undefined ? { identity: log.identity } : {}),
     // Only a grant has one, and a grant read from an older feed may not carry it.
     ...(kind === "granted" && log.tag !== undefined ? { tag: log.tag } : {}),
@@ -325,59 +372,165 @@ export function agentsByTransaction(operations: readonly OperationLog[]): Map<Ha
 }
 
 /** A top-up shows as a transfer into Gateway and again as its `Deposited`, which is the row shown. */
-const intoEscrow = (to: Address): boolean =>
-  to.toLowerCase() === ARC_CONTRACTS.gatewayWallet.toLowerCase();
+const intoEscrow = (network: NetworkProfile, to: Address): boolean =>
+  network.contracts.gatewayWallet !== undefined && to.toLowerCase() === network.contracts.gatewayWallet.toLowerCase();
 
 /** Both of the plugin's key events, so one query can ask for either. */
 const KEY_EVENTS = [keyAdded, keyRemoved] as const;
 const KEY_EVENT_TOPICS = KEY_EVENTS.map((event) => toEventSelector(event));
 
+/** An operation and an identity mint both name the wallet third, so one query asks for either. */
+const OPERATION_AND_MINT = [operated, registered] as const;
+const OPERATION_AND_MINT_TOPICS = OPERATION_AND_MINT.map((event) => toEventSelector(event));
+
 const noPause = async () => {};
 
+/** One payment an operation made: a call that carried the coin, to whoever it was sent to. */
+export interface CallPayment {
+  readonly to: Address;
+  readonly value: bigint;
+  /** its place among the operation's calls */
+  readonly call: number;
+}
+
 /**
- * Everything an account's agents did in one window of blocks, in two requests, one after the other.
+ * What an agent's operation paid, read out of the calls it made: every call that carried the coin.
  *
- * Two, not three: grants and revokes come from the same contract with the account in the same
- * position, so one query asks for either event, which viem's `getLogs` cannot express with an
- * argument filter and so goes through the raw call. One after the other, with `pause` between, so
- * the feed never sends a burst; see `FEED_PACE_MS`.
+ * `null` when the operation is not that agent's at all. The nonce alone cannot say: Circle's wallets
+ * key the owner's own operations by the time, so an owner's nonce looks like an address too. Only an
+ * operation that runs through the plugin with this agent's key is the agent's.
  */
-export async function readActivityWindow(
-  account: Address,
-  window: Window,
-  pause: () => Promise<void> = noPause,
-): Promise<Activity[]> {
-  const draws = await arcPublicClient.getLogs({
-    address: ARC_CONTRACTS.gatewayWallet, event: deposited, args: { sender: account },
-    fromBlock: window.from, toBlock: window.to,
+export function paymentsIn(callData: Hex, agent: Address): readonly CallPayment[] | null {
+  let decoded;
+  try {
+    decoded = decodeFunctionData({ abi: sessionKeyExecutionAbi, data: callData });
+  } catch {
+    return null;
+  }
+  const [calls, sessionKey] = decoded.args;
+  if (sessionKey.toLowerCase() !== agent.toLowerCase()) return null;
+  return calls.flatMap((call, index) => (call.value > 0n ? [{ to: call.target, value: call.value, call: index }] : []));
+}
+
+/**
+ * The calldata of one operation in a bundle, found by its wallet and nonce, which together name it.
+ * `null` when the transaction is not the EntryPoint's `handleOps` carrying it.
+ */
+export function operationCallData(input: Hex, sender: Address, nonce: bigint): Hex | null {
+  let decoded;
+  try {
+    decoded = decodeFunctionData({ abi: entryPoint07Abi, data: input });
+  } catch {
+    return null;
+  }
+  if (decoded.functionName !== "handleOps") return null;
+  const operation = decoded.args[0].find((op) => op.sender.toLowerCase() === sender.toLowerCase() && op.nonce === nonce);
+  return operation?.callData ?? null;
+}
+
+/** Where a row came from in its block, as every log carries it. */
+interface Placed {
+  readonly blockNumber: bigint | null;
+  readonly transactionHash: Hash | null;
+  readonly logIndex: number | null;
+}
+
+/** The fields every row takes from its log, with the block's time read when the node left it off. */
+async function placing(
+  client: PublicClient, logs: readonly (Placed & object)[], pause: () => Promise<void>,
+): Promise<(log: Placed & object) => Omit<LogFields, "agent">> {
+  // Only when the node left times off the logs: one block read per distinct block, not per row.
+  const missing = logs
+    .filter((log) => timestampOf(log) === null && log.blockNumber !== null)
+    .map((log) => log.blockNumber as bigint);
+  const times = new Map<bigint, bigint>();
+  for (const blockNumber of new Set(missing)) {
+    await pause();
+    times.set(blockNumber, (await client.getBlock({ blockNumber })).timestamp);
+  }
+  return (log) => ({
+    blockNumber: log.blockNumber,
+    timestamp: timestampOf(log) ?? (log.blockNumber === null ? null : times.get(log.blockNumber) ?? null),
+    transactionHash: log.transactionHash,
+    logIndex: log.logIndex,
   });
-  await pause();
-  const raw = await arcPublicClient.request({
+}
+
+/** The grants and revokes in a window, from the plugin, in one query for either event. */
+async function keyLogs(client: PublicClient, network: NetworkProfile, account: Address, window: Window) {
+  const raw = await client.request({
     method: "eth_getLogs",
     params: [{
-      address: SESSION_KEY_PLUGIN,
+      address: network.contracts.sessionKeyPlugin,
       topics: [KEY_EVENT_TOPICS, pad(account)],
       fromBlock: numberToHex(window.from),
       toBlock: numberToHex(window.to),
     }],
   });
-  const keys = parseEventLogs({ abi: KEY_EVENTS, logs: raw.map((log) => formatLog(log)) });
+  return parseEventLogs({ abi: KEY_EVENTS, logs: raw.map((log) => formatLog(log)) });
+}
+
+type KeyLog = Awaited<ReturnType<typeof keyLogs>>[number];
+
+const keyRows = (keys: readonly KeyLog[], fields: (log: KeyLog) => Omit<LogFields, "agent">) =>
+  keys.map((log) => activityFromLog(
+    log.eventName === "SessionKeyAdded" ? "granted" : "revoked",
+    {
+      ...fields(log),
+      agent: log.args.sessionKey,
+      ...(log.eventName === "SessionKeyAdded" ? { tag: log.args.tag } : {}),
+    },
+  ));
+
+/**
+ * Everything an account's agents did in one window of blocks, a few requests one after the other.
+ *
+ * Grants and revokes come from the same contract with the account in the same position, so one query
+ * asks for either event, which viem's `getLogs` cannot express with an argument filter and so goes
+ * through the raw call. One after the other, with `pause` between, so the feed never sends a burst;
+ * see `FEED_PACE_MS`. Where payments are read from depends on the network: the ERC-20 view's own
+ * transfers where it has one, the agents' operations where it pays in the coin itself.
+ */
+export async function readActivityWindow(
+  account: Address,
+  window: Window,
+  pause: () => Promise<void> = noPause,
+  network: NetworkProfile = ARC_TESTNET,
+): Promise<Activity[]> {
+  const client = clientFor(network);
+  const view = network.contracts.erc20View;
+  return view === undefined
+    ? readCoinWindow(client, network, account, window, pause)
+    : readViewWindow(client, network, view.address, account, window, pause);
+}
+
+/** A window on a network with an ERC-20 view of its coin, which records every payment as a transfer (Arc). */
+async function readViewWindow(
+  client: PublicClient, network: NetworkProfile, view: Address, account: Address, window: Window, pause: () => Promise<void>,
+): Promise<Activity[]> {
+  const gateway = network.contracts.gatewayWallet;
+  const draws = gateway === undefined ? [] : await client.getLogs({
+    address: gateway, event: deposited, args: { sender: account },
+    fromBlock: window.from, toBlock: window.to,
+  });
+  await pause();
+  const keys = await keyLogs(client, network, account, window);
 
   // Payments straight to somebody, which the wallet sends through the ERC-20 view. Read from the
   // view alone: Arc emits the same transfer again from its system emitter at a different scale, and
   // reading both counts every payment twice (docs/FINDINGS.md, finding 6).
   await pause();
-  const transfers = await arcPublicClient.getLogs({
-    address: ARC_CONTRACTS.usdc, event: transferred, args: { from: account },
+  const transfers = await client.getLogs({
+    address: view, event: transferred, args: { from: account },
     fromBlock: window.from, toBlock: window.to,
   });
-  const payments = transfers.filter((log) => log.args.to !== undefined && !intoEscrow(log.args.to));
+  const payments = transfers.filter((log) => log.args.to !== undefined && !intoEscrow(network, log.args.to));
 
   // An ERC-8004 identity minted to this wallet, which is an agent setting up the identity its owner
   // holds. Both sides of the mint are indexed, so this asks for only this wallet's.
   await pause();
-  const identities = await arcPublicClient.getLogs({
-    address: ARC_CONTRACTS.erc8004.identity, event: registered, args: { from: zeroAddress, to: account },
+  const identities = await client.getLogs({
+    address: network.contracts.erc8004.identity, event: registered, args: { from: zeroAddress, to: account },
     fromBlock: window.from, toBlock: window.to,
   });
 
@@ -386,7 +539,7 @@ export async function readActivityWindow(
   let agents = new Map<Hash, Address>();
   if (payments.length > 0 || identities.length > 0) {
     await pause();
-    const operations = await arcPublicClient.getLogs({
+    const operations = await client.getLogs({
       address: ENTRY_POINT, event: operated, args: { sender: account },
       fromBlock: window.from, toBlock: window.to,
     });
@@ -395,22 +548,7 @@ export async function readActivityWindow(
     })));
   }
 
-  // Only when the node left times off the logs: one block read per distinct block, not per row.
-  const missing = [...draws, ...keys, ...payments, ...identities]
-    .filter((log) => timestampOf(log) === null && log.blockNumber !== null)
-    .map((log) => log.blockNumber as bigint);
-  const times = new Map<bigint, bigint>();
-  for (const blockNumber of new Set(missing)) {
-    await pause();
-    times.set(blockNumber, (await arcPublicClient.getBlock({ blockNumber })).timestamp);
-  }
-  const fields = (log: { blockNumber: bigint | null; transactionHash: Hash | null; logIndex: number | null }) => ({
-    blockNumber: log.blockNumber,
-    timestamp: timestampOf(log) ?? (log.blockNumber === null ? null : times.get(log.blockNumber) ?? null),
-    transactionHash: log.transactionHash,
-    logIndex: log.logIndex,
-  });
-
+  const fields = await placing(client, [...draws, ...keys, ...payments, ...identities], pause);
   return [
     ...draws.map((log) => activityFromLog("draw", { ...fields(log), agent: log.args.depositor, value: log.args.value })),
     ...payments.map((log) => activityFromLog("paid", {
@@ -425,20 +563,81 @@ export async function readActivityWindow(
       agent: log.transactionHash === null ? undefined : agents.get(log.transactionHash),
       identity: log.args.tokenId,
     })),
-    ...keys.map((log) => activityFromLog(
-      log.eventName === "SessionKeyAdded" ? "granted" : "revoked",
-      {
-        ...fields(log),
-        agent: log.args.sessionKey,
-        ...(log.eventName === "SessionKeyAdded" ? { tag: log.args.tag } : {}),
-      },
-    )),
+    ...keyRows(keys, fields),
+  ].filter((item): item is Activity => item !== null);
+}
+
+/**
+ * A window on a network whose agents pay in its own coin (Monad), where a payment leaves no log.
+ *
+ * Two queries, then one transaction read per operation an agent may have signed: the operations name
+ * the wallet, and their calls say who was paid and how much. An operation whose calls are not its
+ * agent's is no payment and names no agent, so nothing is attributed on the nonce's word alone.
+ */
+async function readCoinWindow(
+  client: PublicClient, network: NetworkProfile, account: Address, window: Window, pause: () => Promise<void>,
+): Promise<Activity[]> {
+  const keys = await keyLogs(client, network, account, window);
+  await pause();
+  const raw = await client.request({
+    method: "eth_getLogs",
+    params: [{
+      address: [ENTRY_POINT, network.contracts.erc8004.identity],
+      topics: [OPERATION_AND_MINT_TOPICS, null, pad(account)],
+      fromBlock: numberToHex(window.from),
+      toBlock: numberToHex(window.to),
+    }],
+  });
+  const logs = parseEventLogs({ abi: OPERATION_AND_MINT, logs: raw.map((log) => formatLog(log)) });
+  const identity = network.contracts.erc8004.identity.toLowerCase();
+  const operations = logs.filter((log) => log.eventName === "UserOperationEvent" && log.address.toLowerCase() === ENTRY_POINT.toLowerCase());
+  const mints = logs.filter((log) => log.eventName === "Transfer" && log.address.toLowerCase() === identity && log.args.from === zeroAddress);
+
+  const agents = new Map<Hash, Address>();
+  const payments: { readonly log: (typeof operations)[number]; readonly agent: Address; readonly payment: CallPayment }[] = [];
+  for (const log of operations) {
+    if (log.eventName !== "UserOperationEvent" || log.args.success !== true || log.transactionHash === null) continue;
+    const agent = agentInNonce(log.args.nonce);
+    if (agent === null) continue;
+    await pause();
+    const transaction = await client.getTransaction({ hash: log.transactionHash });
+    const callData = operationCallData(transaction.input, account, log.args.nonce);
+    const paid = callData === null ? null : paymentsIn(callData, agent);
+    if (paid === null) continue;
+    agents.set(log.transactionHash, agent);
+    for (const payment of paid) payments.push({ log, agent, payment });
+  }
+
+  const fields = await placing(client, [...keys, ...operations, ...mints], pause);
+  return [
+    ...payments.map(({ log, agent, payment }) => activityFromLog("paid", {
+      ...fields(log), agent, value: payment.value, rail: "native", call: payment.call, to: payment.to,
+    })),
+    ...mints.map((log) => activityFromLog("registered", {
+      ...fields(log),
+      agent: log.transactionHash === null ? undefined : agents.get(log.transactionHash),
+      identity: log.eventName === "Transfer" ? log.args.tokenId : undefined,
+    })),
+    ...keyRows(keys, fields),
   ].filter((item): item is Activity => item !== null);
 }
 
 /** When a block was made, for saying how far back the feed reaches. */
-export async function blockTime(blockNumber: bigint): Promise<number> {
-  return Number((await arcPublicClient.getBlock({ blockNumber })).timestamp);
+export async function blockTime(blockNumber: bigint, network: NetworkProfile = ARC_TESTNET): Promise<number> {
+  return Number((await clientFor(network).getBlock({ blockNumber })).timestamp);
+}
+
+/** Where a wallet's feed is kept on the phone. */
+const FEED_KEY_PREFIX = "arc.activity.";
+
+/**
+ * The key one wallet's feed on one network is kept under. The same passkey is the same address on
+ * every network, so the network is part of the key; Arc's keeps the key it always had, so a feed this
+ * phone already kept is still found.
+ */
+export function feedKeyOf(network: NetworkProfile, address: Address): string {
+  const wallet = address.toLowerCase();
+  return network.chainId === ARC_TESTNET.chainId ? `${FEED_KEY_PREFIX}${wallet}` : `${FEED_KEY_PREFIX}${network.circlePath}:${wallet}`;
 }
 
 /** Stored shape: short keys, and strings for the numbers JSON cannot hold. */
@@ -456,6 +655,8 @@ interface StoredActivity {
   readonly p?: string;
   /** The identity number, on a registered row. */
   readonly n?: string;
+  /** Which call of its operation, on a paid row read from calldata. */
+  readonly c?: number;
 }
 
 export function serializeFeed(feed: Feed): string {
@@ -473,6 +674,7 @@ export function serializeFeed(feed: Feed): string {
       ...(item.tag === undefined ? {} : { g: item.tag }),
       ...(item.to === undefined ? {} : { p: item.to }),
       ...(item.identity === undefined ? {} : { n: item.identity.toString() }),
+      ...(item.call === undefined ? {} : { c: item.call }),
     })),
   });
 }
@@ -498,13 +700,14 @@ function parseItem(raw: unknown): Activity | null {
   return {
     kind,
     agent: r.a,
-    amount: units === null ? null : Usdc.fromNativeUnits(units),
+    amount: units === null ? null : Amount.fromNativeUnits(units),
     at: r.t,
     block,
     tx: r.h,
     logIndex: r.i,
     ...(kind === "granted" && typeof r.g === "string" && isHash(r.g) ? { tag: r.g } : {}),
     ...(kind === "paid" && typeof r.p === "string" && isAddress(r.p) ? { to: r.p } : {}),
+    ...(kind === "paid" && typeof r.c === "number" && Number.isInteger(r.c) && r.c >= 0 ? { call: r.c } : {}),
     ...(kind === "registered" && identity !== null ? { identity } : {}),
   };
 }

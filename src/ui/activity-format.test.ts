@@ -1,25 +1,19 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Activity } from "../arc/activity.ts";
-import { Usdc } from "../arc/usdc.ts";
-import { activityAmount, activityRowText, dayHeading, formatAmount, groupByDay, lastSpentAt } from "./activity-format.ts";
+import { Amount } from "../arc/amount.ts";
+import { ARC_TESTNET, MONAD_TESTNET } from "@kuiralabs/mandate-core";
+import { activityAmount, activityRowText, dayHeading, groupByDay, lastSpentAt, paidExplained } from "./activity-format.ts";
 
 const at = (y: number, m: number, d: number, h = 12) => new Date(y, m, d, h).getTime() / 1000;
 const row = (seconds: number, amount: string | null = "0.001"): Activity => ({
   kind: amount === null ? "granted" : "draw",
   agent: "0x3535816e967Ad2B6271dfadf9138fb07eAB161Ce",
-  amount: amount === null ? null : Usdc.parse(amount),
+  amount: amount === null ? null : Amount.parse(amount),
   at: seconds,
   block: 1n,
   tx: `0x${"1".repeat(64)}`,
   logIndex: 0,
-});
-
-test("an amount shows the places it has, never fewer than two", () => {
-  assert.equal(formatAmount(Usdc.parse("0.001")), "0.001");
-  assert.equal(formatAmount(Usdc.parse("0.28")), "0.28");
-  assert.equal(formatAmount(Usdc.parse("12")), "12.00");
-  assert.equal(formatAmount(Usdc.parse("0.000265")), "0.000265");
 });
 
 test("money leaving is written with a minus, and a grant carries no figure", () => {
@@ -66,4 +60,12 @@ test("when the agent last spent is its newest draw in the feed, and a grant is n
   assert.equal(lastSpentAt([row(at(2026, 8, 10, 21), null), row(at(2026, 8, 10, 8))]), at(2026, 8, 10, 8));
   assert.equal(lastSpentAt([row(at(2026, 8, 10), null)]), null);
   assert.equal(lastSpentAt([]), null);
+});
+
+test("a payment's receipt names the network that recorded it, and mentions an escrow only where there is one", () => {
+  assert.match(paidExplained(ARC_TESTNET), /Arc testnet records this transfer, so unlike money moved into the agent's escrow/);
+  assert.equal(
+    paidExplained(MONAD_TESTNET),
+    "Sent from your wallet to the address below, by this agent, under its allowance. Monad testnet records the payment with who was paid.",
+  );
 });

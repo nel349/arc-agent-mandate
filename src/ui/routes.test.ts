@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Activity } from "../arc/activity.ts";
-import { activityRoute, agentRoute, receiptRoute, ROUTES } from "./routes.ts";
+import { activityRoute, agentRoute, isReceiptFor, receiptRoute, ROUTES } from "./routes.ts";
 
 /**
  * The addresses screens push each other to.
@@ -39,4 +39,18 @@ test("a receipt is addressed by the row's own log, under the names the screen re
 test("the feed is scoped to one agent only when one is named", () => {
   assert.deepEqual(activityRoute(), { pathname: "/activity" });
   assert.deepEqual(activityRoute(AGENT), { pathname: "/activity", params: { agent: AGENT } });
+});
+
+test("a payment that shared its operation with another is addressed by its call too, and finds only itself", () => {
+  const tx = `0x${"2".repeat(64)}` as const;
+  const first = { tx, logIndex: 7, call: 0 };
+  const second = { tx, logIndex: 7, call: 1 };
+  const route = receiptRoute(second);
+  assert.deepEqual(route.params, { tx, log: "7", call: "1" });
+  assert.equal(isReceiptFor(second, route.params), true);
+  assert.equal(isReceiptFor(first, route.params), false);
+  // a row that is its own log carries no call, and is found as it always was
+  const own = { tx, logIndex: 3 };
+  assert.equal(isReceiptFor(own, receiptRoute(own).params), true);
+  assert.equal(isReceiptFor(own, route.params), false);
 });

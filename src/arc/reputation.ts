@@ -1,6 +1,6 @@
 import { parseAbi, type Address } from "viem";
-import { ARC_CONTRACTS } from "./chain.ts";
-import { arcPublicClient } from "./client.ts";
+import { ARC_TESTNET, type NetworkProfile } from "@kuiralabs/mandate-core";
+import { clientFor } from "./client.ts";
 
 /**
  * What other people have said about an agent, from Arc's ERC-8004 reputation registry.
@@ -69,19 +69,21 @@ export function newestIndices(lastIndex: bigint, most: number = MOST_TO_READ): r
  * A revoked record is not a record: the writer took it back, and showing it would be reporting a
  * reputation its author has disowned.
  */
-export async function reputationOf(agentId: bigint): Promise<readonly Feedback[]> {
-  const registry = ARC_CONTRACTS.erc8004.reputation;
-  const clients = await arcPublicClient.readContract({
+export async function reputationOf(agentId: bigint, network: NetworkProfile = ARC_TESTNET): Promise<readonly Feedback[]> {
+  // An identity's number is only its number on its own network's registry.
+  const registry = network.contracts.erc8004.reputation;
+  const reader = clientFor(network);
+  const clients = await reader.readContract({
     address: registry, abi: registryAbi, functionName: "getClients", args: [agentId],
   });
 
   const said: Feedback[] = [];
   for (const client of clients) {
-    const lastIndex = await arcPublicClient.readContract({
+    const lastIndex = await reader.readContract({
       address: registry, abi: registryAbi, functionName: "getLastIndex", args: [agentId, client],
     });
     for (const index of newestIndices(lastIndex)) {
-      const [value, decimals, tag1, tag2, revoked] = await arcPublicClient.readContract({
+      const [value, decimals, tag1, tag2, revoked] = await reader.readContract({
         address: registry, abi: registryAbi, functionName: "readFeedback", args: [agentId, client, index],
       });
       if (revoked) continue;

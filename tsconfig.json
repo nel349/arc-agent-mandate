@@ -23,6 +23,8 @@
     "jsx": "react-jsx",
     "skipLibCheck": true,
     "moduleResolution": "bundler",
+    /* Inside the repository the core package is read from its source, never from a build. */
+    "customConditions": ["mandate-source"],
     "module": "esnext",
     "target": "esnext",
     "types": [

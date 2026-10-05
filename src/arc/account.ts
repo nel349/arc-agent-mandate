@@ -11,7 +11,8 @@ import {
   WebAuthnMode,
 } from "@circle-fin/modular-wallets-core";
 import { toWebAuthnAccount } from "viem/account-abstraction";
-import { arcTestnet, ARC_TESTNET_TRANSPORT_PATH } from "./chain.ts";
+import { ARC_TESTNET, circleEndpoint, type NetworkProfile } from "@kuiralabs/mandate-core";
+import { chainFor } from "./client.ts";
 import { installWebAuthnShim, withReturningUserSignIn } from "../passkey/shim.ts";
 
 /**
@@ -46,6 +47,8 @@ export interface PasskeyCredential {
 }
 
 export interface ArcAccount {
+  /** the network this account was opened on; the same passkey opens the same wallet on every network */
+  readonly network: NetworkProfile;
   readonly address: Address;
   readonly smartAccount: SmartAccount;
   readonly bundler: ReturnType<typeof createBundlerClient>;
@@ -71,6 +74,7 @@ export async function connectArcAccount(
   config: ArcAccountConfig,
   mode: WebAuthnMode = WebAuthnMode.Register,
   options: { readonly returningUser?: boolean } = {},
+  network: NetworkProfile = ARC_TESTNET,
 ): Promise<ArcAccount> {
   // Circle's SDK reads `window.navigator.credentials` at call time; on React Native nothing
   // provides it until we do. Must precede every call below.
@@ -83,7 +87,7 @@ export async function connectArcAccount(
   });
   const credential = options.returningUser === true ? await withReturningUserSignIn(ceremony) : await ceremony();
 
-  return accountFor(config, { id: credential.id, publicKey: credential.publicKey });
+  return accountFor(config, { id: credential.id, publicKey: credential.publicKey }, network);
 }
 
 /**
@@ -93,20 +97,21 @@ export async function connectArcAccount(
  * at the same address every time. Face ID is still asked for whenever anything is signed, because
  * signing goes to the passkey; opening the wallet does not.
  */
-export async function reopenArcAccount(config: ArcConnection, credential: PasskeyCredential): Promise<ArcAccount> {
+export async function reopenArcAccount(
+  config: ArcConnection, credential: PasskeyCredential, network: NetworkProfile = ARC_TESTNET,
+): Promise<ArcAccount> {
   // Signing later reaches for `navigator.credentials`, so the shim is needed even with no ceremony now.
   installWebAuthnShim(config.passkeyDomain);
-  return accountFor(config, credential);
+  return accountFor(config, credential, network);
 }
 
-/** The account a credential opens. One wiring, for a new sign-in and a reopened wallet alike. */
-async function accountFor(config: ArcConnection, credential: PasskeyCredential): Promise<ArcAccount> {
-  const modularTransport = toModularTransport(
-    `${config.clientUrl}/${ARC_TESTNET_TRANSPORT_PATH}`,
-    config.clientKey,
-  );
+/** The account a credential opens on a network. One wiring, for a new sign-in and a reopened wallet alike. */
+async function accountFor(config: ArcConnection, credential: PasskeyCredential, network: NetworkProfile): Promise<ArcAccount> {
+  // Circle's endpoint for the network: its path follows the client URL, never baked into the setting
+  const modularTransport = toModularTransport(circleEndpoint(network, config.clientUrl), config.clientKey);
+  const chain = chainFor(network);
 
-  const client = createPublicClient({ chain: arcTestnet, transport: modularTransport });
+  const client = createPublicClient({ chain, transport: modularTransport });
 
   const smartAccount = await toCircleSmartAccount({
     client,
@@ -123,14 +128,14 @@ async function accountFor(config: ArcConnection, credential: PasskeyCredential):
 
   const bundler = createBundlerClient({
     account: smartAccount,
-    chain: arcTestnet,
+    chain,
     transport: modularTransport,
     // Sponsorship. Note that on Arc this is the paymaster's *only* remaining job — "pay gas in
     // USDC" is not a feature here, because gas already is USDC.
     paymaster: true,
   });
 
-  return { address: smartAccount.address, smartAccount, bundler, credential };
+  return { network, address: smartAccount.address, smartAccount, bundler, credential };
 }
 
 /** Re-exported so callers need not import the SDK directly to choose register vs login. */

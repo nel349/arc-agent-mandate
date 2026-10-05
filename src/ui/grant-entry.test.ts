@@ -1,11 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { decodeFunctionData, keccak256, parseAbi, toHex } from "viem";
-import { pairingLink, pairingTag } from "../../mcp/pairing.ts";
+import { ARC_TESTNET, MONAD_TESTNET, NO_REQUEST, pairingLink, pairingTag } from "@kuiralabs/mandate-core";
 import { buildGrantPlan } from "../arc/mandate.ts";
-import { Usdc } from "../arc/usdc.ts";
+import { Amount } from "../arc/amount.ts";
 import {
-  alreadyGranted, entryFromScan, entryFromText, GRANT_LABEL, grantedWithoutCode, mandateTermsFor,
+  alreadyGranted, entryFromScan, entryFromText, GRANT_LABEL, grantedWithoutCode, mandateTermsFor, networkOfEntry,
 } from "./grant-entry.ts";
 import { GRANT_PROBLEMS, readGrantTerms } from "./grant-terms.ts";
 import { readPairingLink } from "./pairing.ts";
@@ -43,11 +43,11 @@ test("a scanned code carries its pairing code all the way into the grant's tag",
   const scanned = readPairingLink(LINK);
   if (scanned === null) throw new Error("the scanner could not read the connector's own link");
   const entry = entryFromScan(scanned);
-  assert.deepEqual(entry, { agent: AGENT, pairing: CODE });
+  assert.deepEqual(entry, { agent: AGENT, pairing: CODE, chainId: 5042002 , request: NO_REQUEST });
 
   const terms = mandateTermsFor(termsOf(entry.agent), entry.pairing, NOW_MS);
   assert.equal(terms.agent, AGENT);
-  assert.equal(terms.limit.toString(), Usdc.parse("5").toString());
+  assert.equal(terms.limit.toString(), Amount.parse("5").toString());
   assert.deepEqual(terms.payees, []);
   assert.equal(terms.expiresAt, NOW_MS / 1000 + 7 * 86_400);
   assert.equal(terms.label, GRANT_LABEL);
@@ -58,13 +58,13 @@ test("a scanned code carries its pairing code all the way into the grant's tag",
 
 test("a pasted link carries the code exactly as a scan does, spaces and all", () => {
   const entry = entryFromText(`  ${LINK}\n`);
-  assert.deepEqual(entry, { agent: AGENT, pairing: CODE });
+  assert.deepEqual(entry, { agent: AGENT, pairing: CODE, chainId: 5042002 , request: NO_REQUEST });
   assert.equal(tagOf(entry.pairing, entry.agent), pairingTag(CODE));
 });
 
 test("a typed address carries no code, and the grant is labelled instead", () => {
   const entry = entryFromText(AGENT);
-  assert.deepEqual(entry, { agent: AGENT, pairing: null });
+  assert.deepEqual(entry, { agent: AGENT, pairing: null, chainId: null , request: NO_REQUEST });
 
   const terms = mandateTermsFor(termsOf(entry.agent), entry.pairing, NOW_MS);
   assert.equal("pairing" in terms, false, "a grant with no code claimed to carry one");
@@ -78,7 +78,7 @@ test("a typed address carries no code, and the grant is labelled instead", () =>
 test("a link with a damaged code is refused rather than granted without one", () => {
   const damaged = `ethereum:${AGENT}@5042002?pairing=not-a-code`;
   const entry = entryFromText(damaged);
-  assert.deepEqual(entry, { agent: damaged, pairing: null });
+  assert.deepEqual(entry, { agent: damaged, pairing: null, chainId: null , request: NO_REQUEST });
 
   const read = readGrantTerms({ agent: entry.agent, amount: "5", days: "7" });
   assert.ok("problems" in read, "a damaged link reached a grant");
@@ -119,4 +119,31 @@ test("editing the field back to a bare address drops the code, and only then", (
   assert.equal(entryFromText(LINK).pairing, CODE);
   assert.equal(entryFromText(AGENT).pairing, null);
   assert.equal(entryFromText("").pairing, null);
+});
+
+test("an agent's code decides the network it is granted on, wherever the wallet was", () => {
+  const monadCode = entryFromText(pairingLink(AGENT, MONAD_TESTNET.chainId, CODE));
+  assert.deepEqual(networkOfEntry(monadCode, ARC_TESTNET), { network: MONAD_TESTNET });
+  assert.deepEqual(networkOfEntry(entryFromText(LINK), MONAD_TESTNET), { network: ARC_TESTNET });
+});
+
+test("a typed address is granted where the wallet is, since it names no network", () => {
+  assert.deepEqual(networkOfEntry(entryFromText(AGENT), MONAD_TESTNET), { network: MONAD_TESTNET });
+});
+
+test("a code for a chain this wallet does not run on is refused before anything is signed", () => {
+  const elsewhere = networkOfEntry(entryFromText(pairingLink(AGENT, 1, CODE)), ARC_TESTNET);
+  assert.ok("problem" in elsewhere);
+  assert.match(elsewhere.problem, /does not run on \(chain 1\)/);
+});
+
+test("what the app asked for arrives with the entry, and the payees it named reach the grant", () => {
+  const payee = "0xc831b6e4414E064F7713A3b6017be4a1Eb9F5E9b";
+  const entry = entryFromText(pairingLink(AGENT, MONAD_TESTNET.chainId, CODE, { app: "A test app", limit: "0.01", days: 7, payees: [payee] }));
+  assert.deepEqual(entry.request, { app: "A test app", limit: "0.01", days: 7, payees: [payee] });
+  const terms = mandateTermsFor(termsOf(entry.agent), entry.pairing, NOW_MS, entry.request.payees);
+  assert.deepEqual(terms.payees, [payee]);
+  // a typed address asks for nothing, and its grant names no payees
+  assert.deepEqual(entryFromText(AGENT).request, NO_REQUEST);
+  assert.deepEqual(mandateTermsFor(termsOf(AGENT), null, NOW_MS).payees, []);
 });

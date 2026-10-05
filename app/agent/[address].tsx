@@ -2,9 +2,11 @@ import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Linking, Platform, StyleSheet, Text, View } from "react-native";
 import { ActivityRow } from "../../src/ui/ActivityRow.tsx";
+import { AllowanceCard } from "../../src/ui/AllowanceCard.tsx";
 import { ArcRing } from "../../src/ui/ArcRing.tsx";
 import { MoreRow } from "../../src/ui/MoreRow.tsx";
-import { activityRowText, formatAmount, lastSpentAt } from "../../src/ui/activity-format.ts";
+import { activityRowText, lastSpentAt } from "../../src/ui/activity-format.ts";
+import { figure, formatAmount, inCoin, unitOf } from "../../src/ui/coin.ts";
 import { Button } from "../../src/ui/Button.tsx";
 import { confirmInBrowser } from "../../src/ui/confirm-in-browser.ts";
 import { DetailRow } from "../../src/ui/DetailRow.tsx";
@@ -17,13 +19,14 @@ import { MAX_AGENT_NAME } from "../../src/ui/agent-names.ts";
 import { useAgentNames } from "../../src/ui/agent-names-context.tsx";
 import { feelWarning } from "../../src/ui/haptics.ts";
 import {
-  agentHoldingNote, allowanceSentence, endsLine, fractionUsed, hasEnded, identityLabel, lastUsedLabel,
-  revokeWarning, spentPercentLabel,
+  agentHoldingNote, allowanceSentence, faceOfMandate, fractionUsed, hasEnded, identityLabel, lastUsedLabel,
+  leftLine, revokeWarning,
 } from "../../src/ui/mandate-format.ts";
 import { scoreLabel, scoreMeaning, scoreTitle, writtenBy } from "../../src/ui/reputation-format.ts";
 import { activityRoute } from "../../src/ui/routes.ts";
 import { useAgentIdentity } from "../../src/ui/useAgentIdentity.ts";
 import { useAgentReputation } from "../../src/ui/useAgentReputation.ts";
+import { rowKey } from "../../src/arc/activity.ts";
 import { useOpenReceipt } from "../../src/ui/useOpenReceipt.ts";
 import { useSession } from "../../src/ui/session-context.tsx";
 import { useTheme } from "../../src/ui/theme-context.tsx";
@@ -45,6 +48,7 @@ export default function AgentScreen() {
   const { mandate, activity, wallet } = useSession();
   const site = useConnectedSite();
   const walletAddress = wallet.account?.address ?? null;
+  const network = wallet.network;
   const { ofAllowance, inCurrentAllowance, renameAllowance } = useAgentNames();
   const router = useRouter();
   const leave = useLeave();
@@ -56,13 +60,13 @@ export default function AgentScreen() {
   const name = found === null ? null : ofAllowance(found.agent);
   const shareAddress = useShareAddress(found?.agent ?? "");
   /** Confirmed against the registry before it is shown; see `useAgentIdentity`. */
-  const identity = useAgentIdentity(found?.agent ?? null, activity.items);
+  const identity = useAgentIdentity(found?.agent ?? null, activity.items, network);
   /**
    * What others have said about that identity. Empty until there is something, and empty again if
    * the registry will not answer: a score is somebody else's word, and a wrong one here would be
    * worse than no panel at all.
    */
-  const reputation = useAgentReputation(identity);
+  const reputation = useAgentReputation(identity, network);
   const newest = reputation[0];
 
   /** What is being typed into the name field, or `null` when it shows the kept name. */
@@ -90,7 +94,7 @@ export default function AgentScreen() {
   const confirmRevoke = useCallback(() => {
     if (found === null) return;
     const title = "Revoke this allowance?";
-    const message = revokeWarning(name, found.escrow);
+    const message = revokeWarning(name, found.escrow, network);
     const revoke = () => mandate.revoke(found.agent, () => {
       feelWarning();
       if (open.current) leave();
@@ -103,7 +107,7 @@ export default function AgentScreen() {
       { text: "Cancel", style: "cancel" },
       { text: "Revoke", style: "destructive", onPress: revoke },
     ]);
-  }, [found, name, mandate, leave]);
+  }, [found, name, mandate, leave, network]);
 
   if (found === null) {
     return (
@@ -135,16 +139,19 @@ export default function AgentScreen() {
     <>
       <Stack.Screen options={{ title: name ?? "Allowance" }} />
       <Screen>
-        <View style={styles.hero}>
+        {/* The allowance as the card it was issued as; everything printed on it is said nowhere else here. */}
+        <AllowanceCard face={faceOfMandate({ mandate: found, name, network })} />
+        <View style={styles.left}>
           <ArcRing
             spent={fractionUsed(found)}
             ended={ended}
-            size={tokens.size.ring.hero}
-            label={`${found.spent.format(2)} of ${found.limit.format(2)} USDC spent`}
+            size={tokens.size.ring.card}
+            label={`${figure(found.spent, network)} of ${inCoin(found.limit, network)} spent`}
           />
-          <Text style={[styles.figure, { color: ended ? c.dim : c.paper }]}>{found.remaining.format(2)}</Text>
-          <Text style={[styles.figureUnit, { color: c.muted }]}>USDC left of {found.limit.format(2)}</Text>
-          <Text style={[styles.sentence, { color: c.dim }]}>{allowanceSentence(found)}</Text>
+          <View style={styles.leftText}>
+            <Text style={[styles.leftLine, { color: ended ? c.dim : c.paper }]}>{leftLine(found, network)}</Text>
+            {ended && <Text style={[styles.sentence, { color: c.warn }]}>{allowanceSentence(found, network)}</Text>}
+          </View>
         </View>
 
         {mandate.error !== null && <Note tone="warn" lines={ERROR_LINES}>{mandate.error}</Note>}
@@ -155,7 +162,7 @@ export default function AgentScreen() {
           <Surface>
             <Text style={[styles.goneBody, { color: c.dim }]}>
               {activity.loading
-                ? "Reading this agent's payments from Arc."
+                ? `Reading this agent's payments from ${network.name}.`
                 : "No payments from this allowance in the time shown. Each one appears here within a few seconds of the agent spending."}
             </Text>
           </Surface>
@@ -165,7 +172,8 @@ export default function AgentScreen() {
               const text = activityRowText(item, { name, withAgent: false, underDayHeading: false });
               return (
                 <ActivityRow
-                  key={`${item.tx}:${item.logIndex}`}
+                  key={rowKey(item)}
+                  network={wallet.network}
                   item={item}
                   text={text}
                   onPress={openReceipt}
@@ -179,11 +187,9 @@ export default function AgentScreen() {
 
         <Label>Details</Label>
         <Surface style={styles.group}>
-          <DetailRow label="Ends" value={endsLine(found)} first />
-          <DetailRow label="Spent" value={`${found.spent.format(2)} USDC (${spentPercentLabel(found)})`} />
-          {lastUsed.lastUsedAt !== null && <DetailRow label="Last used" value={lastUsedLabel(lastUsed)} />}
+          <DetailRow label="Last used" value={lastUsedLabel(lastUsed)} first />
           {!found.escrow.isZero() && (
-            <DetailRow label="In its escrow" value={`${formatAmount(found.escrow)} USDC`} />
+            <DetailRow label="In its escrow" value={`${formatAmount(found.escrow)} ${unitOf(network)}`} />
           )}
           {identity !== null && <DetailRow label="Identity" value={identityLabel(identity)} />}
         </Surface>
@@ -226,8 +232,6 @@ export default function AgentScreen() {
             hint="Kept on this phone only. The chain knows this agent by its address."
             maxLength={MAX_AGENT_NAME}
           />
-          <Text style={[styles.caption, { color: c.muted }]}>Address on Arc testnet</Text>
-          <Text selectable style={[styles.address, { color: c.paper }]}>{found.agent}</Text>
           <Button compact icon="share-outline" title={shareAddress.title} onPress={() => void shareAddress.share()} />
         </Surface>
 
@@ -245,17 +249,18 @@ export default function AgentScreen() {
   );
 }
 
+/** Small capitals spaced out a little, as on the card. */
+const LEFT_TRACKING = 1;
+
 /** The latest few on the agent's own screen; "See all" has the rest. */
 const AGENT_ROWS = 5;
 
 const styles = StyleSheet.create({
-  hero: { alignItems: "center", gap: tokens.space.xs, paddingVertical: tokens.space.base },
-  figure: { ...tokens.type.hero, marginTop: tokens.space.md, fontVariant: [...tokens.font.tabular] },
-  figureUnit: tokens.type.subheadline,
-  sentence: { ...tokens.type.subheadline, textAlign: "center", marginTop: tokens.space.sm },
+  left: { flexDirection: "row", alignItems: "center", gap: tokens.space.md },
+  leftText: { flex: 1, gap: tokens.space.hair },
+  leftLine: { ...tokens.type.data, letterSpacing: LEFT_TRACKING },
+  sentence: tokens.type.footnote,
   group: { padding: 0, gap: 0, overflow: "hidden" },
-  caption: tokens.type.footnote,
-  address: tokens.type.data,
   goneTitle: tokens.type.headline,
   goneBody: tokens.type.subheadline,
 });

@@ -1,6 +1,5 @@
 import { chmodSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { generatePrivateKey, privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
 
 /** viem's shape for a private key: hex, and the type says so. */
@@ -35,24 +34,24 @@ const isPrivateKey = (value: string): value is PrivateKey => /^0x[0-9a-fA-F]{64}
  * until that mandate expires or is revoked. Losing it is a bounded loss, not a wallet. That is
  * the whole point of granting a session key rather than sharing an account.
  */
-const KEY_PATH = process.env.ARC_MANDATE_KEY_PATH ?? join(homedir(), ".arc-mandate", "agent.key");
 
 /** Owner-only. The key is low-authority, not public. */
 const DIR_MODE = 0o700;
 const FILE_MODE = 0o600;
 
-export function loadOrCreateAgent(): Agent {
-  const existing = readKey();
+/** The agent's key at this path: the one kept there, or a new one made and kept there with only its owner able to read it. */
+export function loadOrCreateAgent(keyPath: string): Agent {
+  const existing = readKey(keyPath);
   if (existing !== null) {
-    tighten();
-    return { account: privateKeyToAccount(existing), path: KEY_PATH, created: false };
+    tighten(keyPath);
+    return { account: privateKeyToAccount(existing), path: keyPath, created: false };
   }
 
   const key = generatePrivateKey();
-  mkdirSync(dirname(KEY_PATH), { recursive: true, mode: DIR_MODE });
-  writeFileSync(KEY_PATH, key, { mode: FILE_MODE });
-  tighten();
-  return { account: privateKeyToAccount(key), path: KEY_PATH, created: true };
+  mkdirSync(dirname(keyPath), { recursive: true, mode: DIR_MODE });
+  writeFileSync(keyPath, key, { mode: FILE_MODE });
+  tighten(keyPath);
+  return { account: privateKeyToAccount(key), path: keyPath, created: true };
 }
 
 /**
@@ -66,14 +65,14 @@ export function loadOrCreateAgent(): Agent {
  *
  * A missing file is the one recoverable case. Everything else stops, loudly, with the path.
  */
-function readKey(): PrivateKey | null {
+function readKey(keyPath: string): PrivateKey | null {
   let raw: string;
   try {
-    raw = readFileSync(KEY_PATH, "utf8").trim();
+    raw = readFileSync(keyPath, "utf8").trim();
   } catch (cause) {
     if (errnoOf(cause) === "ENOENT") return null;
     throw new Error(
-      `Could not read the agent key at ${KEY_PATH}: ${errnoOf(cause) ?? messageOf(cause)}. ` +
+      `Could not read the agent key at ${keyPath}: ${errnoOf(cause) ?? messageOf(cause)}. ` +
       "Fix the file rather than deleting it — the mandates you have been granted are tied to " +
       "the address it derives.",
       { cause },
@@ -83,7 +82,7 @@ function readKey(): PrivateKey | null {
   // Shape first, then viem. The guard is what narrows the type; the call is what proves the key
   // actually derives, since a well-shaped 32 bytes can still be out of the curve's range.
   const damaged = new Error(
-    `The agent key at ${KEY_PATH} is not a valid private key. It has been damaged rather than ` +
+    `The agent key at ${keyPath} is not a valid private key. It has been damaged rather than ` +
     "lost. Restore it from a backup if you have one; deleting it mints a new identity, and " +
     "every mandate granted to the old address will need granting again.",
   );
@@ -104,10 +103,10 @@ function readKey(): PrivateKey | null {
  * restored from a backup that carried its old mode, keeps whatever it had, leaving a private key
  * somewhere other local accounts can reach. Asking is not the same as ensuring.
  */
-function tighten(): void {
+function tighten(keyPath: string): void {
   const targets: readonly (readonly [string, number])[] = [
-    [dirname(KEY_PATH), DIR_MODE],
-    [KEY_PATH, FILE_MODE],
+    [dirname(keyPath), DIR_MODE],
+    [keyPath, FILE_MODE],
   ];
   for (const [path, mode] of targets) {
     try {

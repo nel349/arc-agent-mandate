@@ -1,20 +1,23 @@
 import { useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import { ActivityIndicator, Linking, StyleSheet, Text, View } from "react-native";
-import { TESTNET_FAUCET_URL } from "../../../src/arc/chain.ts";
+import { NETWORKS } from "@kuiralabs/mandate-core";
 import { ActivityRow } from "../../../src/ui/ActivityRow.tsx";
 import { AgentRowLive } from "../../../src/ui/AgentRowLive.tsx";
 import { MoreRow } from "../../../src/ui/MoreRow.tsx";
 import { activityRowText } from "../../../src/ui/activity-format.ts";
 import { Button } from "../../../src/ui/Button.tsx";
+import { figure, unitOf } from "../../../src/ui/coin.ts";
+import { NetworkSwitch } from "../../../src/ui/NetworkSwitch.tsx";
 import { Label } from "../../../src/ui/Label.tsx";
 import { ERROR_LINES, Note } from "../../../src/ui/Note.tsx";
 import { Screen } from "../../../src/ui/Screen.tsx";
 import { Surface } from "../../../src/ui/Surface.tsx";
 import { agentRoute, ROUTES } from "../../../src/ui/routes.ts";
+import { rowKey } from "../../../src/arc/activity.ts";
 import { useOpenReceipt } from "../../../src/ui/useOpenReceipt.ts";
 import { useAgentNames } from "../../../src/ui/agent-names-context.tsx";
-import { shortAddress } from "../../../src/ui/mandate-format.ts";
+import { shortFingerprint } from "../../../src/ui/fingerprint.ts";
 import { useSession } from "../../../src/ui/session-context.tsx";
 import { useTheme } from "../../../src/ui/theme-context.tsx";
 import { tokens } from "../../../src/ui/tokens.ts";
@@ -58,6 +61,8 @@ export default function AllowancesScreen() {
   if (wallet.account === null) return null;
 
   const address = wallet.account.address;
+  const network = wallet.network;
+  const balance = wallet.balance === null ? null : figure(wallet.balance, network);
   // The first read has not come back yet. Saying "no allowances" before knowing would be a claim.
   const loading = mandate.ready === null && mandate.error === null;
 
@@ -76,7 +81,9 @@ export default function AllowancesScreen() {
       }
     >
       <Surface raised>
-        <Text style={[styles.caption, { color: c.muted }]}>In your wallet</Text>
+        {/* The same wallet on each network: switching shows its balance and agents there. */}
+        <NetworkSwitch networks={NETWORKS} selected={network} onSelect={wallet.switchNetwork} />
+        <Text style={[styles.label, { color: c.dim }]}>In your wallet</Text>
         <View style={styles.walletRow}>
           {/*
             The figure and its unit are two lines, not one text node with another nested inside it.
@@ -88,12 +95,12 @@ export default function AllowancesScreen() {
           <View
             style={styles.balanceBlock}
             accessible
-            accessibilityLabel={`${wallet.balance?.format(2) ?? "Unknown"} USDC in your wallet`}
+            accessibilityLabel={`${balance ?? "Unknown"} ${unitOf(network)} in your wallet`}
           >
             <Text style={[styles.balance, { color: c.paper }]} numberOfLines={1} adjustsFontSizeToFit>
-              {wallet.balance?.format(2) ?? "—"}
+              {balance ?? "—"}
             </Text>
-            <Text style={[styles.unit, { color: c.dim }]}>USDC</Text>
+            <Text style={[styles.unit, { color: c.dim }]}>{unitOf(network)}</Text>
           </View>
           {/* Sharing, because that is how money arrives: the address has to reach whoever or
               whatever is sending it. Copying would need another native module; the share sheet
@@ -105,17 +112,17 @@ export default function AllowancesScreen() {
             onPress={() => void shareAddress.share()}
           />
         </View>
-        <Text style={[styles.address, { color: c.dim }]}>{shortAddress(address)} on Arc testnet</Text>
+        <Text style={[styles.address, { color: c.dim }]}>{shortFingerprint(address)}</Text>
         {/* Step 1 of the journey is a funded wallet. An agent can never spend more than this
             holds, so the way to add some sits beside the figure it changes. */}
         <Button
           compact
           icon="open-outline"
-          title="Get test USDC"
-          onPress={() => void Linking.openURL(TESTNET_FAUCET_URL)}
+          title={`Get test ${unitOf(network)}`}
+          onPress={() => void Linking.openURL(network.faucet)}
         />
         <Text style={[styles.caption, { color: c.muted }]}>
-          On the faucet, choose Arc testnet and paste your wallet&apos;s address, from Share address above.
+          {`On the faucet, paste your wallet's address, from Share address above, and choose ${network.name} if it asks.`}
         </Text>
       </Surface>
 
@@ -155,7 +162,8 @@ export default function AllowancesScreen() {
               const text = activityRowText(item, { name: ofRow(item), withAgent: true, underDayHeading: false });
               return (
                 <ActivityRow
-                  key={`${item.tx}:${item.logIndex}`}
+                  key={rowKey(item)}
+                  network={wallet.network}
                   item={item}
                   text={text}
                   onPress={openReceipt}
@@ -169,7 +177,7 @@ export default function AllowancesScreen() {
       )}
 
       {mandate.ready === false && (
-        <Note tone="warn">Allowances are not deployed on Arc testnet yet, so none can be granted.</Note>
+        <Note tone="warn">{`Allowances are not deployed on ${network.name} yet, so none can be granted.`}</Note>
       )}
     </Screen>
   );
@@ -183,12 +191,13 @@ const styles = StyleSheet.create({
   walletRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: tokens.space.sm },
   /** The figure over its unit. `flexShrink` lives here, on the block, never on the number itself. */
   balanceBlock: { flexShrink: 1 },
+  label: tokens.type.section,
   balance: {
-    ...tokens.type.largeTitle,
+    ...tokens.type.figure,
     // Re-read every ten seconds; proportional digits would change width on every update.
     fontVariant: [...tokens.font.tabular],
   },
-  unit: { ...tokens.type.body, fontWeight: "400", letterSpacing: 0 },
+  unit: { ...tokens.type.section },
   address: tokens.type.data,
   /** Rows run edge to edge inside the group, separated by hairlines, as an iOS inset list does. */
   group: { padding: 0, gap: 0, overflow: "hidden" },

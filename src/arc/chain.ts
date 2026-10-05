@@ -1,4 +1,5 @@
 import { arcTestnet } from "viem/chains";
+import { ARC_TESTNET, type NetworkProfile } from "@kuiralabs/mandate-core";
 
 /**
  * Arc chain configuration.
@@ -20,7 +21,7 @@ export { arcTestnet };
  * `eth_getCode`. viem's chain definition carries only `multicall3`, so these stay ours.
  */
 export const ARC_CONTRACTS = {
-  /** The ERC-20 view over the native USDC balance. 6 decimals, and it truncates — see usdc.ts. */
+  /** The ERC-20 view over the native USDC balance. 6 decimals, and it truncates — see amount.ts. */
   usdc: "0x3600000000000000000000000000000000000000",
   /** Attaches a memo to a call and emits it with a sequential index. */
   memo: "0x5294E9927c3306DcBaDb03fe70b92e01cCede505",
@@ -50,18 +51,12 @@ export const ARC_CONTRACTS = {
   gatewayWallet: "0x0077777d7EBA4688BDeF3E311b846F25870A19B9",
 } as const;
 
-/**
- * Circle's faucet for test USDC, where the README already sends people, choosing Arc testnet. The
- * first step of the journey is a funded wallet, and this is how a new one gets its first dollars.
- */
-export const TESTNET_FAUCET_URL = "https://faucet.circle.com";
-
 /** Blockscout's path for one transaction, under the explorer viem names for this chain. */
 const EXPLORER_TX_PATH = "/tx/";
 
-/** Where a person can check a transaction for themselves, on the explorer viem lists for Arc. */
-export function explorerTxUrl(hash: string): string {
-  return `${arcTestnet.blockExplorers.default.url}${EXPLORER_TX_PATH}${hash}`;
+/** Where a person can check a transaction for themselves, on the network's explorer: Arc unless another is named. */
+export function explorerTxUrl(hash: string, network: NetworkProfile = ARC_TESTNET): string {
+  return `${network.explorer}${EXPLORER_TX_PATH}${hash}`;
 }
 
 /** Blockscout's path for one token of a collection, which is where a badge can be checked. */

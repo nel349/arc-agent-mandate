@@ -23,7 +23,7 @@ const SessionContext = createContext<Session | null>(null);
 export function SessionProvider({ children }: { readonly children: ReactNode }) {
   const wallet = useArcAccount();
   const mandate = useMandate(wallet.account);
-  const activity = useActivity(wallet.account?.address ?? null);
+  const activity = useActivity(wallet.account);
   return <SessionContext.Provider value={{ wallet, mandate, activity }}>{children}</SessionContext.Provider>;
 }
 

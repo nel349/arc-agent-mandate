@@ -1,10 +1,6 @@
-import {
-  createPublicClient, encodeFunctionData, http, parseAbi,
-  type Address, type Hex, type PublicClient,
-} from "viem";
+import { encodeFunctionData, parseAbi, type Address, type Hex, type PublicClient } from "viem";
 import type { PrivateKeyAccount } from "viem/accounts";
-import { entryPoint07Abi, entryPoint07Address, getUserOperationHash, toSmartAccount } from "viem/account-abstraction";
-import { ARC_RPC, SESSION_KEY_PLUGIN } from "./chain.ts";
+import { entryPoint07Abi, entryPoint07Address, getUserOperationHash, toSmartAccount, type SmartAccount, type SmartAccountImplementation } from "viem/account-abstraction";
 
 /**
  * The granting account, as viem sees it, signed for by the agent's session key.
@@ -28,12 +24,12 @@ import { ARC_RPC, SESSION_KEY_PLUGIN } from "./chain.ts";
  *   point, and the only path a session key is allowed to take.
  */
 
-const pluginAbi = parseAbi([
+export const sessionKeyExecutionAbi = parseAbi([
   "function executeWithSessionKey((address target,uint256 value,bytes data)[] calls, address sessionKey) returns (bytes[])",
 ]);
 
 /** Long enough to price validation; replaced by the real signature before sending. */
-const STUB_SIGNATURE: Hex = `0x${"ff".repeat(64)}1b`;
+export const STUB_SIGNATURE: Hex = `0x${"ff".repeat(64)}1b`;
 
 /**
  * The shape viem hands to `signUserOperation`, taken from viem rather than written out here.
@@ -49,11 +45,17 @@ export interface SessionKeyAccountOptions {
   readonly address: Address;
   /** The agent's own key, which signs but owns nothing. */
   readonly agent: PrivateKeyAccount;
-  readonly client?: PublicClient;
+  /** A client for the network the account is on, which the operation's hash is bound to. */
+  readonly client: PublicClient;
 }
 
-export async function toSessionKeyAccount({ address, agent, client }: SessionKeyAccountOptions) {
-  const publicClient = client ?? createPublicClient({ transport: http(ARC_RPC) });
+/** The nonce key an agent's operations go under: its own address, as the plugin requires. */
+export const nonceKeyOf = (agent: Address): bigint => BigInt(agent);
+
+/** The account viem builds, as a type of its own: written out, so a published declaration says exactly this. */
+export type SessionKeyAccount = SmartAccount<SmartAccountImplementation<typeof entryPoint07Abi, "0.7">>;
+
+export async function toSessionKeyAccount({ address, agent, client: publicClient }: SessionKeyAccountOptions): Promise<SessionKeyAccount> {
 
   return toSmartAccount({
     client: publicClient,
@@ -65,7 +67,7 @@ export async function toSessionKeyAccount({ address, agent, client }: SessionKey
 
     async encodeCalls(calls: readonly { to: Address; value?: bigint | undefined; data?: Hex | undefined }[]): Promise<Hex> {
       return encodeFunctionData({
-        abi: pluginAbi,
+        abi: sessionKeyExecutionAbi,
         functionName: "executeWithSessionKey",
         args: [
           calls.map((call) => ({ target: call.to, value: call.value ?? 0n, data: call.data ?? "0x" })),
@@ -88,7 +90,7 @@ export async function toSessionKeyAccount({ address, agent, client }: SessionKey
         address: entryPoint07Address,
         abi: entryPoint07Abi,
         functionName: "getNonce",
-        args: [address, BigInt(agent.address)],
+        args: [address, nonceKeyOf(agent.address)],
       });
     },
 
@@ -118,4 +120,3 @@ export async function toSessionKeyAccount({ address, agent, client }: SessionKey
   });
 }
 
-export { SESSION_KEY_PLUGIN };

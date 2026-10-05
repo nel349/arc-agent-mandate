@@ -1,10 +1,14 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { memo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import type { NetworkProfile } from "@kuiralabs/mandate-core";
 import type { Mandate } from "../arc/mandate.ts";
+import { figure, unitOf } from "./coin.ts";
 import { ArcRing } from "./ArcRing.tsx";
 import { identityLabel } from "./activity-format.ts";
-import { agentRowLabel, endsLine, fractionUsed, hasEnded, shortAddress } from "./mandate-format.ts";
+import { shortFingerprint } from "./fingerprint.ts";
+import { agentRowLabel, endsLine, fractionUsed, hasEnded } from "./mandate-format.ts";
+import { accentOf } from "./network-look.ts";
 import { DIMS_ON_PRESS, ripple } from "./press.ts";
 import { useTheme } from "./theme-context.tsx";
 import { tokens } from "./tokens.ts";
@@ -21,9 +25,11 @@ import { tokens } from "./tokens.ts";
  * whether to step in.
  */
 function AgentRowView({
-  mandate, name, identity = null, onPress, first,
+  mandate, network, name, identity = null, onPress, first,
 }: {
   readonly mandate: Mandate;
+  /** the network the allowance is on, which names its coin */
+  readonly network: NetworkProfile;
   readonly name: string | null;
   /**
    * The agent's ERC-8004 identity, or null while there is none confirmed.
@@ -45,7 +51,7 @@ function AgentRowView({
     <Pressable
       onPress={() => onPress(mandate.agent)}
       accessibilityRole="button"
-      accessibilityLabel={agentRowLabel(mandate, name)}
+      accessibilityLabel={agentRowLabel(mandate, name, network)}
       accessibilityHint="Opens this allowance"
       android_ripple={ripple(c.specular)}
       style={({ pressed }) => [
@@ -54,6 +60,8 @@ function AgentRowView({
         DIMS_ON_PRESS && pressed && { backgroundColor: c.glass },
       ]}
     >
+      {/* the network's edge, as on its card */}
+      <View style={[styles.edge, { backgroundColor: accentOf(network) }]} />
       <ArcRing spent={fractionUsed(mandate)} ended={ended} label="" size={tokens.size.ring.row} />
 
       <View style={styles.who}>
@@ -61,7 +69,7 @@ function AgentRowView({
           <Text style={[styles.name, { color: c.paper }]} numberOfLines={1}>{name}</Text>
         ) : (
           <Text style={[styles.address, { color: c.paper }]} numberOfLines={1}>
-            {shortAddress(mandate.agent)}
+            {shortFingerprint(mandate.agent)}
           </Text>
         )}
         <Text style={[styles.ends, { color: ended ? c.warn : c.dim }]} numberOfLines={1}>
@@ -83,9 +91,9 @@ function AgentRowView({
 
       <View style={styles.figure}>
         <Text style={[styles.amount, { color: ended ? c.dim : c.paper }]}>
-          {mandate.remaining.format(2)}
+          {figure(mandate.remaining, network)}
         </Text>
-        <Text style={[styles.unit, { color: c.dim }]}>USDC left</Text>
+        <Text style={[styles.unit, { color: c.dim }]}>{unitOf(network)} LEFT</Text>
       </View>
 
       <Ionicons name="chevron-forward" size={tokens.size.chevron} color={c.dim} />
@@ -96,6 +104,7 @@ function AgentRowView({
 /** Compared by value: the list is rebuilt from fresh chain reads every ten seconds. */
 export const AgentRow = memo(AgentRowView, (a, b) =>
   a.name === b.name &&
+  a.network.chainId === b.network.chainId &&
   a.identity === b.identity &&
   a.first === b.first &&
   a.onPress === b.onPress &&
@@ -104,6 +113,11 @@ export const AgentRow = memo(AgentRowView, (a, b) =>
   a.mandate.spent.toNativeUnits() === b.mandate.spent.toNativeUnits() &&
   a.mandate.expiresAt === b.mandate.expiresAt,
 );
+
+/** The network's stripe, the card's own width. */
+const EDGE_WIDTH = 3;
+/** Small capitals spaced out, as on the card. */
+const UNIT_TRACKING = 1.5;
 
 const styles = StyleSheet.create({
   row: {
@@ -116,10 +130,11 @@ const styles = StyleSheet.create({
   },
   who: { flex: 1, gap: tokens.space.hair },
   name: tokens.type.headline,
-  address: { ...tokens.type.data, fontWeight: "600" },
+  address: tokens.type.data,
   ends: tokens.type.footnote,
   identity: tokens.type.caption,
   figure: { alignItems: "flex-end" },
-  amount: { ...tokens.type.headline, fontVariant: [...tokens.font.tabular] },
-  unit: tokens.type.caption,
+  amount: { ...tokens.type.headline, fontFamily: tokens.font.mono },
+  unit: { ...tokens.type.caption, fontFamily: tokens.font.mono, letterSpacing: UNIT_TRACKING },
+  edge: { position: "absolute", left: 0, top: 0, bottom: 0, width: EDGE_WIDTH },
 });

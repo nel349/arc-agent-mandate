@@ -4,7 +4,7 @@ import { encodeFunctionData, keccak256, parseAbi, toHex, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import * as arc from "./harness.ts";
 import { buildGrantPlan } from "../src/arc/mandate.ts";
-import { Usdc } from "../src/arc/usdc.ts";
+import { Amount } from "../src/arc/amount.ts";
 import { mandateTermsFor } from "../src/ui/grant-entry.ts";
 import {
   IDENTITY_REGISTRY, identityState, registerCall, registeredIdentity, setUpIdentity, type Submit,
@@ -95,7 +95,7 @@ describe("what the app's allowance lets an agent do, on a forked Arc", () => {
 
   before(async () => {
     await arc.start();
-    const terms = mandateTermsFor({ agent: agent.address, limit: Usdc.parse(LIMIT), days: DAYS }, CODE, Date.now());
+    const terms = mandateTermsFor({ agent: agent.address, limit: Amount.parse(LIMIT), days: DAYS }, CODE, Date.now());
     const granted = await arc.asOwner(buildGrantPlan(terms, true).management);
     assert.equal(granted.status, "success", "the phone's grant did not land");
     clean = await arc.snapshot();

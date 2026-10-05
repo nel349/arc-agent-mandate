@@ -21,10 +21,10 @@ export function AgentRowLive({
   readonly onPress: (agent: `0x${string}`) => void;
   readonly first: boolean;
 }) {
-  const { activity } = useSession();
-  const identity = useAgentIdentity(mandate.agent, activity.items);
+  const { activity, wallet } = useSession();
+  const identity = useAgentIdentity(mandate.agent, activity.items, wallet.network);
 
   return (
-    <AgentRow mandate={mandate} name={name} identity={identity} onPress={onPress} first={first} />
+    <AgentRow mandate={mandate} network={wallet.network} name={name} identity={identity} onPress={onPress} first={first} />
   );
 }

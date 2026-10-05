@@ -1,8 +1,10 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { memo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import type { NetworkProfile } from "@kuiralabs/mandate-core";
 import type { Activity, ActivityKind } from "../arc/activity.ts";
 import { activityAmount, type ActivityRowText } from "./activity-format.ts";
+import { unitOf } from "./coin.ts";
 import { DIMS_ON_PRESS, ripple } from "./press.ts";
 import { useTheme } from "./theme-context.tsx";
 import { tokens } from "./tokens.ts";
@@ -24,9 +26,11 @@ const GLYPHS: Readonly<Record<ActivityKind, keyof typeof Ionicons.glyphMap>> = {
  * agent's screen and the home screen can each say it the way their context needs.
  */
 function ActivityRowView({
-  item, text, onPress, first,
+  item, network, text, onPress, first,
 }: {
   readonly item: Activity;
+  /** the network the row happened on, which names its coin */
+  readonly network: NetworkProfile;
   readonly text: ActivityRowText;
   readonly onPress: (item: Activity) => void;
   readonly first: boolean;
@@ -39,7 +43,7 @@ function ActivityRowView({
     <Pressable
       onPress={() => onPress(item)}
       accessibilityRole="button"
-      accessibilityLabel={`${title}. ${detail}.${amount === null ? "" : ` ${amount} USDC.`}`}
+      accessibilityLabel={`${title}. ${detail}.${amount === null ? "" : ` ${amount} ${unitOf(network)}.`}`}
       accessibilityHint="Opens the receipt"
       android_ripple={ripple(c.specular)}
       style={({ pressed }) => [
@@ -75,6 +79,8 @@ export const ActivityRow = memo(ActivityRowView, (a, b) =>
   a.onPress === b.onPress &&
   a.item.tx === b.item.tx &&
   a.item.logIndex === b.item.logIndex &&
+  a.item.call === b.item.call &&
+  a.network.chainId === b.network.chainId &&
   a.item.kind === b.item.kind &&
   a.item.amount?.toNativeUnits() === b.item.amount?.toNativeUnits() &&
   a.text.title === b.text.title &&
@@ -94,7 +100,7 @@ const styles = StyleSheet.create({
   glyph: {
     width: tokens.size.ring.row,
     height: tokens.size.ring.row,
-    borderRadius: tokens.radius.pill,
+    borderRadius: tokens.radius.sm,
     borderWidth: tokens.border.hairline,
     alignItems: "center",
     justifyContent: "center",
@@ -102,7 +108,7 @@ const styles = StyleSheet.create({
   text: { flex: 1, gap: tokens.space.hair },
   title: tokens.type.headline,
   /** Matches the agent list, where an unnamed agent is also its address in mono. */
-  address: { ...tokens.type.data, fontWeight: "600" },
+  address: tokens.type.data,
   detail: tokens.type.footnote,
-  amount: { ...tokens.type.headline, fontVariant: [...tokens.font.tabular] },
+  amount: { ...tokens.type.headline, fontFamily: tokens.font.mono, fontWeight: "400" },
 });

@@ -73,7 +73,8 @@ export function ArcRing({
             fill="none"
             stroke={arcColour}
             strokeWidth={stroke}
-            strokeLinecap={ring.fraction >= 1 ? "butt" : "round"}
+            // squared, as every edge in the app is; an untouched allowance draws no arc at all
+            strokeLinecap="butt"
             strokeDasharray={[ring.drawn, ring.circumference]}
           />
         </G>

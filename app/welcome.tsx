@@ -6,6 +6,7 @@ import { Button } from "../src/ui/Button.tsx";
 import { ERROR_LINES, Note } from "../src/ui/Note.tsx";
 import { ROUTES } from "../src/ui/routes.ts";
 import { Screen } from "../src/ui/Screen.tsx";
+import { unitOf } from "../src/ui/coin.ts";
 import { useSession } from "../src/ui/session-context.tsx";
 import { useTheme } from "../src/ui/theme-context.tsx";
 import { tokens } from "../src/ui/tokens.ts";
@@ -73,8 +74,7 @@ function Welcome() {
         <ArcRing spent={WELCOME_RING} size={tokens.size.ring.welcome} label="" />
         <Text style={[styles.welcomeTitle, { color: c.paper }]}>Let an agent spend, within limits</Text>
         <Text style={[styles.welcomeBody, { color: c.muted }]}>
-          Give an AI agent an allowance in USDC. It can spend up to the limit you set, until the
-          date you choose, and you can take it back at any time.
+          {`Give an AI agent an allowance in ${unitOf(wallet.network)}. It can spend up to the limit you set, until the date you choose, and you can take it back at any time.`}
         </Text>
         <Text style={[styles.welcomeNote, { color: c.dim }]}>
           Your wallet opens with {OPENS_WITH}. There is no password, and nothing to write down.

@@ -40,6 +40,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  label: { ...tokens.type.headline, fontVariant: [...tokens.font.tabular] },
+  label: { ...tokens.type.headline, fontFamily: tokens.font.mono, fontWeight: "400" },
   pressed: { opacity: tokens.opacity.pressed },
 });

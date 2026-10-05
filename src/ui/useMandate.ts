@@ -8,7 +8,7 @@ import {
   type Mandate, type MandateTerms,
 } from "../arc/mandate.ts";
 import type { GrantLog } from "./agent-names.ts";
-import { Usdc } from "../arc/usdc.ts";
+import { Amount } from "../arc/amount.ts";
 import { describeFailure, MANDATE_FAILURES } from "./failure.ts";
 
 
@@ -60,7 +60,7 @@ export interface MandateScreen {
    */
   grant(terms: MandateTerms, onGranted?: (granted: GrantLog | null) => void): void;
   revoke(agent: Address, onRevoked?: () => void): void;
-  changeLimit(agent: Address, limit: Usdc): void;
+  changeLimit(agent: Address, limit: Amount): void;
   refresh(): Promise<void>;
 }
 
@@ -92,14 +92,14 @@ export function useMandate(account: ArcAccount | null): MandateScreen {
     if (!account) return;
     try {
       const [deployed, live] = await Promise.all([
-        isPluginDeployed(),
-        listMandates(account.address),
+        isPluginDeployed(account.network),
+        listMandates(account.address, account.network),
       ]);
       setReady(deployed);
       setMandates(live);
       setReadError(null);
     } catch (cause) {
-      setReadError(describeFailure(cause, MANDATE_FAILURES));
+      setReadError(describeFailure(cause, MANDATE_FAILURES, account.network));
     }
   }, [account]);
 
@@ -201,7 +201,7 @@ export function useMandate(account: ArcAccount | null): MandateScreen {
           void refresh();
           onDone?.(receipt);
         } catch (cause) {
-          setActionError(describeFailure(cause, MANDATE_FAILURES));
+          setActionError(describeFailure(cause, MANDATE_FAILURES, account.network));
         } finally {
           setPending(null);
         }
@@ -235,7 +235,7 @@ export function useMandate(account: ArcAccount | null): MandateScreen {
    * while the record of what was spent stays intact.
    */
   const changeLimit = useCallback(
-    (agent: Address, limit: Usdc) => {
+    (agent: Address, limit: Amount) => {
       const mandate = mandates.find((m) => m.agent === agent);
       if (!mandate) {
         setActionError(`no mandate for ${agent}`);

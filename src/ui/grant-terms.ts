@@ -1,5 +1,5 @@
 import { isAddress, type Address } from "viem";
-import { Usdc } from "../arc/usdc.ts";
+import { Amount } from "../arc/amount.ts";
 
 /**
  * Reading the grant form into terms, or refusing to.
@@ -19,7 +19,7 @@ import { Usdc } from "../arc/usdc.ts";
  */
 export interface GrantTerms {
   readonly agent: Address;
-  readonly limit: Usdc;
+  readonly limit: Amount;
   /** Always a positive, finite number of days. Never absent. */
   readonly days: number;
 }
@@ -73,15 +73,15 @@ export function readGrantTerms({
 /**
  * `null` rather than a throw: an incomplete value is the normal state of a field being typed into.
  *
- * The positivity check is not belt-and-braces. `Usdc.parse` accepts "-1" and returns a negative
+ * The positivity check is not belt-and-braces. `Amount.parse` accepts "-1" and returns a negative
  * quantity, which is meaningless as a spend limit and only fails much later, when viem refuses to
  * encode a negative number as a `uint256` — by which point the button has been enabled and the
  * person has tapped it. Zero is refused for a duller reason: it grants nothing and still costs a
  * transaction to grant.
  */
-function parseUsdc(text: string): Usdc | null {
+function parseUsdc(text: string): Amount | null {
   try {
-    const amount = Usdc.parse(text);
+    const amount = Amount.parse(text);
     return amount.toNativeUnits() > 0n ? amount : null;
   } catch {
     return null;

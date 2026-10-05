@@ -1,5 +1,6 @@
 import { keccak256, toHex } from "viem";
-import { isPairingCode } from "../../mcp/pairing.ts";
+import { isPairingCode, networkByChainId, NO_REQUEST, type AgentRequest, type NetworkProfile } from "@kuiralabs/mandate-core";
+import type { Address } from "viem";
 import type { Mandate, MandateTerms } from "../arc/mandate.ts";
 import type { GrantTerms } from "./grant-terms.ts";
 import { readPairingLink, type ScannedAgent } from "./pairing.ts";
@@ -13,15 +14,22 @@ import { readPairingLink, type ScannedAgent } from "./pairing.ts";
  * That path is pure, so it is tested here rather than hoped about on a phone.
  */
 
-/** What the agent step holds: the address as entered, and the pairing code when the entry carried one. */
+/**
+ * What the agent step holds: the address as entered, and the pairing code and the network when the
+ * entry carried them.
+ */
 export interface AgentEntry {
   readonly agent: string;
   readonly pairing: string | null;
+  /** the chain the agent's code was shown for, which is where it will spend; null for a typed address */
+  readonly chainId: number | null;
+  /** what the app the agent works for asks to be granted, from its code; nothing for a typed address */
+  readonly request: AgentRequest;
 }
 
-/** From the camera. The scanner has already read the code, so both halves are exactly as scanned. */
+/** From the camera. The scanner has already read the code, so every part is exactly as scanned. */
 export function entryFromScan(scanned: ScannedAgent): AgentEntry {
-  return { agent: scanned.address, pairing: scanned.pairing };
+  return { agent: scanned.address, pairing: scanned.pairing, chainId: scanned.chainId, request: scanned.request };
 }
 
 /**
@@ -33,8 +41,26 @@ export function entryFromScan(scanned: ScannedAgent): AgentEntry {
 export function entryFromText(text: string): AgentEntry {
   const link = readPairingLink(text);
   return link !== null && link.pairing !== null
-    ? { agent: link.address, pairing: link.pairing }
-    : { agent: text, pairing: null };
+    ? { agent: link.address, pairing: link.pairing, chainId: link.chainId, request: link.request }
+    : { agent: text, pairing: null, chainId: null, request: NO_REQUEST };
+}
+
+/**
+ * Which network an entry is granted on.
+ *
+ * An agent's code names the chain it will spend on, and a grant anywhere else is one it never finds,
+ * so the code decides: the wallet moves to that network for the grant. A typed address names none, so
+ * it is granted where the wallet is. A chain this wallet does not run on is refused before anything
+ * is signed.
+ */
+export function networkOfEntry(
+  entry: Pick<AgentEntry, "chainId">, current: NetworkProfile,
+): { readonly network: NetworkProfile } | { readonly problem: string } {
+  if (entry.chainId === null) return { network: current };
+  const network = networkByChainId(entry.chainId);
+  return network === undefined
+    ? { problem: `This agent's code is for a network this wallet does not run on (chain ${entry.chainId}).` }
+    : { network };
 }
 
 /**
@@ -83,14 +109,18 @@ export const NO_PAIRING_CODE =
  * grant itself: the code when there is one, the label otherwise. A code that is not one is refused
  * here rather than written into a tag the agent will never ask for.
  */
-export function mandateTermsFor(terms: GrantTerms, pairing: string | null, nowMs: number): MandateTerms {
+export function mandateTermsFor(
+  terms: GrantTerms, pairing: string | null, nowMs: number,
+  /** the only addresses the agent may pay, as the app's request named them; none names no limit on who */
+  payees: readonly Address[] = [],
+): MandateTerms {
   if (pairing !== null && !isPairingCode(pairing)) {
     throw new Error("a pairing code is 32 lowercase hex characters");
   }
   return {
     agent: terms.agent,
     limit: terms.limit,
-    payees: [],
+    payees: [...payees],
     expiresAt: Math.floor(nowMs / 1000) + Math.round(terms.days * SECONDS_PER_DAY),
     label: GRANT_LABEL,
     ...(pairing === null ? {} : { pairing }),

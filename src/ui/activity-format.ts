@@ -1,6 +1,7 @@
+import type { NetworkProfile } from "@kuiralabs/mandate-core";
 import type { Activity, ActivityKind } from "../arc/activity.ts";
-import type { Usdc } from "../arc/usdc.ts";
 import { clockTime, daysAgo, weekdayDayMonth } from "./calendar.ts";
+import { formatAmount } from "./coin.ts";
 import { shortAddress } from "./mandate-format.ts";
 
 /**
@@ -23,19 +24,6 @@ export const ACTIVITY_TITLES: Readonly<Record<ActivityKind, string>> = {
   granted: "Allowance granted",
   revoked: "Allowance revoked",
 };
-
-/**
- * An amount at the precision it actually has: at least two places, and as many more as it needs.
- *
- * An agent pays by the step, a tenth of a cent at a time, and two places rounded every one of those
- * down to "0.00", which is a row claiming nothing moved. Six places on everything would be noise
- * the other way. So: "0.001", "0.28", "12.00".
- */
-export function formatAmount(amount: Usdc): string {
-  const [whole, fraction = ""] = amount.format(6).split(".");
-  const trimmed = fraction.replace(/0+$/, "").padEnd(2, "0");
-  return `${whole}.${trimmed}`;
-}
 
 /** The figure on a row: money leaving the wallet is written with a minus, and nothing else is. */
 export function activityAmount(item: Activity): string | null {
@@ -105,12 +93,16 @@ export const DRAW_EXPLAINED =
 /**
  * What a payment straight to somebody was, for the receipt.
  *
- * Unlike a draw, this one can name who was paid, because Arc records the transfer itself. It is said
- * out loud, since the two rows sit next to each other and otherwise look like the same thing.
+ * Unlike a draw, this one can name who was paid, because the chain records the payment itself. Where
+ * an agent can also move money into an escrow (Arc), that is said out loud, since the two rows sit next
+ * to each other and otherwise look like the same thing.
  */
-export const PAID_EXPLAINED =
-  "Sent from your wallet to the address below, by this agent, under its allowance. Arc records this " +
-  "transfer, so unlike money moved into the agent's escrow, this one names who was paid.";
+export function paidExplained(network: NetworkProfile): string {
+  const sent = "Sent from your wallet to the address below, by this agent, under its allowance.";
+  return network.contracts.gatewayWallet === undefined
+    ? `${sent} ${network.name} records the payment with who was paid.`
+    : `${sent} ${network.name} records this transfer, so unlike money moved into the agent's escrow, this one names who was paid.`;
+}
 
 /** An ERC-8004 identity, as both screens that show one say it. */
 export const identityLabel = (identity: bigint): string => `ERC-8004 #${identity}`;

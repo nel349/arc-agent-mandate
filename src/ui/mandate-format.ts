@@ -1,5 +1,9 @@
 import type { Mandate } from "../arc/mandate.ts";
-import type { Usdc } from "../arc/usdc.ts";
+import type { NetworkProfile } from "@kuiralabs/mandate-core";
+import type { Amount } from "../arc/amount.ts";
+import { figure, inCoin, unitOf } from "./coin.ts";
+import type { AllowanceFace } from "./AllowanceCard.tsx";
+import { formatExpiry } from "./grant-format.ts";
 import { dayMonth } from "./calendar.ts";
 
 /**
@@ -52,21 +56,21 @@ export function expiryLabel(mandate: Mandate, now: number = Date.now()): string 
 }
 
 /**
- * Below this, an agent's balance is not worth telling anyone about. 0.005 USDC, in native units.
+ * Below this, an agent's balance is not worth telling anyone about. 0.005 of the coin, in native units.
  *
  * Returning a balance costs gas, and a transfer to a smart account runs its `receive`, so the
  * floor is a few tenths of a cent rather than nothing. An amount smaller than the cost of moving
  * it cannot be acted on, so a warning about it is an alarm with no available response — which is
  * how alarms stop being read.
  *
- * Written as plain units rather than `Usdc.parse(...)` because this is module scope. Calling into
+ * Written as plain units rather than `Amount.parse(...)` because this is module scope. Calling into
  * another module while this one is being evaluated is an ordering hazard, and under Fast Refresh
  * it is a live crash: a hot-swapped module re-runs before its imports are rebound, and the app
- * dies with `Property 'Usdc' doesn't exist` pointing at a perfectly good import. A literal cannot
+ * dies with `Property 'Amount' doesn't exist` pointing at a perfectly good import. A literal cannot
  * do that.
  */
 const WORTH_MENTIONING_UNITS = 5_000_000_000_000_000n;
-/** 0.01 USDC. Below it, two decimal places would round the figure away to "0.00". */
+/** 0.01 of the coin. Below it, two decimal places would round the figure away to "0.00". */
 const FINER_PRECISION_BELOW_UNITS = 10_000_000_000_000_000n;
 
 /**
@@ -80,13 +84,13 @@ const FINER_PRECISION_BELOW_UNITS = 10_000_000_000_000_000n;
  * Two decimals is the wrong precision for it. Dust of 0.000265 renders as "0.00", so the card
  * warned about nothing at all, which is worse than staying quiet.
  */
-export function agentHoldingNote(held: Usdc): string | null {
+export function agentHoldingNote(held: Amount): string | null {
   if (held.toNativeUnits() < WORTH_MENTIONING_UNITS) return null;
   return `agent holds ${precisely(held)}`;
 }
 
 /** Enough places that a small amount is a number rather than a rounded-away zero. */
-function precisely(amount: Usdc): string {
+function precisely(amount: Amount): string {
   return amount.toNativeUnits() < FINER_PRECISION_BELOW_UNITS ? amount.format(4) : amount.format(2);
 }
 
@@ -98,10 +102,10 @@ function precisely(amount: Usdc): string {
  * after Circle's delay. A person who assumes a revoke takes it back is deciding on a false premise,
  * so the amount is named when there is one.
  */
-export function revokeWarning(name: string | null, escrow: Usdc): string {
+export function revokeWarning(name: string | null, escrow: Amount, network: NetworkProfile): string {
   const stops = `${name ?? "This agent"} can no longer spend from your wallet once this confirms.`;
   if (escrow.isZero()) return `${stops} Money it already moved to pay for a purchase in progress is not returned.`;
-  return `${stops} The ${precisely(escrow)} USDC already in its escrow at Circle's Gateway stays with it: ` +
+  return `${stops} The ${precisely(escrow)} ${unitOf(network)} already in its escrow at Circle's Gateway stays with it: ` +
     "revoking does not reach that, and only the agent's key can spend it or withdraw it.";
 }
 
@@ -163,15 +167,15 @@ export function endsLine(mandate: Mandate, now: number = Date.now()): string {
  * Three states, three sentences, because they call for three different reactions: an open window
  * says what may still happen, an ended one says nothing more can, and both say what already has.
  */
-export function allowanceSentence(mandate: Mandate, now: number = Date.now()): string {
-  const spent = mandate.spent.isZero() ? "Nothing spent yet." : `${mandate.spent.format(2)} spent so far.`;
+export function allowanceSentence(mandate: Mandate, network: NetworkProfile, now: number = Date.now()): string {
+  const spent = mandate.spent.isZero() ? "Nothing spent yet." : `${figure(mandate.spent, network)} spent so far.`;
   if (mandate.expiresAt === undefined) {
-    return `Can spend up to ${mandate.limit.format(2)} USDC, with no end date. ${spent}`;
+    return `Can spend up to ${inCoin(mandate.limit, network)}, with no end date. ${spent}`;
   }
   const day = dayMonth(mandate.expiresAt);
   return hasEnded(mandate, now)
     ? `This allowance ended on ${day}, and the agent can no longer spend from it. ${spent}`
-    : `Can spend up to ${mandate.limit.format(2)} USDC until ${day}. ${spent}`;
+    : `Can spend up to ${inCoin(mandate.limit, network)} until ${day}. ${spent}`;
 }
 
 /**
@@ -180,9 +184,9 @@ export function allowanceSentence(mandate: Mandate, now: number = Date.now()): s
  * A row is a ring, a name, a date and a figure, and read out one by one they are four unrelated
  * fragments. Spoken as a sentence they are an answer.
  */
-export function agentRowLabel(mandate: Mandate, name: string | null, now: number = Date.now()): string {
+export function agentRowLabel(mandate: Mandate, name: string | null, network: NetworkProfile, now: number = Date.now()): string {
   const who = name ?? `Agent ${shortAddress(mandate.agent)}`;
-  return `${who}. ${mandate.remaining.format(2)} USDC left of ${mandate.limit.format(2)}. ${endsLine(mandate, now)}.`;
+  return `${who}. ${inCoin(mandate.remaining, network)} left of ${figure(mandate.limit, network)}. ${endsLine(mandate, now)}.`;
 }
 
 /**
@@ -192,11 +196,11 @@ export function agentRowLabel(mandate: Mandate, name: string | null, now: number
  * directions in words. The card used to put "19.89 of 20.00" beside a bare "1%", two numbers side by
  * side that counted opposite ways, with nothing saying which was which.
  */
-export function spentLine(mandate: Mandate): string {
-  const limit = `of a ${mandate.limit.format(2)} limit`;
+export function spentLine(mandate: Mandate, network: NetworkProfile): string {
+  const limit = `of a ${figure(mandate.limit, network)} limit`;
   return mandate.spent.isZero()
     ? `${limit} · nothing spent`
-    : `${limit} · ${mandate.spent.format(2)} spent (${spentPercentLabel(mandate)})`;
+    : `${limit} · ${figure(mandate.spent, network)} spent (${spentPercentLabel(mandate)})`;
 }
 
 /**
@@ -232,4 +236,30 @@ export function lastUsedLabel(mandate: Mandate, now: number = Date.now()): strin
   const hours = Math.floor(minutes / 60);
   if (hours < 48) return `used ${hours}h ago`;
   return `used ${Math.floor(hours / 24)} days ago`;
+}
+
+/**
+ * What an allowance already granted prints on its card: what the chain says of it, and the name this
+ * phone keeps. Who asked for it and whom it pays are not read back, so they are not printed rather
+ * than guessed.
+ */
+export function faceOfMandate(
+  { mandate, name, network, now = Date.now() }: { readonly mandate: Mandate; readonly name: string | null; readonly network: NetworkProfile; readonly now?: number },
+): AllowanceFace {
+  return {
+    network,
+    limit: mandate.limit,
+    agent: mandate.agent,
+    name,
+    ends: mandate.expiresAt === undefined ? null : formatExpiry(new Date(mandate.expiresAt * 1000), now),
+    askedBy: null,
+    payees: [],
+    spoken: agentRowLabel(mandate, name, network, now),
+  };
+}
+
+/** What is left and what has gone, as the line under an agent's card: "0.008 MON LEFT · 0.002 SPENT (20%)". */
+export function leftLine(mandate: Mandate, network: NetworkProfile): string {
+  const left = `${figure(mandate.remaining, network)} ${unitOf(network)} LEFT`;
+  return mandate.spent.isZero() ? `${left} · NOTHING SPENT` : `${left} · ${figure(mandate.spent, network)} SPENT (${spentPercentLabel(mandate)})`;
 }

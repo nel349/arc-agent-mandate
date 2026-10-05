@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button } from "./Button.tsx";
 import { Note } from "./Note.tsx";
 import { readPairingLink, type ScannedAgent } from "./pairing.ts";
+import { CornerMarks } from "./CornerMarks.tsx";
 import { tokens } from "./tokens.ts";
 import { useTheme } from "./theme-context.tsx";
 
@@ -169,10 +170,7 @@ function Viewfinder({
         <View style={styles.middle}>
           <View style={[styles.scrim, styles.grow]} />
           <View style={styles.square}>
-            <Corner at="topLeft" />
-            <Corner at="topRight" />
-            <Corner at="bottomLeft" />
-            <Corner at="bottomRight" />
+            <CornerMarks color={SCANNER_INK} length={CORNER_LENGTH} stroke={CORNER_STROKE} radius={tokens.radius.md} />
           </View>
           <View style={[styles.scrim, styles.grow]} />
         </View>
@@ -228,13 +226,6 @@ function RoundButton({
   );
 }
 
-type CornerAt = "topLeft" | "topRight" | "bottomLeft" | "bottomRight";
-
-/** One L-shaped bracket, drawn with two borders of a square box. */
-function Corner({ at }: { readonly at: CornerAt }) {
-  return <View style={[styles.corner, CORNERS[at]]} />;
-}
-
 /**
  * Colours for the one screen that sits on live video rather than on the theme's ground.
  *
@@ -249,13 +240,6 @@ const SQUARE_SHARE = "72%";
 const CORNER_LENGTH = 34;
 const CORNER_STROKE = 4;
 
-const CORNERS: Readonly<Record<CornerAt, object>> = {
-  topLeft: { top: 0, left: 0, borderTopWidth: CORNER_STROKE, borderLeftWidth: CORNER_STROKE, borderTopLeftRadius: tokens.radius.md },
-  topRight: { top: 0, right: 0, borderTopWidth: CORNER_STROKE, borderRightWidth: CORNER_STROKE, borderTopRightRadius: tokens.radius.md },
-  bottomLeft: { bottom: 0, left: 0, borderBottomWidth: CORNER_STROKE, borderLeftWidth: CORNER_STROKE, borderBottomLeftRadius: tokens.radius.md },
-  bottomRight: { bottom: 0, right: 0, borderBottomWidth: CORNER_STROKE, borderRightWidth: CORNER_STROKE, borderBottomRightRadius: tokens.radius.md },
-};
-
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   grow: { flex: 1 },
@@ -267,12 +251,6 @@ const styles = StyleSheet.create({
   // Its height is the square's, so the scrims either side of the square fill exactly that band.
   middle: { flexDirection: "row" },
   square: { width: SQUARE_SHARE, aspectRatio: 1 },
-  corner: {
-    position: "absolute",
-    width: CORNER_LENGTH,
-    height: CORNER_LENGTH,
-    borderColor: SCANNER_INK,
-  },
   topBar: {
     position: "absolute",
     top: 0,

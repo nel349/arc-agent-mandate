@@ -28,7 +28,7 @@ const CHECKS: ReadonlyArray<{ api: string; usedBy: string; probe: () => boolean 
   { api: "queueMicrotask", usedBy: "viem", probe: () => typeof queueMicrotask === "function" },
   { api: "fetch", usedBy: "Circle SDK, viem", probe: () => typeof fetch === "function" },
   { api: "Headers", usedBy: "our X-AppInfo rewrite", probe: () => typeof Headers === "function" },
-  { api: "BigInt", usedBy: "viem, our Usdc type", probe: () => typeof BigInt === "function" },
+  { api: "BigInt", usedBy: "viem, our Amount type", probe: () => typeof BigInt === "function" },
 ];
 
 /** Everything the chain needs that the runtime does not provide. Empty is the goal. */

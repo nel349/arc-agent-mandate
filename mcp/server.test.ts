@@ -146,8 +146,9 @@ test("the search for a grant never reads further back than the code it is lookin
   const search = chain.slice(chain.indexOf("async function firstGrantCarrying("));
   assert.match(search, /pairing\.searchedTo === null \? shownAt/,
     "the search does not start where the code was shown");
-  assert.match(chain, /const RECENT = LOG_WINDOW \* \d+n/,
-    "the stand-in for an unknown floor is not defined in terms of the window it is read in");
+  // how far that is, in queries, is each network's own and is checked in the core's networks test
+  assert.match(chain, /const RECENT = NETWORK\.logs\.recent/,
+    "the stand-in for an unknown floor is not the network's own, bounded in windows");
 });
 
 /**
@@ -186,7 +187,8 @@ test("the pairing code is shown even when the chain cannot be read", async () =>
   await client.connect(new StdioClientTransport({
     command: process.execPath,
     args: [
-      "--experimental-transform-types", "--disable-warning=ExperimentalWarning",
+      // the core package is read from its source in the checkout, as the test runner reads it
+      "--conditions=mandate-source", "--experimental-transform-types", "--disable-warning=ExperimentalWarning",
       join(dirname(fileURLToPath(import.meta.url)), "server.ts"),
     ],
     env: {

@@ -2,9 +2,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
 import { connectArcAccount, reopenArcAccount, WebAuthnMode, type ArcAccount } from "../arc/account.ts";
 import { balanceOf } from "../arc/send.ts";
-import { Usdc } from "../arc/usdc.ts";
+import { Amount } from "../arc/amount.ts";
+import { ARC_TESTNET, type NetworkProfile } from "@kuiralabs/mandate-core";
 import { canOfferExistingPasskey } from "../passkey/shim.ts";
 import { walletFailure } from "./failure.ts";
+import { anotherAddressOn, reopenOrder } from "./network-choice.ts";
+import { loadNetworkChoice, saveNetworkChoice } from "./network-choice-store.ts";
 import { isSameWallet, launchPlan, walletMemoryOf } from "./wallet-memory.ts";
 import {
   clearWalletMemory, loadWalletMemory, rememberSignedOut, saveWalletMemory, wasSignedOutOnPurpose,
@@ -29,7 +32,12 @@ const BALANCE_POLL_MS = 10_000;
 
 export interface ArcWallet {
   readonly account: ArcAccount | null;
-  readonly balance: Usdc | null;
+  /**
+   * The network on screen: the open wallet's, or the one the next wallet opens on. Arc until the
+   * person chooses another, and then whichever they chose last.
+   */
+  readonly network: NetworkProfile;
+  readonly balance: Amount | null;
   readonly busy: boolean;
   /**
    * True from launch until the remembered wallet has reopened, or it is clear there is none.
@@ -57,12 +65,23 @@ export interface ArcWallet {
    * land a wallet after the person had left it.
    */
   signOut(): void;
+  /**
+   * Shows the wallet on another network: the same passkey reopened there, with no ceremony, since the
+   * same passkey is the same address on every network. If it ever opened another address, the wallet
+   * stays where it was and says so.
+   */
+  switchNetwork(next: NetworkProfile): void;
   refresh(): void;
 }
 
 export function useArcAccount(): ArcWallet {
   const [account, setAccount] = useState<ArcAccount | null>(null);
-  const [balance, setBalance] = useState<Usdc | null>(null);
+  const [chosen, setChosen] = useState<NetworkProfile>(ARC_TESTNET);
+  const network = account?.network ?? chosen;
+  /** The network now, for a failure that lands after the render that started the work. */
+  const networkRef = useRef(network);
+  networkRef.current = network;
+  const [balance, setBalance] = useState<Amount | null>(null);
   const [busy, setBusy] = useState(false);
   const [restoring, setRestoring] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -77,7 +96,7 @@ export function useArcAccount(): ArcWallet {
       } catch (cause) {
         // One describer, shared with the mandate screen, and one rule for the wallet's paths: a
         // closed passkey sheet says nothing, so the welcome screen stays as the person left it.
-        setError(walletFailure(cause));
+        setError(walletFailure(cause, networkRef.current));
       } finally {
         setBusy(false);
       }
@@ -86,7 +105,8 @@ export function useArcAccount(): ArcWallet {
 
   const load = useCallback(async (next: ArcAccount) => {
     setAccount(next);
-    setBalance(await balanceOf(next.address));
+    setChosen(next.network);
+    setBalance(await balanceOf(next.address, next.network));
   }, []);
 
   /**
@@ -103,13 +123,33 @@ export function useArcAccount(): ArcWallet {
 
   const create = useCallback(() => run(async () => {
     await admit(await connectArcAccount(
-      { ...CIRCLE_CONFIG, username: `arc-${Date.now()}` }, WebAuthnMode.Register,
+      { ...CIRCLE_CONFIG, username: `arc-${Date.now()}` }, WebAuthnMode.Register, {}, chosen,
     ));
-  }), [run, admit]);
+  }), [run, admit, chosen]);
 
   const signIn = useCallback(() => run(async () => {
-    await admit(await connectArcAccount({ ...CIRCLE_CONFIG, username: "" }, WebAuthnMode.Login));
-  }), [run, admit]);
+    await admit(await connectArcAccount({ ...CIRCLE_CONFIG, username: "" }, WebAuthnMode.Login, {}, chosen));
+  }), [run, admit, chosen]);
+
+  const switchNetwork = useCallback((next: NetworkProfile) => {
+    if (next.chainId === network.chainId) return;
+    const remember = (): void => {
+      void saveNetworkChoice(next).catch((cause: unknown) => console.warn("[wallet] this phone would not remember the network", cause));
+    };
+    // With no wallet open, it is only where the next one opens.
+    if (!account) {
+      setChosen(next);
+      remember();
+      return;
+    }
+    run(async () => {
+      const reopened = await reopenArcAccount(CIRCLE_CONFIG, account.credential, next);
+      if (reopened.address.toLowerCase() !== account.address.toLowerCase()) throw new Error(anotherAddressOn(next));
+      setBalance(null);
+      await load(reopened);
+      remember();
+    });
+  }, [account, network, run, load]);
 
   const signOut = useCallback(() => {
     if (busy) return;
@@ -137,23 +177,36 @@ export function useArcAccount(): ArcWallet {
     if (restoreStarted.current) return;
     restoreStarted.current = true;
     void (async () => {
+      /** Where the wallet is being opened, for a failure to name. */
+      let opening: NetworkProfile = ARC_TESTNET;
       try {
-        const [memory, signedOutOnPurpose] = await Promise.all([loadWalletMemory(), wasSignedOutOnPurpose()]);
+        const [memory, signedOutOnPurpose, lastNetwork] = await Promise.all([
+          loadWalletMemory(), wasSignedOutOnPurpose(), loadNetworkChoice(),
+        ]);
+        setChosen(lastNetwork);
+        opening = lastNetwork;
         const plan = launchPlan({ memory, signedOutOnPurpose, canOfferPasskey: canOfferExistingPasskey() });
 
         if (plan === "reopen" && memory !== null) {
-          const reopened = await reopenArcAccount(CIRCLE_CONFIG, { id: memory.credentialId, publicKey: memory.publicKey });
-          // The memory describes some other wallet. Opening it quietly would show money that is not
-          // the money the person left, so it is forgotten and they sign in with the passkey.
-          if (!isSameWallet(memory, reopened.address)) {
-            await clearWalletMemory();
+          const credential = { id: memory.credentialId, publicKey: memory.publicKey };
+          for (const on of reopenOrder(lastNetwork)) {
+            opening = on;
+            const reopened = await reopenArcAccount(CIRCLE_CONFIG, credential, on);
+            if (!isSameWallet(memory, reopened.address)) continue;
+            await load(reopened);
+            if (on.chainId !== lastNetwork.chainId) {
+              setError(anotherAddressOn(lastNetwork));
+              await saveNetworkChoice(on).catch((cause: unknown) => console.warn("[wallet] this phone would not remember the network", cause));
+            }
             return;
           }
-          await load(reopened);
+          // The memory describes some other wallet. Opening it quietly would show money that is not
+          // the money the person left, so it is forgotten and they sign in with the passkey.
+          await clearWalletMemory();
         } else if (plan === "offer-passkey") {
           try {
             await admit(await connectArcAccount(
-              { ...CIRCLE_CONFIG, username: "" }, WebAuthnMode.Login, { returningUser: true },
+              { ...CIRCLE_CONFIG, username: "" }, WebAuthnMode.Login, { returningUser: true }, lastNetwork,
             ));
           } catch (cause) {
             // Two ordinary endings here, and neither is worth a word: the person closed the sheet,
@@ -161,13 +214,13 @@ export function useArcAccount(): ArcWallet {
             // nothing to apologise for. Anything else, like Circle not answering after they chose a
             // passkey, is said -- including the very failure iOS reports for an empty phone, which
             // is why `walletFailure` tells them apart by the request and not by the error.
-            setError(walletFailure(cause));
+            setError(walletFailure(cause, lastNetwork));
           }
         }
       } catch (cause) {
         // Reopening failed for some other reason, a network most likely. The memory is kept, so the
         // next launch tries again; this one shows the welcome screen, where the passkey still works.
-        setError(walletFailure(cause));
+        setError(walletFailure(cause, opening));
       } finally {
         setRestoring(false);
       }
@@ -176,7 +229,7 @@ export function useArcAccount(): ArcWallet {
 
   const refresh = useCallback(() => run(async () => {
     if (!account) throw new Error("no wallet yet");
-    setBalance(await balanceOf(account.address));
+    setBalance(await balanceOf(account.address, account.network));
   }), [account, run]);
 
   /**
@@ -187,7 +240,7 @@ export function useArcAccount(): ArcWallet {
   useEffect(() => {
     if (!account || busy) return;
     const timer = setInterval(() => {
-      void balanceOf(account.address).then(setBalance).catch(() => {
+      void balanceOf(account.address, account.network).then(setBalance).catch(() => {
         // A missed poll is not worth a message; the next one will say the same thing or better.
       });
     }, BALANCE_POLL_MS);
@@ -204,12 +257,12 @@ export function useArcAccount(): ArcWallet {
     if (!account) return;
     const watch = AppState.addEventListener("change", (next) => {
       if (next !== "active") return;
-      void balanceOf(account.address).then(setBalance).catch(() => {
+      void balanceOf(account.address, account.network).then(setBalance).catch(() => {
         // Same as the poll: a missed read is not worth a message.
       });
     });
     return () => watch.remove();
   }, [account]);
 
-  return { account, balance, busy, restoring, error, create, signIn, signOut, refresh };
+  return { account, network, balance, busy, restoring, error, create, signIn, signOut, switchNetwork, refresh };
 }

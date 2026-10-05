@@ -6,7 +6,8 @@ import {
   createPublicClient, defineChain, formatEther, getAddress, http, parseAbi, parseAbiItem,
   type Address,
 } from "viem";
-import { isPairingCode, pairingTag } from "./pairing.ts";
+import { ARC_TESTNET, isPairingCode, pairingTag } from "@kuiralabs/mandate-core";
+import { NETWORK } from "./network.ts";
 
 /** Which meter bounds a mandate. Named so the two strings cannot be spelled wrong in four places. */
 export type Rail = "native" | "erc20";
@@ -94,31 +95,32 @@ export interface EscrowTally {
  * suite all read: setting an endpoint of your own in one place should not leave this program on the
  * public one, which is what happened while this read only its own older name. That name still works.
  */
-export const ARC_RPC =
-  process.env.ARC_TESTNET_RPC_URL ?? process.env.ARC_RPC_URL ?? "https://rpc.testnet.arc.network";
+export const RPC =
+  process.env.ARC_MANDATE_RPC_URL
+  ?? (NETWORK === ARC_TESTNET ? (process.env.ARC_TESTNET_RPC_URL ?? process.env.ARC_RPC_URL) : undefined)
+  ?? NETWORK.rpc;
 /**
  * The mandate plugin, checked as an address when the connector starts. A value set in the
  * environment was taken on trust, so a typo surfaced later as a failed read naming nothing.
  */
 export const SESSION_KEY_PLUGIN: Address =
-  getAddress(process.env.ARC_SESSION_KEY_PLUGIN ?? "0x669Dd1eDb85ABD00f74186d88124614EE81E6670");
+  getAddress(process.env.ARC_SESSION_KEY_PLUGIN ?? NETWORK.contracts.sessionKeyPlugin);
 
 /**
- * Arc, described rather than just dialled.
+ * The network, described rather than just dialled.
  *
  * viem needs a chain id on the client for anything account-abstraction shaped — a user operation
  * hash is bound to the chain, so an unnamed client fails with `Cannot read properties of
  * undefined (reading 'id')` at the moment it tries to sign.
  */
-export const arc = defineChain({
-  id: Number(process.env.ARC_CHAIN_ID ?? 5042002),
-  name: "Arc testnet",
-  // Arc's native token is USDC, at 18 decimals natively and 6 through the ERC-20 view.
-  nativeCurrency: { name: "USDC", symbol: "USDC", decimals: 18 },
-  rpcUrls: { default: { http: [ARC_RPC] } },
+export const chain = defineChain({
+  id: NETWORK === ARC_TESTNET ? Number(process.env.ARC_CHAIN_ID ?? NETWORK.chainId) : NETWORK.chainId,
+  name: NETWORK.name,
+  nativeCurrency: { name: NETWORK.coin.symbol, symbol: NETWORK.coin.symbol, decimals: NETWORK.coin.decimals },
+  rpcUrls: { default: { http: [RPC] } },
 });
 
-export const publicClient = createPublicClient({ chain: arc, transport: http(ARC_RPC) });
+export const publicClient = createPublicClient({ chain, transport: http(RPC) });
 
 export const pluginAbi = parseAbi([
   "event SessionKeyAdded(address indexed account, address indexed sessionKey, bytes32 indexed tag)",
@@ -135,7 +137,7 @@ export const pluginAbi = parseAbi([
  * outright past the cap rather than returning less, and a node forwards an oversized query upstream
  * to be rate-limited, which fails the whole lookup.
  */
-const LOG_WINDOW = 9_999n;
+const LOG_WINDOW = NETWORK.logs.window;
 
 /**
  * How far back to look when the chain could not be read at the moment the code was shown.
@@ -143,7 +145,7 @@ const LOG_WINDOW = 9_999n;
  * A grant follows its code within minutes, so three windows, a few hours on Arc, is a generous
  * stand-in for the block the code would have been shown at.
  */
-const RECENT = LOG_WINDOW * 3n;
+const RECENT = NETWORK.logs.recent;
 
 /**
  * Declared standalone rather than found in the ABI array.
@@ -381,6 +383,11 @@ export const USDC_ERC20_VIEW = "0x3600000000000000000000000000000000000000";
  */
 export const RAIL: Readonly<Record<Rail, Rail>> = Object.freeze({ native: "native", erc20: "erc20" });
 
+/** The network's ERC-20 view of its coin, when it has one. */
+const VIEW = NETWORK.contracts.erc20View;
+/** What the plugin answers for a limit never set, so a network with no view reads as metering its coin. */
+const NO_ERC20_LIMIT = { hasLimit: false, limit: 0n, limitUsed: 0n, refreshInterval: 0, lastUsedTime: 0 } as const;
+
 export async function readAllowance(account: Address, agentAddress: Address): Promise<Allowance> {
   const [nativeInfo, range, balance, erc20Info] = await Promise.all([
     publicClient.readContract({
@@ -392,10 +399,13 @@ export async function readAllowance(account: Address, agentAddress: Address): Pr
       args: [account, agentAddress],
     }),
     publicClient.getBalance({ address: account }),
-    publicClient.readContract({
-      address: SESSION_KEY_PLUGIN, abi: pluginAbi, functionName: "getERC20SpendLimitInfo",
-      args: [account, agentAddress, USDC_ERC20_VIEW],
-    }),
+    // only a network whose coin has an ERC-20 view can meter through one; elsewhere the coin is the meter
+    VIEW === undefined
+      ? NO_ERC20_LIMIT
+      : publicClient.readContract({
+        address: SESSION_KEY_PLUGIN, abi: pluginAbi, functionName: "getERC20SpendLimitInfo",
+        args: [account, agentAddress, VIEW.address],
+      }),
   ]);
 
   // Which meter is in force, read rather than assumed. An unscoped mandate routes everything —
@@ -459,11 +469,21 @@ const NOTHING_KNOWN: Remembered = { account: null, accountCode: null, pairing: n
  * Older files hold a bare address, or an account with the stretch of chain a search had read. Both
  * are from before grants carried a pairing code, so they read as a wallet with no pairing.
  */
+/**
+ * Where one agent's memory is kept in the file: its address on Arc, as it always was, so no Arc agent
+ * forgets its wallet; its address under the network's name anywhere else, so a wallet on one network is
+ * never taken for the agent's wallet on another.
+ */
+export function memoryKey(agentAddress: Address): string {
+  const agent = agentAddress.toLowerCase();
+  return NETWORK === ARC_TESTNET ? agent : `${NETWORK.circlePath}:${agent}`;
+}
+
 function readState(agentAddress: Address): Remembered {
   try {
     const all: unknown = JSON.parse(readFileSync(MEMORY_PATH, "utf8"));
     if (!isRecord(all)) return NOTHING_KNOWN;
-    const entry = all[agentAddress.toLowerCase()];
+    const entry = all[memoryKey(agentAddress)];
     if (isAddress(entry)) return { ...NOTHING_KNOWN, account: entry }; // oldest format
     if (isRecord(entry)) {
       const account = entry["account"];
@@ -518,7 +538,7 @@ function writeState(agentAddress: Address, patch: Partial<Remembered>): void {
     } catch {
       // First write, or a file worth replacing.
     }
-    const key = agentAddress.toLowerCase();
+    const key = memoryKey(agentAddress);
     const existing = all[key];
     const previous: Record<string, unknown> =
       isAddress(existing) ? { account: existing } : isRecord(existing) ? existing : {};

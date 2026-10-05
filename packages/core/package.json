@@ -1,0 +1,38 @@
+{
+  "name": "@kuiralabs/mandate-core",
+  "version": "0.1.0",
+  "description": "What a wallet, an agent's connector and a server share to grant and spend a mandate on any EVM network: the networks, and pairing.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nel349/arc-agent-mandate.git",
+    "directory": "packages/core"
+  },
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "mandate-source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./node": {
+      "mandate-source": "./src/node/index.ts",
+      "types": "./dist/node/index.d.ts",
+      "default": "./dist/node/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "prepack": "npm run build"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "viem": "^2.45.3"
+  }
+}

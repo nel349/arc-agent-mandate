@@ -12,4 +12,8 @@ config.resolver.extraNodeModules = {
   web3: path.resolve(__dirname, "src/stubs/web3.ts"),
 };
 
+// The core package is read from its source inside the repository, as the typechecker and the tests read
+// it: its "mandate-source" export points at the .ts, so nothing has to be built before the app bundles.
+config.resolver.unstable_conditionNames = [...(config.resolver.unstable_conditionNames ?? []), "mandate-source"];
+
 module.exports = config;

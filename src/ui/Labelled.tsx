@@ -7,7 +7,7 @@ import { tokens } from "./tokens.ts";
 /**
  * A label, an optional explanation behind a `?`, and whatever control the caller puts under it.
  *
- * Extracted because `Field` and `ChoiceRow` both need exactly this and had started to grow two
+ * Extracted because `Field` and a choice row both needed exactly this and had started to grow two
  * copies of it. The disclosure state belongs here rather than in either one: a hint is a property
  * of the label, not of whether the control beneath it happens to be a text box or a row of pills.
  *

@@ -1,6 +1,6 @@
 import { parseAbi, type Address } from "viem";
-import { ARC_CONTRACTS } from "./chain.ts";
-import { arcPublicClient } from "./client.ts";
+import { ARC_TESTNET, type NetworkProfile } from "@kuiralabs/mandate-core";
+import { clientFor } from "./client.ts";
 
 /**
  * Reading an agent's ERC-8004 identity, which its owner holds.
@@ -17,8 +17,8 @@ import { arcPublicClient } from "./client.ts";
 const registryAbi = parseAbi(["function getAgentWallet(uint256 agentId) view returns (address)"]);
 
 /** The key an identity names as its agent wallet, or the zero address when it names none. */
-export async function agentWalletOf(agentId: bigint): Promise<Address> {
-  return arcPublicClient.readContract({
-    address: ARC_CONTRACTS.erc8004.identity, abi: registryAbi, functionName: "getAgentWallet", args: [agentId],
+export async function agentWalletOf(agentId: bigint, network: NetworkProfile = ARC_TESTNET): Promise<Address> {
+  return clientFor(network).readContract({
+    address: network.contracts.erc8004.identity, abi: registryAbi, functionName: "getAgentWallet", args: [agentId],
   });
 }

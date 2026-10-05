@@ -76,7 +76,7 @@ export function Button({
 
 const styles = StyleSheet.create({
   compact: {
-    borderRadius: tokens.radius.pill,
+    borderRadius: tokens.radius.sm,
     paddingHorizontal: tokens.space.base,
     alignItems: "center",
     justifyContent: "center",

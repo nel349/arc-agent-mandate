@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { MONAD_TESTNET } from "@kuiralabs/mandate-core";
 import { getAddress, isAddress } from "viem";
+import { arcTestnet } from "viem/chains";
 import { ARC_CONTRACTS, explorerTokenUrl, explorerTxUrl, MAZE_URL } from "./chain.ts";
 
 /**
@@ -44,4 +46,10 @@ test("a badge and a transaction each link to where anybody can check them", () =
 test("the maze's address is one a badge's own metadata can be fetched from, with no trailing slash", () => {
   assert.equal(MAZE_URL, "https://arc-maze.vercel.app");
   assert.doesNotMatch(MAZE_URL, /\/$/, "a trailing slash would double up when a path is appended");
+});
+
+test("a transaction on Monad links to Monad's explorer, and Arc's to ArcScan as viem lists it", () => {
+  const hash = "0x3171bcea1d331bcdac3117679190eab2fa7e334502b88d4362353028341765be";
+  assert.equal(explorerTxUrl(hash, MONAD_TESTNET), `https://testnet.monadexplorer.com/tx/${hash}`);
+  assert.equal(explorerTxUrl(hash), `${arcTestnet.blockExplorers.default.url}/tx/${hash}`);
 });

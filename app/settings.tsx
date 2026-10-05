@@ -7,6 +7,7 @@ import { Button } from "../src/ui/Button.tsx";
 import { Field } from "../src/ui/Field.tsx";
 import { Note } from "../src/ui/Note.tsx";
 import { shortAddress } from "../src/ui/mandate-format.ts";
+import { shortNameOf } from "../src/ui/network-choice.ts";
 import { useSession } from "../src/ui/session-context.tsx";
 import { useAppearance } from "../src/ui/theme-context.tsx";
 import { THEMES, type ThemeId } from "../src/ui/themes.ts";
@@ -136,7 +137,7 @@ export default function SettingsScreen() {
       <Surface>
         <Label>Network</Label>
         <View style={styles.plain}>
-          <Text style={[styles.name, { color: c.paper }]}>Arc</Text>
+          <Text style={[styles.name, { color: c.paper }]}>{shortNameOf(wallet.network)}</Text>
           <Text style={[styles.value, { color: c.dim }]}>Testnet</Text>
         </View>
 
@@ -203,10 +204,10 @@ const styles = StyleSheet.create({
   address: { ...tokens.type.data, fontFamily: tokens.font.mono },
   mark: {
     width: tokens.size.mark, height: tokens.size.mark,
-    borderRadius: tokens.radius.pill, borderWidth: tokens.border.hairline,
+    borderRadius: tokens.radius.sm, borderWidth: tokens.border.hairline,
     alignItems: "center", justifyContent: "center",
   },
-  markOn: { width: tokens.size.markDot, height: tokens.size.markDot, borderRadius: tokens.radius.pill },
+  markOn: { width: tokens.size.markDot, height: tokens.size.markDot },
   plain: {
     flexDirection: "row", justifyContent: "space-between", alignItems: "center",
     paddingTop: tokens.space.xs,

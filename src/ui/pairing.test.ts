@@ -1,6 +1,7 @@
+import { NO_REQUEST } from "@kuiralabs/mandate-core";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { pairingLink } from "../../mcp/pairing.ts";
+import { pairingLink } from "@kuiralabs/mandate-core";
 import { readPairingLink } from "./pairing.ts";
 
 /**
@@ -12,16 +13,16 @@ const AGENT = "0xB8A53c985E437000C4e77300690B00B146D293D2";
 const CODE = "0123456789abcdef0123456789abcdef";
 
 test("the code the connector prints reads as its address and its pairing code", () => {
-  assert.deepEqual(readPairingLink(pairingLink(AGENT, 5042002, CODE)), { address: AGENT, pairing: CODE });
+  assert.deepEqual(readPairingLink(pairingLink(AGENT, 5042002, CODE)), { address: AGENT, pairing: CODE, chainId: 5042002, request: NO_REQUEST });
 });
 
 test("whitespace around the code does not defeat it", () => {
-  assert.deepEqual(readPairingLink(`  ${pairingLink(AGENT, 5042002, CODE)}\n`), { address: AGENT, pairing: CODE });
+  assert.deepEqual(readPairingLink(`  ${pairingLink(AGENT, 5042002, CODE)}\n`), { address: AGENT, pairing: CODE, chainId: 5042002, request: NO_REQUEST });
 });
 
 /** An older connector prints a bare address. It still reads, with no pairing, and the screen says so. */
 test("a bare address reads, with no pairing code", () => {
-  assert.deepEqual(readPairingLink(AGENT), { address: AGENT, pairing: null });
+  assert.deepEqual(readPairingLink(AGENT), { address: AGENT, pairing: null, chainId: null, request: NO_REQUEST });
 });
 
 test("anything that is not an agent's code is refused rather than half read", () => {

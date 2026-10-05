@@ -1,6 +1,8 @@
 import { memo } from "react";
 import { StyleSheet, Text, View } from "react-native";
+import type { NetworkProfile } from "@kuiralabs/mandate-core";
 import type { Mandate } from "../arc/mandate.ts";
+import { figure, inCoin, unitOf } from "./coin.ts";
 import { agentHoldingNote, expiryLine, fractionUsed, lastUsedLabel, shortAddress, spentLine } from "./mandate-format.ts";
 import { useTheme } from "./theme-context.tsx";
 import { ArcRing } from "./ArcRing.tsx";
@@ -21,9 +23,10 @@ import { tokens } from "./tokens.ts";
  * when it is nearly all gone.
  */
 function MandateCardView({
-  mandate, onRevoke, busy,
+  mandate, network, onRevoke, busy,
 }: {
   readonly mandate: Mandate;
+  readonly network: NetworkProfile;
   readonly onRevoke: (agent: `0x${string}`) => void;
   readonly busy: boolean;
 }) {
@@ -57,14 +60,14 @@ function MandateCardView({
       <View style={styles.headline}>
         <ArcRing
           spent={fractionUsed(mandate)}
-          label={`${mandate.spent.format(2)} of ${mandate.limit.format(2)} spent`}
+          label={`${figure(mandate.spent, network)} of ${inCoin(mandate.limit, network)} spent`}
         />
         <View style={styles.figures}>
           <Text style={[styles.amount, { color: c.paper }]}>
-            {mandate.remaining.format(2)}
-            <Text style={[styles.of, { color: c.dim }]}>  USDC left</Text>
+            {figure(mandate.remaining, network)}
+            <Text style={[styles.of, { color: c.dim }]}>  {unitOf(network)} left</Text>
           </Text>
-          <Text style={[styles.percent, { color: c.muted }]}>{spentLine(mandate)}</Text>
+          <Text style={[styles.percent, { color: c.muted }]}>{spentLine(mandate, network)}</Text>
         </View>
       </View>
 
@@ -99,6 +102,7 @@ function MandateCardView({
  */
 export const MandateCard = memo(MandateCardView, (a, b) =>
   a.busy === b.busy &&
+  a.network.chainId === b.network.chainId &&
   a.onRevoke === b.onRevoke &&
   a.mandate.agent === b.mandate.agent &&
   a.mandate.limit.toNativeUnits() === b.mandate.limit.toNativeUnits() &&

@@ -1,4 +1,8 @@
-import type { Usdc } from "../arc/usdc.ts";
+import type { NetworkProfile } from "@kuiralabs/mandate-core";
+import type { Address } from "viem";
+import type { Amount } from "../arc/amount.ts";
+import type { AllowanceFace } from "./AllowanceCard.tsx";
+import { inCoin } from "./coin.ts";
 import { dayMonth, weekdayDayMonth } from "./calendar.ts";
 
 /**
@@ -24,7 +28,7 @@ import { dayMonth, weekdayDayMonth } from "./calendar.ts";
  * past December, and a date that says the wrong year to someone authorising money is worse than a
  * slightly longer one.
  */
-function formatExpiry(until: Date, now: number): string {
+export function formatExpiry(until: Date, now: number): string {
   const day = dayMonth(Math.floor(until.getTime() / 1000));
   return until.getFullYear() === new Date(now).getFullYear() ? day : `${day} ${until.getFullYear()}`;
 }
@@ -53,31 +57,72 @@ export function windowEndLabel(days: number, now: number = Date.now()): string {
  * later. But an agent can only spend what is actually there when it pays, so a limit above the
  * balance is worth saying out loud before it is granted rather than discovered as a refusal.
  */
-export function exceedsWallet(limit: Usdc, balance: Usdc | null): boolean {
+export function exceedsWallet(limit: Amount, balance: Amount | null): boolean {
   return balance !== null && limit.compare(balance) > 0;
 }
 
 /** The confirmation once it has landed, naming who, how much and until when. */
 export function grantedSentence(
-  { who, limit, days, now = Date.now() }: { readonly who: string; readonly limit: Usdc; readonly days: number; readonly now?: number },
+  { who, limit, days, network, now = Date.now() }: {
+    readonly who: string; readonly limit: Amount; readonly days: number; readonly network: NetworkProfile; readonly now?: number;
+  },
 ): string {
   const until = expiryDate(days, now);
   const window = until === null ? "with no end date" : `until ${formatExpiry(until, now)}`;
-  return `${who} can now spend up to ${limit.format(2)} USDC ${window}. Nothing has left your wallet yet.`;
+  return `${who} can now spend up to ${inCoin(limit, network)} ${window}. Nothing has left your wallet yet.`;
 }
 
 export function grantSummary({
-  limit, days, now = Date.now(),
+  limit, days, network, now = Date.now(),
 }: {
-  readonly limit: Usdc;
+  readonly limit: Amount;
   readonly days: number | null;
+  readonly network: NetworkProfile;
   readonly now?: number;
 }): string {
   const until = expiryDate(days, now);
   const window = until === null ? "with no expiry date" : `until ${formatExpiry(until, now)}`;
   return (
-    `This agent can spend up to ${limit.format(2)} USDC ${window}, and nothing beyond it. ` +
+    `This agent can spend up to ${inCoin(limit, network)} ${window}, and nothing beyond it. ` +
     `Nothing is transferred to the agent. It can only draw on this allowance, and you can take ` +
     `it back at any time.`
   );
+}
+
+/** The amounts offered under the limit being typed, as the strings the field edits. */
+const DOLLAR_PRESETS: readonly string[] = ["5", "20", "100"];
+/** Test MON comes from a faucet a little at a time, so the presets are tenths and hundredths of it. */
+const COIN_PRESETS: readonly string[] = ["0.01", "0.05", "0.1"];
+
+/** The preset limits for a network's coin: dollars on Arc, small amounts of MON on Monad. */
+export const amountPresets = (network: NetworkProfile): readonly string[] => (network.coin.dollar ? DOLLAR_PRESETS : COIN_PRESETS);
+
+/**
+ * Said under the card, once, and nothing the card already prints: what an allowance is, and is not.
+ */
+export const CARD_TERMS =
+  "Nothing is sent to the agent. It can only draw on this, never more, and you can take it back at any time.";
+
+/** What a card being issued prints, from the answers and whatever the agent's code asked for. */
+export function faceOf({
+  terms, name, askedBy, payees, network, now = Date.now(),
+}: {
+  readonly terms: { readonly agent: Address; readonly limit: Amount; readonly days: number };
+  readonly name: string | null;
+  readonly askedBy: string | null;
+  readonly payees: readonly Address[];
+  readonly network: NetworkProfile;
+  readonly now?: number;
+}): AllowanceFace {
+  const until = expiryDate(terms.days, now);
+  return {
+    network,
+    limit: terms.limit,
+    agent: terms.agent,
+    name,
+    ends: until === null ? null : formatExpiry(until, now),
+    askedBy,
+    payees,
+    spoken: grantSummary({ limit: terms.limit, days: terms.days, network, now }),
+  };
 }

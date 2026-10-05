@@ -29,6 +29,8 @@
 import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { http } from "viem";
+import { CIRCLE_SHARED_TESTNET, circleEndpoint, circleHeaders, sharedKeyServes } from "@kuiralabs/mandate-core";
+import { NETWORK } from "./network.ts";
 
 /**
  * Read when asked, never at import.
@@ -41,10 +43,8 @@ import { http } from "viem";
  * It survived review because the check used to confirm the fix — reading an allowance — needs no
  * credentials at all. Only paying does.
  */
-const chainPath = () => process.env.ARC_CIRCLE_CHAIN_PATH ?? TESTNET_CHAIN_PATH;
+const chainPath = () => process.env.ARC_CIRCLE_CHAIN_PATH ?? NETWORK.circlePath;
 
-/** Circle's path for Arc testnet, and the only chain the shared values below serve. */
-const TESTNET_CHAIN_PATH = "arcTestnet";
 
 interface CircleConfig {
   readonly clientUrl: string | undefined;
@@ -64,11 +64,7 @@ interface CircleConfig {
  * key. That is test money, and the trade was chosen on 25 September so that connecting an agent
  * needs no Circle account. Mainnet has no such default; there you bring your own.
  */
-const SHARED_TESTNET: CircleConfig = {
-  clientUrl: "https://modular-sdk.circle.com/v1/rpc/w3s/buidl",
-  clientKey: "TEST_CLIENT_KEY:cceea9ab4ce9e98783a9cf383500c81e:44f6b849d8c6ef8542136087fcf0ba31",
-  passkeyDomain: "kuiralabs.github.io",
-};
+const SHARED_TESTNET: CircleConfig = CIRCLE_SHARED_TESTNET;
 
 const own = (): CircleConfig => ({
   clientUrl: process.env.CIRCLE_CLIENT_URL ?? process.env.EXPO_PUBLIC_CIRCLE_CLIENT_URL,
@@ -86,7 +82,7 @@ const own = (): CircleConfig => ({
 function circle(): CircleConfig {
   const mine = own();
   const setAny = Boolean(mine.clientUrl || mine.clientKey || mine.passkeyDomain);
-  return !setAny && chainPath() === TESTNET_CHAIN_PATH ? SHARED_TESTNET : mine;
+  return !setAny && sharedKeyServes({ circlePath: chainPath() }) ? SHARED_TESTNET : mine;
 }
 
 /** Whether payments go through the shared testnet key rather than one of your own. */
@@ -206,15 +202,11 @@ function envPath() {
 }
 
 
-const endpoint = () => `${(circle().clientUrl ?? "").replace(/\/$/, "")}/${chainPath()}`;
+const endpoint = () => circleEndpoint({ circlePath: chainPath() }, circle().clientUrl ?? "");
 
 /**
  * Circle validates the domain-bound client key against the `uri` in this header. Without it every
  * call is "Invalid credentials", naming neither the key nor the domain.
  */
-const headers = () => ({
-  "content-type": "application/json",
-  Authorization: `Bearer ${circle().clientKey}`,
-  "X-AppInfo": `platform=web;version=1.0.0;uri=${circle().passkeyDomain}`,
-});
+const headers = () => circleHeaders({ clientKey: circle().clientKey ?? "", passkeyDomain: circle().passkeyDomain ?? "" });
 

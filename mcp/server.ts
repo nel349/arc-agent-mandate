@@ -22,14 +22,20 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { encodeFunctionData, formatEther, formatUnits, isAddress, parseAbi, parseEther, parseUnits, type Address } from "viem";
-import { loadOrCreateAgent } from "./identity.ts";
+import { loadOrCreateAgent } from "@kuiralabs/mandate-core/node";
+import { agentKeyPath } from "./keyPath.ts";
 import {
-  arc, findGrant, NATIVE_PER_ERC20, pairingToShow, publicClient, RAIL, readAllowance, rememberedEscrow,
+  chain, findGrant, NATIVE_PER_ERC20, pairingToShow, publicClient, RAIL, readAllowance, rememberedEscrow,
   rememberedGranter, rememberedIdentity, rememberEscrow, rememberIdentity, USDC_ERC20_VIEW,
   type Allowance, type Grant,
 } from "./chain.ts";
 import { setUpIdentity, type IdentityOutcome, type Submit } from "./erc8004.ts";
-import { pairingLink } from "./pairing.ts";
+import { amountIn, NO_REQUEST, pairingLink, requestFrom, type AgentRequest } from "@kuiralabs/mandate-core";
+import { briefingSteps } from "./briefing.ts";
+import { NETWORK } from "./network.ts";
+
+/** What the network's money is called, in everything the tools say. */
+const COIN = NETWORK.coin.symbol;
 import { writeQrPng } from "./pairing-image.ts";
 import { REFUSED_BY_ALLOWANCE, submitSpend } from "./spend.ts";
 import { bundlerConfigured, bundlerSetupInstructions } from "./bundler.ts";
@@ -47,7 +53,7 @@ import qrcode from "qrcode-terminal";
  * Works with any MCP client — Claude Code, Cursor, Codex — because the agent framework already
  * exists and the person already runs it. That is the pairing problem solved by not having one.
  */
-const { account: agent, created, path: keyPath } = loadOrCreateAgent();
+const { account: agent, created, path: keyPath } = loadOrCreateAgent(agentKeyPath());
 
 /** Where the code is saved as an image, beside the agent's key. */
 const PAIRING_IMAGE = join(dirname(keyPath), "pairing-code.png");
@@ -79,8 +85,9 @@ function pairingCode(link: string): Promise<string> {
  * as an image beside the agent's key, so a person moving to another wallet can scan it again without
  * asking for it.
  */
-async function pairingInstructions(): Promise<string> {
-  const link = pairingLink(agent.address, arc.id, await pairingToShow(agent.address));
+async function showCode(request: AgentRequest = NO_REQUEST): Promise<string> {
+  const link = pairingLink(agent.address, chain.id, await pairingToShow(agent.address), request);
+  const asks = request.limit !== null || request.days !== null || request.payees.length > 0;
   let saved = "";
   try {
     writeQrPng(link, PAIRING_IMAGE);
@@ -97,8 +104,8 @@ async function pairingInstructions(): Promise<string> {
     `this agent.${saved}\n\n` +
     `Step 3 of 5, on your phone: open the Agent Mandate wallet (${WALLET_URL}), tap New ` +
     `allowance, then Scan the agent's code and point the camera at this one (or paste this link: ` +
-    `${link}). Set a limit and how long it lasts, and confirm with your passkey. Tell me when it ` +
-    `is done.` +
+    `${link}). ${asks ? "It fills in what was asked for; check it, change anything," : "Set a limit and how long it lasts,"} ` +
+    `and confirm with your passkey. Tell me when it is done.` +
     `${created ? "\n\n(A new key was generated for this agent.)" : ""}`
   );
 }
@@ -117,21 +124,15 @@ const WALLET_URL = "https://kuiralabs.github.io/mandate/";
  * allowance by being refused a payment, and the person found out what to do next from whatever the
  * agent made of the refusal. Briefed up front, the agent can say the next step before it is needed.
  *
- * The five steps are the ones the maze page draws and the phone app follows, in the same words.
- * This program cannot import the page's list (it lives in the maze's `src/journey.ts`), so if a
- * title changes there it changes here, and in the app.
+ * The five steps come from the core package, which every program that shows them reads; what each
+ * means for the agent is said here, beside its title.
  */
 const INSTRUCTIONS = [
   "This connector lets you spend from your user's wallet, inside an allowance they grant from the " +
     "Agent Mandate app on their phone. The chain enforces the limit; you cannot exceed it.",
   "",
   "The path, in five steps, the same words the app and the maze page use:",
-  `1. Get the app, and add test USDC (their phone). It opens in the phone's browser at ${WALLET_URL}, ` +
-    "with nothing to install, and makes a wallet with a passkey.",
-  "2. Connect your agent (their laptop). You are connected, so this one is done.",
-  "3. Scan to grant (their phone): New allowance, then Scan the agent's code.",
-  "4. Tell your agent to play (their laptop): they give you the task.",
-  "5. Watch it spend, revoke any time (their phone).",
+  ...briefingSteps(NETWORK, WALLET_URL),
   "",
   "Before any paid call, call check_allowance. If there is no allowance, call get_pairing_address, " +
     "show the user its code once, and wait for them to say it is done; then check once. Do not " +
@@ -151,7 +152,8 @@ const INSTRUCTIONS = [
 
 const server = new McpServer({ name: "arc-mandate", version: "0.0.2" }, { instructions: INSTRUCTIONS });
 
-const usd = (wei: bigint): string => `$${formatEther(wei)}`;
+/** An amount of the network's coin as a person reads it: dollars on Arc, MON on Monad. */
+const inCoin = (wei: bigint): string => amountIn(NETWORK, wei);
 /** Escrow and the online budget are both ERC-20 scale — six decimals, not eighteen. */
 const online = (units: bigint): string => `$${formatUnits(units, 6)}`;
 const text = (body: string) => ({ content: [{ type: "text" as const, text: body }] });
@@ -178,8 +180,8 @@ const DECIMAL = /^\d+(\.\d+)?$/;
 function unreachable(cause: unknown): string {
   const text = cause instanceof Error ? cause.message : String(cause);
   return /rate limit|429|too many requests/i.test(text)
-    ? "Arc's public endpoint is rate-limiting us. It clears on its own; try again shortly."
-    : "Arc's endpoint did not answer.";
+    ? `${NETWORK.name}'s public endpoint is rate-limiting us. It clears on its own; try again shortly.`
+    : `${NETWORK.name}'s endpoint did not answer.`;
 }
 
 /** Said when no grant carries this agent's code, and no wallet was ever paired with it. */
@@ -274,9 +276,19 @@ server.registerTool(
       "address alone, and do not tell the user to look at the tool output — they frequently " +
       "cannot see it. A QR code that stays in tool output is a QR code nobody can scan, and the " +
       "user is standing there holding a phone.",
-    inputSchema: {},
+    inputSchema: {
+      app: z.string().optional().describe("Who is asking, as the app you work for names itself, shown on the phone as the request's source"),
+      limit: z.string().optional().describe(`A limit to ask for, in ${COIN}, as a decimal string, e.g. "0.01", when the app you work for says what it needs`),
+      days: z.number().int().optional().describe("How many days to ask the allowance to last, when the app says"),
+      payees: z.array(z.string()).optional().describe("The only addresses the allowance should let you pay, when the app names them"),
+    },
   },
-  async () => {
+  async ({ app, limit, days, payees }) => {
+    // What the app this agent works for asks the wallet to grant. The person sees every part of it on
+    // the phone and can change it; a part that could not be read back is refused here, not printed.
+    const asked = requestFrom({ app, limit, days, payees });
+    if ("problem" in asked) return text(`The code was not made: ${asked.problem} Ask again without it, or with it corrected.`);
+    const { request } = asked;
     let grant: Grant;
     try {
       grant = await findGrant(agent.address);
@@ -285,7 +297,7 @@ server.registerTool(
       // and it is what the user needs next. Only whether an allowance already exists could not be
       // checked, so the reply says exactly that and shows the code anyway.
       return text(
-        `${await pairingInstructions()}\n\n${unreachable(cause)} So whether this agent already has ` +
+        `${await showCode(request)}\n\n${unreachable(cause)} So whether this agent already has ` +
           `an allowance could not be checked. If you have granted one, ask me again in a moment.`,
       );
     }
@@ -299,7 +311,7 @@ server.registerTool(
             : `\n\nOne thing left before it can spend.\n\n${bundlerSetupInstructions()}`) +
           `\n\nTo move it to a different wallet, the user scans the code below with New allowance ` +
           `from that wallet. Until they do, it keeps spending from this one.\n\n` +
-          `${await pairingInstructions()}`,
+          `${await showCode(request)}`,
       );
     }
     const preface = grant.status === "withdrawn"
@@ -308,7 +320,7 @@ server.registerTool(
         ? `This agent was paired before allowances carried a pairing code, so its allowance from ` +
           `wallet ${walletName(grant.legacy)} is not used. Scanning this code once fixes that.\n\n`
         : "";
-    return text(`${preface}${await pairingInstructions()}`);
+    return text(`${preface}${await showCode(request)}`);
   },
 );
 
@@ -425,7 +437,7 @@ async function identityLines(account: Address, allowance: Allowance): Promise<st
     `Identity: ERC-8004 agent #${outcome.agentId}, owned by wallet ${walletName(account)}` +
       (outcome.registered ? ", set up just now." : "."),
     `When a seller asks for your ERC-8004 agent id, for example as ?agent= when you start, give ` +
-      `${outcome.agentId}. What you earn is written to it, and a badge goes to wallet ${walletName(account)}.`,
+      `${outcome.agentId}. What you earn is written to it${NETWORK.contracts.cohortBadge !== undefined ? `, and a badge goes to wallet ${walletName(account)}` : ""}.`,
   ];
 }
 
@@ -445,14 +457,14 @@ server.registerTool(
     return text(
       [
         `Spending from wallet ${walletName(account)} (${account})`,
-        `  limit      ${allowance.limit} USDC`,
-        `  spent      ${allowance.spent} USDC`,
-        `  remaining  ${allowance.remaining} USDC`,
-        `  wallet     ${allowance.walletBalance} USDC`,
+        `  limit      ${allowance.limit} ${COIN}`,
+        `  spent      ${allowance.spent} ${COIN}`,
+        `  remaining  ${allowance.remaining} ${COIN}`,
+        `  wallet     ${allowance.walletBalance} ${COIN}`,
         "",
         // The number to plan against. Three things bound a payment and the allowance is only one
         // of them, so reporting it alone is how an agent promises a purchase it cannot make.
-        `  spendable now: ${allowance.spendable} USDC`,
+        `  spendable now: ${allowance.spendable} ${COIN}`,
         ...(allowance.expired
           ? ["", "This allowance has expired, so nothing can be spent until it is granted again."]
           : allowance.notYet
@@ -496,7 +508,7 @@ function paymentCall(to: Address, value: bigint, rail: Allowance["rail"]): Payme
   if (value % NATIVE_PER_ERC20 !== 0n) {
     return {
       problem:
-        `Nothing was sent. ${formatEther(value)} USDC is finer than this allowance can pay — it ` +
+        `Nothing was sent. ${formatEther(value)} ${COIN} is finer than this allowance can pay — it ` +
         `settles in millionths of a dollar. Round the amount and try again.`,
     };
   }
@@ -516,13 +528,13 @@ server.registerTool(
   {
     title: "Pay for something",
     description:
-      "Sends USDC on Arc from the user's wallet, within the allowance they granted. The limit is " +
+      `Sends ${COIN} on ${NETWORK.name} from the user's wallet, within the allowance they granted. The limit is ` +
       "enforced by the chain, not by you: a payment over the allowance, or after it has been " +
       "revoked or has expired, is refused and moves no money. Never ask the user to raise a limit " +
       "mid-task; report the refusal and let them decide.",
     inputSchema: {
       to: z.string().describe("Recipient address (0x…)"),
-      amount: z.string().describe("Amount in USDC, as a decimal string, e.g. \"2.50\""),
+      amount: z.string().describe(`Amount in ${COIN}, as a decimal string, e.g. "2.50"`),
       reason: z.string().optional().describe("What this buys, said back in the reply so the user can match it to the payment"),
     },
   },
@@ -547,9 +559,9 @@ server.registerTool(
       // Which bound was hit changes what the user should do about it, so say which.
       const walletIsTheLimit = allowance.walletBalanceWei < allowance.remainingWei;
       return text(
-        `Refused before sending: ${usd(value)} exceeds the ${allowance.spendable} USDC available. ` +
+        `Refused before sending: ${inCoin(value)} exceeds the ${allowance.spendable} ${COIN} available. ` +
           (walletIsTheLimit
-            ? `The allowance permits ${allowance.remaining} USDC but the wallet only holds ` +
+            ? `The allowance permits ${allowance.remaining} ${COIN} but the wallet only holds ` +
               `${allowance.walletBalance}, so the wallet is the limit — the user needs to add funds, ` +
               `not raise the allowance.`
             : `That is the allowance's remaining limit. Ask the user to raise it if this purchase ` +
@@ -573,9 +585,9 @@ server.registerTool(
       );
     }
     return text(
-      `Paid ${usd(value)} to ${to}${reason ? ` for ${reason}` : ""}, from wallet ${walletName(account)}.\n` +
+      `Paid ${inCoin(value)} to ${to}${reason ? ` for ${reason}` : ""}, from wallet ${walletName(account)}.\n` +
         `Transaction ${result.hash}\n` +
-        `Remaining after this: about ${formatEther(allowance.remainingWei - value)} USDC.`,
+        `Remaining after this: about ${formatEther(allowance.remainingWei - value)} ${COIN}.`,
     );
   },
 );
@@ -657,137 +669,143 @@ async function fundEscrow({ account, allowance, needed }: EscrowRequest): Promis
   return { ok: true, toppedUp: shortfall };
 }
 
-server.registerTool(
-  "buy",
-  {
-    title: "Buy something from a web address",
-    description:
-      "Fetches a URL and pays if it answers 402 Payment Required, using the x402 protocol. Use " +
-      "this for paid APIs and paid pages rather than telling the user you cannot access them. " +
-      "The same allowance bounds this and the chain enforces it, so an over-budget purchase is " +
-      "refused and moves no money. Report a refusal; never ask for a bigger budget mid-task.",
-    inputSchema: {
-      url: z.string().describe("The address to fetch, e.g. https://api.example.com/report"),
-      method: z.string().optional().describe("HTTP method, default GET"),
-      reason: z.string().optional().describe("What this buys, said back in the reply so the user can match it to the payment"),
+/**
+ * Buying from the open web pays x402 sellers from an escrow at Circle's Gateway, which only some networks
+ * have. Where there is none the two tools are not offered at all, so an agent is never shown one it cannot use.
+ */
+if (NETWORK.contracts.gatewayWallet !== undefined) {
+  server.registerTool(
+    "buy",
+    {
+      title: "Buy something from a web address",
+      description:
+        "Fetches a URL and pays if it answers 402 Payment Required, using the x402 protocol. Use " +
+        "this for paid APIs and paid pages rather than telling the user you cannot access them. " +
+        "The same allowance bounds this and the chain enforces it, so an over-budget purchase is " +
+        "refused and moves no money. Report a refusal; never ask for a bigger budget mid-task.",
+      inputSchema: {
+        url: z.string().describe("The address to fetch, e.g. https://api.example.com/report"),
+        method: z.string().optional().describe("HTTP method, default GET"),
+        reason: z.string().optional().describe("What this buys, said back in the reply so the user can match it to the payment"),
+      },
     },
-  },
-  async ({ url, method = "GET", reason }) => {
-    const { account, allowance } = await requireMandate();
-    let toppedUp = 0n;
+    async ({ url, method = "GET", reason }) => {
+      const { account, allowance } = await requireMandate();
+      let toppedUp = 0n;
 
-    let outcome: BuyOutcome;
-    try {
-      outcome = await fetchWithPayment({
-        url,
-        method,
-        agent,
-        ensureFunds: async (needed: bigint): Promise<Funding> => {
-          const funded = await fundEscrow({ account, allowance, needed });
-          if (funded.ok) toppedUp = funded.toppedUp;
-          return funded;
-        },
-      });
-    } catch (cause) {
-      // Only asking the price can throw here. The request carrying a payment is caught inside,
-      // where whether the seller took it is unknown rather than impossible.
-      return text(
-        `Nothing was bought and nothing was spent. ${url} did not answer: ` +
-          `${cause instanceof Error ? cause.message : String(cause)}`,
-      );
-    }
-
-    if (!outcome.paid) {
-      if (outcome.perhapsCharged === true && outcome.amount !== undefined) {
-        // Counted as spent until the escrow says otherwise, which errs toward topping up.
-        escrow.claimed(outcome.amount);
-        return text(outcome.problem ?? SELLER_WENT_QUIET);
-      }
-      if (outcome.problem !== undefined) {
-        return text(`Nothing was bought and nothing was spent. ${outcome.problem}`);
-      }
-      if (outcome.response.status !== 402) {
-        // Never needed paying — an ordinary page, or an ordinary error.
-        const body = await outcome.response.text();
+      let outcome: BuyOutcome;
+      try {
+        outcome = await fetchWithPayment({
+          url,
+          method,
+          agent,
+          ensureFunds: async (needed: bigint): Promise<Funding> => {
+            const funded = await fundEscrow({ account, allowance, needed });
+            if (funded.ok) toppedUp = funded.toppedUp;
+            return funded;
+          },
+        });
+      } catch (cause) {
+        // Only asking the price can throw here. The request carrying a payment is caught inside,
+        // where whether the seller took it is unknown rather than impossible.
         return text(
-          `${outcome.response.status} ${outcome.response.statusText}, no payment required.\n\n` +
-            body.slice(0, 4000),
+          `Nothing was bought and nothing was spent. ${url} did not answer: ` +
+            `${cause instanceof Error ? cause.message : String(cause)}`,
         );
       }
-      const detail = outcome.settlement?.errorReason ?? outcome.settlement?.error;
+
+      if (!outcome.paid) {
+        if (outcome.perhapsCharged === true && outcome.amount !== undefined) {
+          // Counted as spent until the escrow says otherwise, which errs toward topping up.
+          escrow.claimed(outcome.amount);
+          return text(outcome.problem ?? SELLER_WENT_QUIET);
+        }
+        if (outcome.problem !== undefined) {
+          return text(`Nothing was bought and nothing was spent. ${outcome.problem}`);
+        }
+        if (outcome.response.status !== 402) {
+          // Never needed paying — an ordinary page, or an ordinary error.
+          const body = await outcome.response.text();
+          return text(
+            `${outcome.response.status} ${outcome.response.statusText}, no payment required.\n\n` +
+              body.slice(0, 4000),
+          );
+        }
+        const detail = outcome.settlement?.errorReason ?? outcome.settlement?.error;
+        return text(
+          `The seller refused the payment${detail ? `: ${detail}` : ""}. The agent's escrow was not ` +
+            `charged — a payment that is not settled moves nothing.`,
+        );
+      }
+
+      // Accepted into a batch. The chain will not show it for about a quarter of an hour, so the
+      // ledger carries it until then — otherwise the next purchase reads escrow that is already spent.
+      escrow.claimed(outcome.amount);
+
+      const body = await outcome.response.text();
+      if (!outcome.delivered) {
+        return text(
+          `Paid ${online(outcome.amount)} to ${outcome.payTo} from the agent's escrow, but the seller ` +
+            `answered ${outcome.response.status} ${outcome.response.statusText} instead of delivering. ` +
+            `The payment was taken, so do not retry as though it was not. Tell the user, and pass on ` +
+            `what the seller said, which names the payment:\n\n${body.slice(0, 4000)}`,
+        );
+      }
       return text(
-        `The seller refused the payment${detail ? `: ${detail}` : ""}. The agent's escrow was not ` +
-          `charged — a payment that is not settled moves nothing.`,
+        [
+          `Bought ${online(outcome.amount)} from ${outcome.payTo}${reason ? ` for ${reason}` : ""}, ` +
+            `paid from the agent's escrow, which wallet ${walletName(account)} funds.`,
+          toppedUp > 0n
+            ? `Moved ${online(toppedUp)} from wallet ${walletName(account)} into the agent's escrow first.`
+            : null,
+          "",
+          body.slice(0, 4000),
+        ].filter((line) => line !== null).join("\n"),
       );
-    }
-
-    // Accepted into a batch. The chain will not show it for about a quarter of an hour, so the
-    // ledger carries it until then — otherwise the next purchase reads escrow that is already spent.
-    escrow.claimed(outcome.amount);
-
-    const body = await outcome.response.text();
-    if (!outcome.delivered) {
-      return text(
-        `Paid ${online(outcome.amount)} to ${outcome.payTo} from the agent's escrow, but the seller ` +
-          `answered ${outcome.response.status} ${outcome.response.statusText} instead of delivering. ` +
-          `The payment was taken, so do not retry as though it was not. Tell the user, and pass on ` +
-          `what the seller said, which names the payment:\n\n${body.slice(0, 4000)}`,
-      );
-    }
-    return text(
-      [
-        `Bought ${online(outcome.amount)} from ${outcome.payTo}${reason ? ` for ${reason}` : ""}, ` +
-          `paid from the agent's escrow, which wallet ${walletName(account)} funds.`,
-        toppedUp > 0n
-          ? `Moved ${online(toppedUp)} from wallet ${walletName(account)} into the agent's escrow first.`
-          : null,
-        "",
-        body.slice(0, 4000),
-      ].filter((line) => line !== null).join("\n"),
-    );
-  },
-);
-
-server.registerTool(
-  "top_up",
-  {
-    title: "Move money into the agent's escrow ahead of time",
-    description:
-      "Pre-funds the agent's online escrow so later purchases do not each need a top-up first. " +
-      "Only worth doing before a run of small payments — `buy` tops up on its own when it has to. " +
-      "Money in escrow is committed to this agent and can only leave as a payment or a delayed " +
-      "withdrawal, so top up what the task needs, not what the budget allows.",
-    inputSchema: {
-      amount: z.string().describe("Amount in USDC, as a decimal string, e.g. \"0.50\""),
     },
-  },
-  async ({ amount }) => {
-    const { account, allowance } = await requireMandate();
-    if (!DECIMAL.test(amount)) {
-      return text(`Nothing was moved. "${amount}" is not an amount; give it as a plain decimal, like 0.50.`);
-    }
-    const wanted = parseUnits(amount, 6);
-    if (wanted <= 0n) throw new Error("Amount must be positive.");
+  );
 
-    // Added to what is *spendable*, not to what the chain shows. Against the chain's figure this
-    // asks for whatever has not settled all over again, and escrow only leaves as a payment or a
-    // delayed withdrawal — so the overshoot is money locked up for no reason.
-    let held: bigint;
-    try {
-      held = await spendableEscrow();
-    } catch (cause) {
-      return text(`Nothing was moved. ${unreachable(cause)}`);
-    }
-    const funded = await fundEscrow({ account, allowance, needed: held + wanted });
-    if (!funded.ok) return text(`Nothing was moved. ${funded.reason}`);
-    const holds = await spendableEscrow().then(online, () => null);
-    return text(
-      `Moved ${online(funded.toppedUp)} from wallet ${walletName(account)} into the agent's escrow. ` +
-        (holds === null
-          ? "Its new balance could not be read just now."
-          : `It now holds ${holds}, spendable on the web without further approval.`),
-    );
-  },
-);
+  server.registerTool(
+    "top_up",
+    {
+      title: "Move money into the agent's escrow ahead of time",
+      description:
+        "Pre-funds the agent's online escrow so later purchases do not each need a top-up first. " +
+        "Only worth doing before a run of small payments — `buy` tops up on its own when it has to. " +
+        "Money in escrow is committed to this agent and can only leave as a payment or a delayed " +
+        "withdrawal, so top up what the task needs, not what the budget allows.",
+      inputSchema: {
+        amount: z.string().describe("Amount in USDC, as a decimal string, e.g. \"0.50\""),
+      },
+    },
+    async ({ amount }) => {
+      const { account, allowance } = await requireMandate();
+      if (!DECIMAL.test(amount)) {
+        return text(`Nothing was moved. "${amount}" is not an amount; give it as a plain decimal, like 0.50.`);
+      }
+      const wanted = parseUnits(amount, 6);
+      if (wanted <= 0n) throw new Error("Amount must be positive.");
+
+      // Added to what is *spendable*, not to what the chain shows. Against the chain's figure this
+      // asks for whatever has not settled all over again, and escrow only leaves as a payment or a
+      // delayed withdrawal — so the overshoot is money locked up for no reason.
+      let held: bigint;
+      try {
+        held = await spendableEscrow();
+      } catch (cause) {
+        return text(`Nothing was moved. ${unreachable(cause)}`);
+      }
+      const funded = await fundEscrow({ account, allowance, needed: held + wanted });
+      if (!funded.ok) return text(`Nothing was moved. ${funded.reason}`);
+      const holds = await spendableEscrow().then(online, () => null);
+      return text(
+        `Moved ${online(funded.toppedUp)} from wallet ${walletName(account)} into the agent's escrow. ` +
+          (holds === null
+            ? "Its new balance could not be read just now."
+            : `It now holds ${holds}, spendable on the web without further approval.`),
+      );
+    },
+  );
+}
 
 await server.connect(new StdioServerTransport());

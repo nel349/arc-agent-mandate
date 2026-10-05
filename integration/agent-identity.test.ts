@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { chmodSync, mkdirSync, mkdtempSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { loadOrCreateAgent } from "@kuiralabs/mandate-core/node";
 
 /**
  * The agent's identity must not change by accident.
@@ -12,13 +13,9 @@ import { join } from "node:path";
  * and the only visible symptom is that nothing works. The original code treated any read failure
  * as "no key yet" and generated a replacement, so a truncated file was enough to trigger it.
  *
- * Each case loads the module afresh: the key path is read once, at import.
+ * The key is kept by the core package's Node add-on, which the connector calls with its key path.
  */
-const withKeyPath = async (path: string) => {
-  process.env.ARC_MANDATE_KEY_PATH = path;
-  const mod = await import(`../mcp/identity.ts?case=${encodeURIComponent(path)}`);
-  return mod.loadOrCreateAgent;
-};
+const withKeyPath = async (path: string) => () => loadOrCreateAgent(path);
 
 const scratch = () => mkdtempSync(join(tmpdir(), "arc-identity-"));
 

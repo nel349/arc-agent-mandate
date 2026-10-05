@@ -62,7 +62,40 @@ export interface Theme {
   readonly color: Palette;
 }
 
-export type ThemeId = "machine" | "arc";
+export type ThemeId = "cipher" | "machine" | "arc";
+
+/**
+ * Graphite, the wallet's own look: near-black with a cool cast, ink in place of colour, so that the
+ * only hue on screen is a network's, on its allowance cards. Quiet on purpose; what is unusual about
+ * it is the type, the squared corners and the cards printed like key listings, not the colour.
+ *
+ * `muted` and `dim` are measured against `groundHigh`, the lightest stop, as the others are: about
+ * 7.9:1 and 5.6:1.
+ */
+const cipher: Theme = {
+  id: "cipher",
+  name: "Graphite",
+  note: "Ink on near-black; colour only for a network",
+  color: {
+    groundHigh: "#17191B",
+    groundMid: "#0E1011",
+    groundLow: "#07080A",
+    paper: "#E6E8E6",
+    muted: "#A9AEAD",
+    dim: "#8E9392",
+    glass: "rgba(230, 232, 230, 0.035)",
+    specular: "rgba(255, 255, 255, 0.18)",
+    hairline: "rgba(230, 232, 230, 0.12)",
+    signal: "#E39B5B",
+    untested: "#9DB3C4",
+    good: "#7FC4A0",
+    track: "#22262A",
+    warn: "#E8B44A",
+    actionFill: "#E6E8E6",
+    actionText: "#0B0C0D",
+    blurTint: "dark",
+  },
+};
 
 /** Warm charcoal, the web's own ground. Reads as equipment rather than software. */
 const machine: Theme = {
@@ -122,9 +155,9 @@ const arc: Theme = {
   },
 };
 
-export const THEMES: readonly Theme[] = [machine, arc];
-export const DEFAULT_THEME_ID: ThemeId = "machine";
+export const THEMES: readonly Theme[] = [cipher, machine, arc];
+export const DEFAULT_THEME_ID: ThemeId = "cipher";
 
 export function themeById(id: string | null): Theme {
-  return THEMES.find((t) => t.id === id) ?? machine;
+  return THEMES.find((t) => t.id === id) ?? cipher;
 }

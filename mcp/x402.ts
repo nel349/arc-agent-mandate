@@ -104,7 +104,7 @@ function isPayableOn(network: string, value: unknown): value is PaymentOption {
     && typeof value["payTo"] === "string"
     && typeof value["amount"] === "string";
 }
-import { arc } from "./chain.ts";
+import { chain } from "./chain.ts";
 import { GATEWAY_WALLET, USDC_ERC20_VIEW } from "./gateway.ts";
 
 /**
@@ -164,7 +164,7 @@ export function payableOption(
   if (!Array.isArray(accepts) || accepts.length === 0) {
     return { ok: false, reason: "The seller returned 402 without saying what it accepts." };
   }
-  const network = `eip155:${arc.id}`;
+  const network = `eip155:${chain.id}`;
   const option = accepts.find((o): o is PaymentOption => isPayableOn(network, o));
   if (option) return { ok: true, option };
 
@@ -205,7 +205,7 @@ export async function signPayment(
     domain: {
       name: "GatewayWalletBatched",
       version: "1",
-      chainId: arc.id,
+      chainId: chain.id,
       verifyingContract: getAddress(option.extra.verifyingContract),
     },
     types: AUTHORIZATION_TYPES,

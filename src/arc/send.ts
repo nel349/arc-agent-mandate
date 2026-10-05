@@ -1,7 +1,8 @@
 import { type Address, type Hash } from "viem";
 import { getUserOperationGasPrice } from "@circle-fin/modular-wallets-core";
-import { Usdc } from "./usdc.ts";
-import { arcPublicClient } from "./client.ts";
+import { Amount } from "./amount.ts";
+import { ARC_TESTNET, type NetworkProfile } from "@kuiralabs/mandate-core";
+import { clientFor } from "./client.ts";
 // Type-only: erased at runtime, so this file never loads the passkey shim.
 import type { ArcAccount } from "./account.ts";
 
@@ -16,7 +17,7 @@ import type { ArcAccount } from "./account.ts";
  *   - **ERC-20 transfer** — via `0x3600…`, 6 decimals. Needed only when the recipient is a
  *     contract expecting an ERC-20 `Transfer`, and it **truncates** sub-cent amounts.
  *
- * Both move the same balance. See `usdc.ts` for why mixing the scales is the trap this
+ * Both move the same balance. See `amount.ts` for why mixing the scales is the trap this
  * codebase is built to make unavailable.
  */
 
@@ -29,7 +30,7 @@ export class ArcSendError extends Error {
 
 export interface SendRequest {
   readonly to: Address;
-  readonly amount: Usdc;
+  readonly amount: Amount;
 }
 
 /**
@@ -97,11 +98,11 @@ export async function waitForSend(account: ArcAccount, userOpHash: Hash): Promis
 }
 
 /**
- * The account's balance, read straight from Arc — no bundler, no Circle.
+ * The account's balance, read straight from the network's node — no bundler, no Circle.
  *
- * Deliberately the **native** balance rather than `balanceOf`: the ERC-20 view truncates below
- * 1e-6 USDC, so it can report zero for an account that holds money.
+ * Deliberately the **native** balance rather than `balanceOf`: on Arc the ERC-20 view truncates below
+ * 1e-6 USDC, so it can report zero for an account that holds money. On Monad the coin is MON itself.
  */
-export async function balanceOf(address: Address): Promise<Usdc> {
-  return Usdc.fromNativeUnits(await arcPublicClient.getBalance({ address }));
+export async function balanceOf(address: Address, network: NetworkProfile = ARC_TESTNET): Promise<Amount> {
+  return Amount.fromNativeUnits(await clientFor(network).getBalance({ address }));
 }

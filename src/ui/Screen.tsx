@@ -6,6 +6,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTabBarHeight } from "./TabBarInsets.tsx";
 import { useTheme } from "./theme-context.tsx";
+import { Gradient } from "./gradient.ts";
 import { tokens } from "./tokens.ts";
 
 /**
@@ -24,24 +25,6 @@ import { tokens } from "./tokens.ts";
  * every screen was a few dozen points too tall and scrolled with nothing to reveal. Now the content
  * is as tall as what is in it, and iOS's rubber band is off, so a screen that fits sits still.
  */
-
-/**
- * `expo-linear-gradient` is native, so a build that predates it has no module to load. Required
- * behind a guard rather than imported, because a static import fails at module scope where nothing
- * can catch it — and this component is the root of every screen, so that failure is the whole app.
- *
- * Without it the ground is a flat fill: the light is gone and the glass reads flatter, but every
- * screen still works.
- */
-const Gradient: null | ((props: Record<string, unknown>) => ReactNode) = (() => {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    return require("expo-linear-gradient").LinearGradient;
-  } catch {
-    console.warn("[ui] expo-linear-gradient unavailable — flat ground. Rebuild the dev client.");
-    return null;
-  }
-})();
 
 /** Fully transparent, as an eight-digit hex the gradient can blend from without passing through grey. */
 const CLEAR = "00";

@@ -9,8 +9,8 @@ import {
   buildChangeCallData, buildGrantPlan, keyIsGone, meterInForce, SESSION_KEY_PLUGIN,
   SESSION_KEY_PLUGIN_MANIFEST_HASH, type MandateTerms,
 } from "./mandate.ts";
-import { Usdc } from "./usdc.ts";
-import { pairingTag } from "../../mcp/pairing.ts";
+import { Amount } from "./amount.ts";
+import { MONAD_TESTNET, pairingTag } from "@kuiralabs/mandate-core";
 
 /**
  * These two constants are the SDK's only hard links to the deployed contract. If either drifts,
@@ -44,7 +44,7 @@ test("the plugin address matches where CREATE2 will put it", () => {
 
 const AGENT = "0x1f940d717c07c0ff7289771e61da39fd6143F107" as const;
 const terms = (extra: Partial<MandateTerms> = {}): MandateTerms => ({
-  agent: AGENT, limit: Usdc.parse("10"), payees: [], ...extra,
+  agent: AGENT, limit: Amount.parse("10"), payees: [], ...extra,
 });
 
 /**
@@ -130,8 +130,8 @@ test("the management half is bare calldata, with nowhere to nest it", () => {
 });
 
 test("a grant that allows nothing is refused", () => {
-  assert.throws(() => buildGrantPlan(terms({ limit: Usdc.ZERO }), true), /allow something/);
-  assert.throws(() => buildGrantPlan(terms({ limit: Usdc.parse("-5") }), true), /allow something/);
+  assert.throws(() => buildGrantPlan(terms({ limit: Amount.ZERO }), true), /allow something/);
+  assert.throws(() => buildGrantPlan(terms({ limit: Amount.parse("-5") }), true), /allow something/);
 });
 
 /**
@@ -236,7 +236,7 @@ test("a scoped allowance names its payees and the identity setup, never the USDC
 test("scoping a live mandate takes the USDC view and the Gateway off the list, not only their limit", () => {
   const { args } = decodeFunctionData({
     abi: changeAbi,
-    data: buildChangeCallData(AGENT, { limit: Usdc.parse("10"), rail: "erc20", addPayees: [PAYEE] }),
+    data: buildChangeCallData(AGENT, { limit: Amount.parse("10"), rail: "erc20", addPayees: [PAYEE] }),
   });
   assert.equal(args[0], getAddress(AGENT));
   assert.deepEqual(readPermissions(args[1]), [
@@ -292,7 +292,7 @@ test("naming payees in a change scopes the mandate rather than blocking them", (
 });
 
 test("a change that names no payees does not touch the access list type", () => {
-  const data = buildChangeCallData(AGENT, { limit: Usdc.parse("5"), rail: "erc20" }).toLowerCase();
+  const data = buildChangeCallData(AGENT, { limit: Amount.parse("5"), rail: "erc20" }).toLowerCase();
   assert.ok(!data.includes("8f2920d8"), "an unrelated change silently re-scoped the mandate");
 });
 
@@ -336,7 +336,7 @@ test("a scoped allowance is metered natively, where naming payees means somethin
  */
 test("an unscoped limit is written at ERC-20 scale, not native scale", () => {
   const data = buildGrantPlan(
-    terms({ payees: [], limit: Usdc.parse("5") }), true,
+    terms({ payees: [], limit: Amount.parse("5") }), true,
   ).management.toLowerCase();
   const call = data.slice(data.indexOf(SET_ERC20_LIMIT));
   const [, limit] = decodeAbiParameters(
@@ -349,7 +349,7 @@ test("an unscoped limit is written at ERC-20 scale, not native scale", () => {
 test("a scoped limit stays at native scale", () => {
   const payee = "0x2222222222222222222222222222222222222222" as const;
   const data = buildGrantPlan(
-    terms({ payees: [payee], limit: Usdc.parse("5") }), true,
+    terms({ payees: [payee], limit: Amount.parse("5") }), true,
   ).management.toLowerCase();
   const call = data.slice(data.indexOf(SET_NATIVE_LIMIT));
   const [limit] = decodeAbiParameters(parseAbiParameters("uint256, uint48"), `0x${call.slice(8, 8 + 128)}`);
@@ -360,7 +360,7 @@ test("an unscoped limit too small for its rail is refused, not silently rounded 
   // Native scale can express it and the rail cannot, so it would grant a live-looking mandate
   // that refuses every payment — the exact failure ArcPayeeScope was written about.
   assert.throws(
-    () => buildGrantPlan(terms({ payees: [], limit: Usdc.parse("0.0000001") }), true),
+    () => buildGrantPlan(terms({ payees: [], limit: Amount.parse("0.0000001") }), true),
     /cannot be expressed/,
   );
 });
@@ -373,19 +373,19 @@ test("an unscoped limit too small for its rail is refused, not silently rounded 
  */
 test("changing a limit without saying which rail is refused rather than guessed", () => {
   assert.throws(
-    () => buildChangeCallData(AGENT, { limit: Usdc.parse("10") }),
+    () => buildChangeCallData(AGENT, { limit: Amount.parse("10") }),
     /which rail/,
   );
 });
 
 test("a limit change on an unscoped mandate moves the ERC-20 meter", () => {
-  const data = buildChangeCallData(AGENT, { limit: Usdc.parse("10"), rail: "erc20" }).toLowerCase();
+  const data = buildChangeCallData(AGENT, { limit: Amount.parse("10"), rail: "erc20" }).toLowerCase();
   assert.ok(data.includes(SET_ERC20_LIMIT));
   assert.ok(!data.includes(SET_NATIVE_LIMIT));
 });
 
 test("a limit change on a scoped mandate moves the native meter", () => {
-  const data = buildChangeCallData(AGENT, { limit: Usdc.parse("10"), rail: "native" }).toLowerCase();
+  const data = buildChangeCallData(AGENT, { limit: Amount.parse("10"), rail: "native" }).toLowerCase();
   assert.ok(data.includes(SET_NATIVE_LIMIT));
   assert.ok(!data.includes(SET_ERC20_LIMIT));
 });
@@ -398,7 +398,7 @@ test("a limit change on a scoped mandate moves the native meter", () => {
 test("scoping a previously unscoped mandate turns off the rail it is leaving", () => {
   const payee = "0x2222222222222222222222222222222222222222" as const;
   const data = buildChangeCallData(AGENT, {
-    limit: Usdc.parse("10"), rail: "erc20", addPayees: [payee],
+    limit: Amount.parse("10"), rail: "erc20", addPayees: [payee],
   }).toLowerCase();
   assert.ok(data.includes(SET_NATIVE_LIMIT), "the new meter");
   const disable = data.slice(data.indexOf(SET_ERC20_LIMIT));
@@ -523,4 +523,32 @@ test("any other revert from the plugin still counts as a failure", async () => {
 test("a network that did not answer is a failure, not a gone key", () => {
   assert.equal(keyIsGone(new Error("fetch failed")), false);
   assert.equal(keyIsGone(null), false);
+});
+
+/**
+ * On Monad the wallet grants on the coin itself, MON, which has no ERC-20 view, and Circle's Gateway is
+ * not there, so a grant names no escrow either way. What it allows besides paying is the agent's own
+ * identity, at the same registry address as on Arc. Asserted in full and in order, as above.
+ */
+test("on Monad a grant meters MON, allows the agent's identity, and names no escrow or ERC-20 view, payees or none", () => {
+  const onMonad = (grant: MandateTerms): Permission[] =>
+    readPermissions(decodeFunctionData({ abi: grantAbi, data: buildGrantPlan(grant, true, MONAD_TESTNET).management }).args[2]);
+  const limit = Amount.parse("0.25");
+  assert.deepEqual(onMonad(terms({ payees: [], limit })), [
+    ["setAccessListType", ALLOWLIST],
+    ["setNativeTokenSpendLimit", limit.toNativeUnits(), 0],
+    ...IDENTITY_SETUP,
+    ["setGasSpendLimit", GAS_CEILING, 0],
+  ]);
+  assert.deepEqual(onMonad(terms({ payees: [PAYEE], limit })), [
+    ["setAccessListType", ALLOWLIST],
+    ["updateAccessListAddressEntry", PAYEE, true, false],
+    ["setNativeTokenSpendLimit", limit.toNativeUnits(), 0],
+    ...IDENTITY_SETUP,
+    ["setGasSpendLimit", GAS_CEILING, 0],
+  ]);
+});
+
+test("on Monad a limit finer than USDC's six decimals is fine, since MON has no ERC-20 view to truncate it", () => {
+  assert.doesNotThrow(() => buildGrantPlan(terms({ payees: [], limit: Amount.parse("0.0000001") }), true, MONAD_TESTNET));
 });

@@ -6,13 +6,13 @@ import {
   parseFeed, serializeFeed, type Activity, type Feed,
 } from "./activity.ts";
 import { explorerTxUrl } from "./chain.ts";
-import { Usdc } from "./usdc.ts";
+import { Amount } from "./amount.ts";
 
 const AGENT = "0x3535816e967Ad2B6271dfadf9138fb07eAB161Ce";
 const hash = (n: number) => `0x${n.toString(16).padStart(64, "0")}` as const;
 
 const draw = (block: bigint, logIndex = 0, amount = "0.001"): Activity => ({
-  kind: "draw", agent: AGENT, amount: Usdc.parse(amount), at: 1_789_067_422, block, tx: hash(Number(block)), logIndex,
+  kind: "draw", agent: AGENT, amount: Amount.parse(amount), at: 1_789_067_422, block, tx: hash(Number(block)), logIndex,
 });
 
 test("a first read covers the last day, newest window first, each within the RPC's cap", () => {
@@ -93,7 +93,7 @@ test("a stored feed reads back as it was written", () => {
   assert.deepEqual(back.coverage, feed.coverage);
   assert.equal(back.since, feed.since);
   assert.equal(back.items.length, 2);
-  assert.equal(back.items[0]?.amount?.toNativeUnits(), Usdc.parse("0.001").toNativeUnits());
+  assert.equal(back.items[0]?.amount?.toNativeUnits(), Amount.parse("0.001").toNativeUnits());
   assert.equal(back.items[1]?.kind, "granted");
 });
 
@@ -156,7 +156,7 @@ test("a payment with nobody to name, or no amount, is not shown rather than show
 
 test("a payment reads back from the store with its payee, and one stored without a payee is dropped", () => {
   const paid: Activity = {
-    kind: "paid", agent: AGENT, amount: Usdc.parse("0.01"), to: OWNER, at: 1_789_100_000,
+    kind: "paid", agent: AGENT, amount: Amount.parse("0.01"), to: OWNER, at: 1_789_100_000,
     block: 61_632_911n, tx: hash(1), logIndex: 101,
   };
   const feed: Feed = { coverage: { low: 61_000_000n, high: 61_700_000n }, items: [paid], since: null };

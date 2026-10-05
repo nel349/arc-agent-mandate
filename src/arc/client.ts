@@ -1,4 +1,5 @@
-import { createPublicClient, custom, http, HttpRequestError, type Address, type EIP1193RequestFn } from "viem";
+import { createPublicClient, custom, http, HttpRequestError, type Address, type Chain, type EIP1193RequestFn, type PublicClient } from "viem";
+import { ARC_TESTNET, chainOf, type NetworkProfile } from "@kuiralabs/mandate-core";
 import { arcTestnet } from "./chain.ts";
 import { arcRpcUrl, asksForARange, PUBLIC_ARC_RPC } from "./endpoint.ts";
 
@@ -76,8 +77,29 @@ export const arcPublicClient = createPublicClient({
 });
 
 /** Whether the account contract exists yet. False before the first user operation is expected. */
-export async function isDeployed(address: Address): Promise<boolean> {
-  const code = await arcPublicClient.getCode({ address });
+/**
+ * A network as viem describes it: Arc as viem itself publishes it, with its fallback endpoints and
+ * multicall, and any other network from its profile in the core.
+ */
+export const chainFor = (network: NetworkProfile): Chain =>
+  network.chainId === ARC_TESTNET.chainId ? arcTestnet : chainOf(network);
+
+/** A client per network, made once: Arc's is the one above, with its own endpoint and its fallback for history. */
+const clients = new Map<number, PublicClient>();
+
+/** The client that reads a network: Arc's own, or one for any other network from its profile. */
+export function clientFor(network: NetworkProfile): PublicClient {
+  if (network.chainId === ARC_TESTNET.chainId) return arcPublicClient as PublicClient;
+  const made = clients.get(network.chainId);
+  if (made !== undefined) return made;
+  const client = createPublicClient({ chain: chainFor(network), transport: http(network.rpc) }) as PublicClient;
+  clients.set(network.chainId, client);
+  return client;
+}
+
+/** Whether a contract has code on a network: Arc unless another is named. */
+export async function isDeployed(address: Address, network: NetworkProfile = ARC_TESTNET): Promise<boolean> {
+  const code = await clientFor(network).getCode({ address });
   return code !== undefined && code !== "0x";
 }
 

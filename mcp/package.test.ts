@@ -29,6 +29,8 @@ const manifest = JSON.parse(readFileSync(join(here, "package.json"), "utf8")) as
 const TOOLS = ["buy", "check_allowance", "get_pairing_address", "pay", "top_up"];
 
 test("the published build starts, and offers the five tools", async () => {
+  // the core first, as publishing has to: the published connector imports the published core
+  execFileSync(join(here, "..", "node_modules", ".bin", "tsc"), ["-p", join(here, "..", "packages", "core", "tsconfig.build.json")]);
   execFileSync(join(here, "..", "node_modules", ".bin", "tsc"), ["-p", join(here, "tsconfig.build.json")]);
 
   const entry = manifest.bin["arc-mandate"];

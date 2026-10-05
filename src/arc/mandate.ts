@@ -1,16 +1,18 @@
 import { circleEscrow } from "../../mcp/gateway-balance.ts";
 import {
-  BaseError, ContractFunctionRevertedError, encodeAbiParameters, encodeFunctionData, keccak256,
-  parseAbi, parseAbiItem, parseAbiParameters, parseEventLogs, toFunctionSelector, toHex,
+  BaseError, ContractFunctionRevertedError, encodeFunctionData,
+  parseAbi, parseAbiItem, parseEventLogs, toFunctionSelector,
   type Address, type Hash, type Hex, type Log,
 } from "viem";
 import { getUserOperationGasPrice } from "@circle-fin/modular-wallets-core";
-import { arcPublicClient, isDeployed } from "./client.ts";
+import { clientFor, isDeployed } from "./client.ts";
 import { ARC_CONTRACTS } from "./chain.ts";
 // Type-only: erased at runtime, so this file never loads the passkey shim.
 import type { ArcAccount } from "./account.ts";
-import { Usdc } from "./usdc.ts";
-import { pairingTag } from "../../mcp/pairing.ts";
+import { Amount } from "./amount.ts";
+import {
+  ARC_TESTNET, GrantError, grantCallData, identityCalls, sendCorrectingGas, type NetworkProfile, SESSION_KEY_PLUGIN_MANIFEST_HASH as CORE_MANIFEST_HASH, type GrantTerms,
+} from "@kuiralabs/mandate-core";
 
 /**
  * Granting, reading and revoking a mandate.
@@ -26,7 +28,7 @@ import { pairingTag } from "../../mcp/pairing.ts";
  *   over the same balance. A mandate with no payees meters everything, payments and escrow
  *   `approve`s alike, on the ERC-20 view and leaves the native limit at zero
  *   (`meterEverythingOnOneRail`). A mandate that names payees stays on the native rail, where
- *   naming them means something. See `permissionUpdates` and `usdc.ts`.
+ *   naming them means something. See `permissionUpdates` and `amount.ts`.
  * - **An allowlist of what an agent calls.** The key may reach the USDC view, the Gateway deposit
  *   and its own identity's two setup calls, and nothing else the wallet holds. See `IDENTITY_CALLS`.
  * - **Management is owner-only.** Granting, re-scoping and revoking each route to the account's
@@ -40,24 +42,19 @@ import { pairingTag } from "../../mcp/pairing.ts";
 export const SESSION_KEY_PLUGIN: Address = "0x669Dd1eDb85ABD00f74186d88124614EE81E6670";
 
 /**
- * The block the plugin was deployed in, on Arc testnet.
+ * The block the plugin was deployed in, on Arc testnet; each network's is in its profile.
  *
  * No grant, and so no payment under one, can be older, which makes it the honest floor for any
- * search of the plugin's history. The connector keeps the same figure in `mcp/chain.ts`.
+ * search of the plugin's history.
  */
-export const SESSION_KEY_PLUGIN_DEPLOY_BLOCK = 60_625_268n;
+export const SESSION_KEY_PLUGIN_DEPLOY_BLOCK = ARC_TESTNET.logs.floor;
 
 /** `keccak256(abi.encode(pluginManifest()))`, which `installPlugin` verifies. Fixed by the
  *  plugin's build; `mandate.test.ts` pins it against the compiled contract so a change to the
  *  plugin cannot silently leave this stale. Print it with
  *  `forge script script/DeploySessionKeyPlugin.s.sol --sig "manifestHash()"`. */
-export const SESSION_KEY_PLUGIN_MANIFEST_HASH: Hex =
-  "0xe23eaad0aaa11b507601ea43a73f21daf74b8033c54b6241e081da6c0d915e69";
+export const SESSION_KEY_PLUGIN_MANIFEST_HASH: Hex = CORE_MANIFEST_HASH;
 
-/** Circle's WeightedWebauthnMultisigPlugin: the account's owner, and the mandate's dependency. */
-const OWNER_PLUGIN: Address = "0x0000000C984AFf541D6cE86Bb697e68ec57873C8";
-/** `BaseMultisigPlugin.FunctionId.USER_OP_VALIDATION_OWNER`, the enum's only member. */
-const USER_OP_VALIDATION_OWNER = 0;
 
 /**
  * Which meter bounds a mandate.
@@ -77,7 +74,6 @@ export type MandateRail = "native" | "erc20";
  * what an unbounded gas limit has to be, since an unset limit denies rather than allows.
  */
 const NO_LIMIT = (1n << 256n) - 1n;
-const HIGHEST_REAL_LIMIT = NO_LIMIT - 1n;
 
 export class MandateError extends Error {
   constructor(message: string, options?: { cause: unknown }) {
@@ -161,11 +157,6 @@ export interface AllowedCalls {
   readonly functions: readonly string[];
 }
 
-/**
- * On the USDC view: paying someone, and approving the Gateway to take a top-up. Both are what the
- * one ERC-20 limit meters. `transferFrom` is deliberately absent, because the meter does not count it.
- */
-const USDC_FUNCTIONS: readonly string[] = ["transfer(address,uint256)", "approve(address,uint256)"];
 
 /**
  * Filling the agent's escrow at Circle's Gateway, which is how it pays x402 sellers. The money was
@@ -184,10 +175,7 @@ export const ESCROW_CALLS: AllowedCalls = {
  * an identity the account already holds: moving one needs `transferFrom` or an approval, and neither
  * is named. This is what lets a solved maze credit the wallet that granted the allowance.
  */
-export const IDENTITY_CALLS: AllowedCalls = {
-  contract: ARC_CONTRACTS.erc8004.identity,
-  functions: ["register()", "setAgentWallet(uint256,address,uint256,bytes)"],
-};
+export const IDENTITY_CALLS: AllowedCalls = identityCalls(ARC_TESTNET);
 
 /**
  * Why an allowance is an allowlist, which it was not until 09-11.
@@ -225,7 +213,7 @@ export interface MandateTerms {
   /** The agent's address. It holds the matching key; we never see it. */
   readonly agent: Address;
   /** Total the agent may spend before the mandate refuses. */
-  readonly limit: Usdc;
+  readonly limit: Amount;
   /** Who the agent may pay. Empty means it can pay nobody — the access list starts closed. */
   readonly payees: readonly Address[];
   /** Unix seconds. Omitted means no expiry, which the EntryPoint reads as unbounded. */
@@ -242,9 +230,9 @@ export interface MandateTerms {
 
 export interface Mandate {
   readonly agent: Address;
-  readonly limit: Usdc;
-  readonly spent: Usdc;
-  readonly remaining: Usdc;
+  readonly limit: Amount;
+  readonly spent: Amount;
+  readonly remaining: Amount;
   readonly expiresAt?: number;
   /**
    * What the agent holds of its own, to pay for submitting.
@@ -254,7 +242,7 @@ export interface Mandate {
    * granting sends this float, and without it on screen the only evidence of the transfer is a
    * balance that is smaller than it was, with nothing saying why.
    */
-  readonly agentFloat: Usdc;
+  readonly agentFloat: Amount;
   /**
    * What sits in the agent's escrow at Circle's Gateway, where top-ups go and x402 sellers are paid
    * from.
@@ -263,7 +251,7 @@ export interface Mandate {
    * does not reach it: it stays the agent's to spend, or to withdraw to its own address after
    * Circle's delay, and a person deciding to revoke should know that before they do.
    */
-  readonly escrow: Usdc;
+  readonly escrow: Amount;
   /**
    * When the plugin last recorded a spend against the meter in force, or `null`.
    *
@@ -283,108 +271,33 @@ export interface Mandate {
 }
 
 /**
- * Making the ERC-20 view the *only* rail, so one limit is the whole mandate.
- *
- * Arc's dollar is reachable two ways, and the plugin meters them separately: the native limit
- * counts `call.value`, an ERC-20 limit counts the amount in the calldata, and neither draws down
- * the other. A mandate carrying both therefore permits their sum — which forces a person to hold
- * two numbers in their head, or be shown one that is not the truth.
- *
- * Nothing requires payments to use the native rail. Sent through the ERC-20 view, a payment
- * arrives identically — the recipient's *native* balance rises by the same amount, because the two
- * views are one balance — and `approve` funding an x402 escrow draws on the same meter. So the
- * native limit is left at zero, which refuses any call carrying value, and one ERC-20 limit bounds
- * everything the agent can do. `contracts/test/ArcOneMeter.t.sol` is the evidence.
- *
- * Three parts, each load-bearing, and the plugin's ERC-20 weaknesses are why:
- *
- * - **On the list with `checkSelectors`, naming only `transfer` and `approve`.** A contract listed
- *   without selector checks is allowed outright, before the ERC-20 selector gate runs, and the gate
- *   is what refuses `transferFrom`, which the meter does not count.
- * - **A spend limit**, which meters `transfer` and `approve` *and* is what sets
- *   `isERC20WithSpendLimit`. Without it the gate is inert and the key is unbounded on this token.
- * - **No native limit**, so there is no second meter and nothing escapes the first.
- *
- * Two costs, neither hidden. Refusals happen during execution rather than validation, so an
- * over-limit payment is bundled and paid for before being rejected — callers should check the
- * limit before sending. And payee scoping does not survive here: the access list sees `0x3600` as
- * the target and never reads the recipient out of the calldata, which is exactly why a mandate
- * that names payees keeps the native rail instead.
+ * The core's terms for an Arc grant. The money is in native units, which the core converts for the
+ * ERC-20 view itself, truncating as the chain does. Besides paying, the wallet allows its escrow at
+ * Circle's Gateway on a grant naming no payees, since an agent shopping the open web pays sellers from
+ * it, and every agent may set up its own identity, owned by this account, whichever rail it pays on.
  */
-function meterEverythingOnOneRail(limit: Usdc): Hex[] {
-  return USDC_RAILS.flatMap((rail) => [
-    ...allow({ contract: rail, functions: USDC_FUNCTIONS }),
-    encodeFunctionData({
-      abi: updatesAbi,
-      functionName: "setERC20SpendLimit",
-      // ERC-20 scale: this rail is the 6-decimal view and the plugin compares the limit against
-      // 6-decimal calldata. Native units here would authorise a million times what was agreed.
-      args: [rail, limit.toErc20Units(), 0],
-    }),
-  ]);
+function coreTermsOf(terms: MandateTerms, network: NetworkProfile): GrantTerms {
+  // the escrow only where the network has Circle's Gateway, and only for a grant naming no payees
+  const escrow = network.contracts.gatewayWallet !== undefined && terms.payees.length === 0;
+  return {
+    agent: terms.agent,
+    limit: terms.limit.toNativeUnits(),
+    payees: terms.payees,
+    calls: escrow ? [ESCROW_CALLS, identityCalls(network)] : [identityCalls(network)],
+    ...(terms.expiresAt !== undefined ? { expiresAt: terms.expiresAt } : {}),
+    ...(terms.label !== undefined ? { label: terms.label } : {}),
+    ...(terms.pairing !== undefined ? { pairing: terms.pairing } : {}),
+  };
 }
 
-function permissionUpdates(terms: MandateTerms): Hex[] {
-  const scoped = terms.payees.length > 0;
-
-  // An allowlist either way: what the agent may call is named below, and nothing else is reachable.
-  const updates: Hex[] = [
-    encodeFunctionData({
-      abi: updatesAbi,
-      functionName: "setAccessListType",
-      args: [ACCESS_LIST.allowlist],
-    }),
-  ];
-
-  for (const payee of terms.payees) {
-    updates.push(encodeFunctionData({
-      abi: updatesAbi,
-      functionName: "updateAccessListAddressEntry",
-      // `checkSelectors: false` — these are plain payees receiving value, not contracts whose
-      // individual functions need gating.
-      args: [payee, true, false],
-    }));
+/** The core's refusals, said as this wallet's own, which is what its callers catch. */
+function inTheWalletsWords<T>(build: () => T): T {
+  try {
+    return build();
+  } catch (cause) {
+    if (cause instanceof GrantError) throw new MandateError(cause.message);
+    throw cause;
   }
-
-  if (scoped) {
-    // The native rail, where the payee is the call's target and so naming payees means something.
-    updates.push(encodeFunctionData({
-      abi: updatesAbi,
-      functionName: "setNativeTokenSpendLimit",
-      args: [terms.limit.toNativeUnits(), 0],
-    }));
-  } else {
-    // One meter on the ERC-20 rail, covering payments and x402 escrow alike. The native limit is
-    // deliberately not set: its default of zero refuses every value-carrying call, which is what
-    // leaves this the only rail and the limit the whole truth.
-    if (terms.limit.toErc20Units() === 0n) {
-      throw new MandateError(
-        "A limit below 0.000001 USDC cannot be expressed on the rail an unscoped mandate uses.",
-      );
-    }
-    // An agent shopping the open web pays sellers from its escrow, so it may fill it.
-    updates.push(...meterEverythingOnOneRail(terms.limit), ...allow(ESCROW_CALLS));
-  }
-
-  // Every agent may set up its own identity, owned by this account, whichever rail it pays on.
-  updates.push(...allow(IDENTITY_CALLS));
-
-  // Gas is a third way to spend the same balance, and an unset limit denies rather than allows.
-  // `type(uint256).max` is the engine's "no limit" sentinel, so one below it is the real ceiling.
-  updates.push(encodeFunctionData({
-    abi: updatesAbi,
-    functionName: "setGasSpendLimit",
-    args: [HIGHEST_REAL_LIMIT, 0],
-  }));
-
-  if (terms.expiresAt !== undefined) {
-    updates.push(encodeFunctionData({
-      abi: updatesAbi,
-      functionName: "updateTimeRange",
-      args: [0, terms.expiresAt],
-    }));
-  }
-  return updates;
 }
 
 /**
@@ -483,11 +396,12 @@ async function fees(account: ArcAccount) {
  * Checking for code once is the difference between "no allowances" and a decoding failure the
  * person is asked to interpret.
  */
-export async function isPluginDeployed(): Promise<boolean> {
-  if (pluginSeen) return true;
-  const code = await arcPublicClient.getCode({ address: SESSION_KEY_PLUGIN });
-  pluginSeen = code !== undefined && code !== "0x";
-  return pluginSeen;
+export async function isPluginDeployed(network: NetworkProfile = ARC_TESTNET): Promise<boolean> {
+  if (pluginSeen.has(network.chainId)) return true;
+  const code = await clientFor(network).getCode({ address: network.contracts.sessionKeyPlugin });
+  const deployed = code !== undefined && code !== "0x";
+  if (deployed) pluginSeen.add(network.chainId);
+  return deployed;
 }
 
 /**
@@ -497,7 +411,7 @@ export async function isPluginDeployed(): Promise<boolean> {
  * rate limit the balance and the feed share, spent on a fact that cannot change back. Only a yes is
  * kept: a network where the plugin is missing is still asked again, so deploying it is noticed.
  */
-let pluginSeen = false;
+const pluginSeen = new Set<number>();
 
 /**
  * Whether this account already carries the mandate plugin.
@@ -516,13 +430,13 @@ let pluginSeen = false;
  * `buildGrantCalls` wants: with `pluginInstalled` false it takes the `installPlugin` path, which is
  * what a first grant is supposed to do.
  */
-export async function isPluginInstalled(address: Address): Promise<boolean> {
-  if (!(await isDeployed(address))) return false;
+export async function isPluginInstalled(address: Address, network: NetworkProfile = ARC_TESTNET): Promise<boolean> {
+  if (!(await isDeployed(address, network))) return false;
 
-  const installed = await arcPublicClient.readContract({
+  const installed = await clientFor(network).readContract({
     address, abi: accountAbi, functionName: "getInstalledPlugins",
   });
-  return installed.some((p) => p.toLowerCase() === SESSION_KEY_PLUGIN.toLowerCase());
+  return installed.some((p) => p.toLowerCase() === network.contracts.sessionKeyPlugin.toLowerCase());
 }
 
 /**
@@ -540,11 +454,17 @@ export async function isPluginInstalled(address: Address): Promise<boolean> {
  * See `GrantPlan`.
  */
 async function sendManagement(account: ArcAccount, callData: Hex): Promise<Hash> {
-  return account.bundler.sendUserOperation({
-    account: account.smartAccount,
-    callData,
-    ...(await fees(account)),
-  });
+  const { network } = account;
+  if (network.gas.estimatesOwnerOperations) {
+    return account.bundler.sendUserOperation({ account: account.smartAccount, callData, ...(await fees(account)) });
+  }
+  // Where the bundler does not price owner operations well (Monad, which bills the whole limit), they
+  // start from the network's figures and are corrected from what it names, with a doubled bid, as proven
+  const price = await fees(account);
+  const bid = { maxFeePerGas: price.maxFeePerGas * 2n, maxPriorityFeePerGas: price.maxPriorityFeePerGas * 2n };
+  const { sent } = await sendCorrectingGas(network.gas.grant, (gas) =>
+    account.bundler.sendUserOperation({ account: account.smartAccount, callData, ...gas, ...bid }));
+  return sent;
 }
 
 /**
@@ -588,7 +508,7 @@ export function grantedIn(
 }
 
 export async function grantMandate(account: ArcAccount, terms: MandateTerms): Promise<GrantReceipt> {
-  const plan = buildGrantPlan(terms, await isPluginInstalled(account.address));
+  const plan = buildGrantPlan(terms, await isPluginInstalled(account.address, account.network), account.network);
   try {
     return { grant: await sendManagement(account, plan.management) };
   } catch (cause) {
@@ -631,43 +551,11 @@ export interface GrantPlan {
 export function buildGrantPlan(
   terms: MandateTerms,
   pluginInstalled: boolean,
+  network: NetworkProfile = ARC_TESTNET,
 ): GrantPlan {
-  if (terms.limit.isNegative() || terms.limit.isZero()) {
-    throw new MandateError("a mandate must allow something; use revokeMandate to take one away");
-  }
-
-  const updates = permissionUpdates(terms);
-  // A grant made by scanning the agent's code carries its pairing code, which is how the agent tells
-  // it from any other grant to its address. One made from a typed address carries the label.
-  const tag = terms.pairing !== undefined
-    ? pairingTag(terms.pairing)
-    : keccak256(toHex(terms.label ?? "mandate"));
-
-  const management: Hex = pluginInstalled
-    ? encodeFunctionData({
-        abi: pluginAbi, functionName: "addSessionKey", args: [terms.agent, tag, updates],
-      })
-    : encodeFunctionData({
-        abi: accountAbi,
-        functionName: "installPlugin",
-        args: [
-          SESSION_KEY_PLUGIN,
-          SESSION_KEY_PLUGIN_MANIFEST_HASH,
-          // The plugin's own install payload: keys, tags, and their initial permissions.
-          encodeInstallData([terms.agent], [tag], [updates]),
-          [{ plugin: OWNER_PLUGIN, functionId: USER_OP_VALIDATION_OWNER }],
-        ],
-      });
-
-  return { management };
+  return { management: inTheWalletsWords(() => grantCallData(network, coreTermsOf(terms, network), pluginInstalled)) };
 }
 
-/** `abi.encode(address[], bytes32[], bytes[][])`, the plugin's `onInstall` payload. */
-function encodeInstallData(keys: readonly Address[], tags: readonly Hex[], updates: readonly Hex[][]): Hex {
-  return encodeAbiParameters(parseAbiParameters("address[], bytes32[], bytes[][]"), [
-    keys as Address[], tags as Hex[], updates as Hex[][],
-  ]);
-}
 
 /**
  * A change to a live mandate. Only the fields given are touched.
@@ -678,7 +566,7 @@ function encodeInstallData(keys: readonly Address[], tags: readonly Hex[], updat
  */
 export interface MandateChange {
   readonly agent: Address;
-  readonly limit?: Usdc;
+  readonly limit?: Amount;
   /**
    * Which meter the mandate is currently on, from `readMandate`. Required alongside `limit`.
    *
@@ -722,8 +610,8 @@ export async function updateMandate(account: ArcAccount, change: MandateChange):
  * between revoking and hoping.
  */
 export async function revokeMandate(account: ArcAccount, agent: Address): Promise<Hash> {
-  const predecessor = await arcPublicClient.readContract({
-    address: SESSION_KEY_PLUGIN, abi: pluginAbi, functionName: "findPredecessor",
+  const predecessor = await clientFor(account.network).readContract({
+    address: account.network.contracts.sessionKeyPlugin, abi: pluginAbi, functionName: "findPredecessor",
     args: [account.address, agent],
   });
   try {
@@ -735,19 +623,22 @@ export async function revokeMandate(account: ArcAccount, agent: Address): Promis
   }
 }
 
+/** What the plugin answers for a limit never set, so a network with no ERC-20 view reads as metering its coin. */
+const NO_ERC20_LIMIT = { hasLimit: false, limit: 0n, limitUsed: 0n, refreshInterval: 0, lastUsedTime: 0 } as const;
+
 /** Every mandate this account has granted, read from the chain rather than remembered locally. */
-export async function listMandates(address: Address): Promise<Mandate[]> {
+export async function listMandates(address: Address, network: NetworkProfile = ARC_TESTNET): Promise<Mandate[]> {
   // An account that has never granted anything has no plugin data to read, and a network without
   // the plugin has no contract at all. Both are ordinary states, not failures, and both would
   // otherwise surface as a decoding error about missing return data.
-  if (!(await isPluginDeployed())) return [];
+  if (!(await isPluginDeployed(network))) return [];
 
-  const agents = await arcPublicClient.readContract({
-    address: SESSION_KEY_PLUGIN, abi: pluginAbi, functionName: "sessionKeysOf", args: [address],
+  const agents = await clientFor(network).readContract({
+    address: network.contracts.sessionKeyPlugin, abi: pluginAbi, functionName: "sessionKeysOf", args: [address],
   });
   const read = await Promise.all(agents.map(async (agent) => {
     try {
-      return await readMandate(address, agent);
+      return await readMandate(address, agent, network);
     } catch (cause) {
       // Naming the keys and reading each one are separate calls at separate blocks, so a revoke
       // landing between them leaves the list naming a key the plugin has already forgotten. That
@@ -808,8 +699,8 @@ export interface Erc20Meter extends NativeMeter {
 
 export interface MeterInForce {
   readonly rail: MandateRail;
-  readonly limit: Usdc;
-  readonly spent: Usdc;
+  readonly limit: Amount;
+  readonly spent: Amount;
   readonly lastUsedTime: number;
 }
 
@@ -828,8 +719,8 @@ export function meterInForce(
   if (erc20.hasLimit) {
     return {
       rail: "erc20",
-      limit: Usdc.fromErc20Units(erc20.limit),
-      spent: Usdc.fromErc20Units(erc20.limitUsed),
+      limit: Amount.fromErc20Units(erc20.limit),
+      spent: Amount.fromErc20Units(erc20.limitUsed),
       // Both meters record a last-used time. The one that matters is the one doing the metering,
       // and on this shape the native meter never moves — reading it would report an agent that
       // has been spending all week as one that has never spent.
@@ -838,35 +729,33 @@ export function meterInForce(
   }
   return {
     rail: "native",
-    limit: Usdc.fromNativeUnits(native.limit),
-    spent: Usdc.fromNativeUnits(native.limitUsed),
+    limit: Amount.fromNativeUnits(native.limit),
+    spent: Amount.fromNativeUnits(native.limitUsed),
     lastUsedTime: native.lastUsedTime,
   };
 }
 
-export async function readMandate(address: Address, agent: Address): Promise<Mandate> {
+export async function readMandate(address: Address, agent: Address, network: NetworkProfile = ARC_TESTNET): Promise<Mandate> {
+  const client = clientFor(network);
+  const plugin = network.contracts.sessionKeyPlugin;
+  const view = network.contracts.erc20View;
+  const gateway = network.contracts.gatewayWallet;
   const [spend, range, agentBalance, onlineLimit, escrowHeld, circleHeld] = await Promise.all([
-    arcPublicClient.readContract({
-      address: SESSION_KEY_PLUGIN, abi: pluginAbi,
-      functionName: "getNativeTokenSpendLimitInfo", args: [address, agent],
-    }),
-    arcPublicClient.readContract({
-      address: SESSION_KEY_PLUGIN, abi: pluginAbi,
-      functionName: "getKeyTimeRange", args: [address, agent],
-    }),
-    arcPublicClient.getBalance({ address: agent }),
-    arcPublicClient.readContract({
-      address: SESSION_KEY_PLUGIN, abi: pluginAbi,
-      functionName: "getERC20SpendLimitInfo", args: [address, agent, ARC_CONTRACTS.usdc],
-    }),
-    arcPublicClient.readContract({
-      address: ARC_CONTRACTS.gatewayWallet, abi: gatewayAbi,
-      functionName: "availableBalance", args: [ARC_CONTRACTS.usdc, agent],
-    }),
+    client.readContract({ address: plugin, abi: pluginAbi, functionName: "getNativeTokenSpendLimitInfo", args: [address, agent] }),
+    client.readContract({ address: plugin, abi: pluginAbi, functionName: "getKeyTimeRange", args: [address, agent] }),
+    client.getBalance({ address: agent }),
+    // a network whose coin has no ERC-20 view meters the coin itself, and has no second limit to read
+    view === undefined
+      ? NO_ERC20_LIMIT
+      : client.readContract({ address: plugin, abi: pluginAbi, functionName: "getERC20SpendLimitInfo", args: [address, agent, view.address] }),
+    // an escrow only exists where Circle's Gateway does
+    gateway === undefined || view === undefined
+      ? 0n
+      : client.readContract({ address: gateway, abi: gatewayAbi, functionName: "availableBalance", args: [view.address, agent] }),
     // Circle's own figure, which leaves out payments it has accepted and not yet settled; the chain's
     // counts them, and overstated an agent's escrow by more than a dollar. The chain's stands in
     // only when Circle's service does not answer.
-    circleEscrow(agent).catch(() => null),
+    gateway === undefined ? Promise.resolve(null) : circleEscrow(agent).catch(() => null),
   ]);
   const meter = meterInForce(spend, onlineLimit);
   const { limit, spent } = meter;
@@ -877,11 +766,11 @@ export async function readMandate(address: Address, agent: Address): Promise<Man
     spent,
     // Clamped: the engine records usage against the limit in force at the time, so lowering a
     // limit below what is already spent is legitimate and must not read as negative money.
-    remaining: spent.compare(limit) >= 0 ? Usdc.ZERO : limit.subtract(spent),
+    remaining: spent.compare(limit) >= 0 ? Amount.ZERO : limit.subtract(spent),
     ...(range[1] === 0 ? {} : { expiresAt: Number(range[1]) }),
-    agentFloat: Usdc.fromNativeUnits(agentBalance),
+    agentFloat: Amount.fromNativeUnits(agentBalance),
     // Gateway counts in the ERC-20 view's six decimals.
-    escrow: Usdc.fromErc20Units(circleHeld ?? escrowHeld),
+    escrow: Amount.fromErc20Units(circleHeld ?? escrowHeld),
     lastUsedAt: meter.lastUsedTime === 0 ? null : Number(meter.lastUsedTime),
   };
 }

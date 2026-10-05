@@ -1,19 +1,20 @@
 import { test } from "node:test";
+import { ARC_TESTNET, MONAD_TESTNET } from "@kuiralabs/mandate-core";
 import assert from "node:assert/strict";
-import { agentHoldingNote, agentRowLabel, allowanceSentence, endsLine, expiryLabel, expiryLine, hasEnded, fractionUsed, identityLabel, lastUsedLabel, revokeWarning, shortAddress, spentLine, spentPercentLabel } from "./mandate-format.ts";
-import { Usdc } from "../arc/usdc.ts";
+import { agentHoldingNote, agentRowLabel, allowanceSentence, faceOfMandate, leftLine, endsLine, expiryLabel, expiryLine, hasEnded, fractionUsed, identityLabel, lastUsedLabel, revokeWarning, shortAddress, spentLine, spentPercentLabel } from "./mandate-format.ts";
+import { Amount } from "../arc/amount.ts";
 import type { Mandate } from "../arc/mandate.ts";
 
 const mandate = (limit: string, spent: string, expiresAt?: number): Mandate => {
-  const l = Usdc.parse(limit);
-  const s = Usdc.parse(spent);
+  const l = Amount.parse(limit);
+  const s = Amount.parse(spent);
   return {
     agent: "0x1111111111111111111111111111111111111111",
     limit: l, spent: s,
-    remaining: s.compare(l) >= 0 ? Usdc.ZERO : l.subtract(s),
+    remaining: s.compare(l) >= 0 ? Amount.ZERO : l.subtract(s),
     ...(expiresAt === undefined ? {} : { expiresAt }),
-    agentFloat: Usdc.parse("0.5"),
-    escrow: Usdc.ZERO,
+    agentFloat: Amount.parse("0.5"),
+    escrow: Amount.ZERO,
     lastUsedAt: null,
     rail: "erc20",
   };
@@ -31,17 +32,17 @@ test("an identity reads as the standard it belongs to, not as a bare number", ()
  */
 test("the revoke warning names what stays in the agent's escrow, and says only that when there is none", () => {
   assert.equal(
-    revokeWarning(null, Usdc.ZERO),
+    revokeWarning(null, Amount.ZERO, ARC_TESTNET),
     "This agent can no longer spend from your wallet once this confirms. Money it already moved to pay " +
       "for a purchase in progress is not returned.",
   );
   assert.equal(
-    revokeWarning("Maze runner", Usdc.parse("0.25")),
+    revokeWarning("Maze runner", Amount.parse("0.25"), ARC_TESTNET),
     "Maze runner can no longer spend from your wallet once this confirms. The 0.25 USDC already in its " +
       "escrow at Circle's Gateway stays with it: revoking does not reach that, and only the agent's key " +
       "can spend it or withdraw it.",
   );
-  assert.match(revokeWarning("Maze runner", Usdc.parse("0.004")), /The 0\.0040 USDC already in its escrow/);
+  assert.match(revokeWarning("Maze runner", Amount.parse("0.004"), ARC_TESTNET), /The 0\.0040 USDC already in its escrow/);
 });
 
 test("a fresh mandate reads as nothing used", () => {
@@ -122,27 +123,27 @@ test("addresses shorten to something recognisable", () => {
  * to return it once rendered as "agent holds 0.00", warning about nothing.
  */
 test("an agent holding nothing says nothing", () => {
-  assert.equal(agentHoldingNote(Usdc.ZERO), null);
+  assert.equal(agentHoldingNote(Amount.ZERO), null);
 });
 
 test("dust too small to be worth returning is not raised as an alarm", () => {
-  assert.equal(agentHoldingNote(Usdc.parse("0.000265")), null, "warned about less than the gas to move it");
-  assert.equal(agentHoldingNote(Usdc.parse("0.004")), null);
+  assert.equal(agentHoldingNote(Amount.parse("0.000265")), null, "warned about less than the gas to move it");
+  assert.equal(agentHoldingNote(Amount.parse("0.004")), null);
 });
 
 test("the thresholds for mentioning a holding are exact", () => {
   // 0.005 USDC is the smallest holding worth raising; 0.01 is where two decimals stop rounding
   // the figure away to "0.00".
-  assert.equal(agentHoldingNote(Usdc.parse("0.004999")), null);
-  assert.match(String(agentHoldingNote(Usdc.parse("0.005"))), /0\.0050/);
-  assert.match(String(agentHoldingNote(Usdc.parse("0.009999"))), /0\.0099/);
-  assert.equal(agentHoldingNote(Usdc.parse("0.01")), "agent holds 0.01");
+  assert.equal(agentHoldingNote(Amount.parse("0.004999")), null);
+  assert.match(String(agentHoldingNote(Amount.parse("0.005"))), /0\.0050/);
+  assert.match(String(agentHoldingNote(Amount.parse("0.009999"))), /0\.0099/);
+  assert.equal(agentHoldingNote(Amount.parse("0.01")), "agent holds 0.01");
 });
 
 test("a holding worth acting on is shown, with enough precision to be a number", () => {
-  assert.equal(agentHoldingNote(Usdc.parse("0.005")), "agent holds 0.0050");
-  assert.equal(agentHoldingNote(Usdc.parse("0.5")), "agent holds 0.50");
-  assert.equal(agentHoldingNote(Usdc.parse("2")), "agent holds 2.00");
+  assert.equal(agentHoldingNote(Amount.parse("0.005")), "agent holds 0.0050");
+  assert.equal(agentHoldingNote(Amount.parse("0.5")), "agent holds 0.50");
+  assert.equal(agentHoldingNote(Amount.parse("2")), "agent holds 2.00");
 });
 
 test("the percentage tracks what has been spent", () => {
@@ -226,11 +227,11 @@ test("and it changes at the exact second, not a second either side", () => {
  * opposite ways with nothing to say which. And "6 days left" answered how long but not until when.
  */
 test("the line under the headline names the limit and what has gone, in words", () => {
-  assert.equal(spentLine(mandate("20", "0.1")), "of a 20.00 limit · 0.10 spent (1%)");
+  assert.equal(spentLine(mandate("20", "0.1"), ARC_TESTNET), "of a 20.00 limit · 0.10 spent (1%)");
 });
 
 test("an untouched allowance says nothing has been spent rather than 0.00 and 0%", () => {
-  assert.equal(spentLine(mandate("20", "0")), "of a 20.00 limit · nothing spent");
+  assert.equal(spentLine(mandate("20", "0"), ARC_TESTNET), "of a 20.00 limit · nothing spent");
 });
 
 test("the expiry gives the day as well as the countdown", () => {
@@ -269,21 +270,21 @@ test("a row reads out as one sentence, named or not", () => {
   const now = new Date(2026, 8, 11, 12).getTime();
   const row = mandate("20", "0.28", new Date(2026, 8, 17, 12).getTime() / 1000);
   assert.equal(
-    agentRowLabel(row, "Maze runner", now),
+    agentRowLabel(row, "Maze runner", ARC_TESTNET, now),
     "Maze runner. 19.72 USDC left of 20.00. Ends 17 Sep · 6 days left.",
   );
-  assert.match(agentRowLabel(row, null, now), /^Agent 0x11111111…1111111\. 19\.72 USDC left/);
+  assert.match(agentRowLabel(row, null, ARC_TESTNET, now), /^Agent 0x11111111…1111111\. 19\.72 USDC left/);
 });
 
 test("the agent screen says what may still happen, and what already has", () => {
   const now = new Date(2026, 8, 11, 12).getTime();
   const until = new Date(2026, 8, 17, 12).getTime() / 1000;
   assert.equal(
-    allowanceSentence(mandate("20", "0.28", until), now),
+    allowanceSentence(mandate("20", "0.28", until), ARC_TESTNET, now),
     "Can spend up to 20.00 USDC until 17 Sep. 0.28 spent so far.",
   );
   assert.equal(
-    allowanceSentence(mandate("20", "0", until), now),
+    allowanceSentence(mandate("20", "0", until), ARC_TESTNET, now),
     "Can spend up to 20.00 USDC until 17 Sep. Nothing spent yet.",
   );
 });
@@ -292,14 +293,38 @@ test("an ended allowance says nothing more can be spent", () => {
   const now = new Date(2026, 8, 11, 12).getTime();
   const ended = mandate("20", "5", new Date(2026, 8, 9, 12).getTime() / 1000);
   assert.equal(
-    allowanceSentence(ended, now),
+    allowanceSentence(ended, ARC_TESTNET, now),
     "This allowance ended on 9 Sep, and the agent can no longer spend from it. 5.00 spent so far.",
   );
 });
 
 test("an allowance with no end date says so", () => {
   assert.equal(
-    allowanceSentence(mandate("5", "0")),
+    allowanceSentence(mandate("5", "0"), ARC_TESTNET),
     "Can spend up to 5.00 USDC, with no end date. Nothing spent yet.",
   );
+});
+
+test("on Monad an allowance reads in MON, small limits at the precision they were granted", () => {
+  const now = new Date(2026, 8, 10, 12).getTime();
+  const small = mandate("0.01", "0.002");
+  assert.equal(spentLine(small, MONAD_TESTNET), "of a 0.01 limit · 0.002 spent (20%)");
+  assert.equal(allowanceSentence(small, MONAD_TESTNET, now), "Can spend up to 0.01 MON, with no end date. 0.002 spent so far.");
+  assert.match(agentRowLabel(mandate("0.005", "0"), "Runner", MONAD_TESTNET, now), /^Runner\. 0\.005 MON left of 0\.005\./);
+});
+
+test("an agent's card prints what the chain says of its allowance, and nothing it cannot read back", () => {
+  const now = new Date(2026, 9, 4, 12).getTime();
+  const until = Math.floor(new Date(2026, 9, 11, 12).getTime() / 1000);
+  const face = faceOfMandate({ mandate: mandate("0.01", "0.002", until), name: "Runner", network: MONAD_TESTNET, now });
+  assert.equal(face.ends, "11 Oct");
+  assert.equal(face.name, "Runner");
+  assert.equal(face.askedBy, null, "who asked is not on the chain, so it is not printed");
+  assert.deepEqual(face.payees, []);
+  assert.match(face.spoken, /^Runner\. 0\.008 MON left of 0\.01\./);
+});
+
+test("the line under the card says what is left and what has gone, and nothing printed on the card", () => {
+  assert.equal(leftLine(mandate("0.01", "0.002"), MONAD_TESTNET), "0.008 MON LEFT · 0.002 SPENT (20%)");
+  assert.equal(leftLine(mandate("20", "0"), ARC_TESTNET), "20.00 USDC LEFT · NOTHING SPENT");
 });

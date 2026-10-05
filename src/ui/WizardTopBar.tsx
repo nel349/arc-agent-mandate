@@ -13,9 +13,11 @@ import { tokens } from "./tokens.ts";
  * step leaves the flow rather than returning to an earlier part of it.
  */
 export function WizardTopBar({
-  title, onBack, closes = false, action,
+  title, detail, onBack, closes = false, action,
 }: {
   readonly title: string;
+  /** one quiet line under the title, on the frame rather than in the form: where this happens, like the network */
+  readonly detail?: string;
   readonly onBack: () => void;
   /** This is the first step, so going back closes the flow. */
   readonly closes?: boolean;
@@ -35,9 +37,12 @@ export function WizardTopBar({
         >
           <Ionicons name={closes ? "close" : "chevron-back"} size={tokens.size.buttonIcon + 4} color={c.paper} />
         </Pressable>
-        <Text style={[styles.title, { color: c.paper }]} numberOfLines={1} accessibilityRole="header">
-          {title}
-        </Text>
+        <View style={styles.heading}>
+          <Text style={[styles.title, { color: c.paper }]} numberOfLines={1} accessibilityRole="header">
+            {title}
+          </Text>
+          {detail !== undefined && <Text style={[styles.detail, { color: c.dim }]} numberOfLines={1}>{detail}</Text>}
+        </View>
         {action !== undefined && (
           <Pressable
             onPress={action.onPress}
@@ -71,7 +76,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  title: { ...tokens.type.headline, flex: 1 },
+  heading: { flex: 1 },
+  title: tokens.type.headline,
+  detail: tokens.type.caption,
   action: { paddingHorizontal: tokens.space.md, paddingVertical: tokens.space.sm },
   actionText: tokens.type.headline,
   pressed: { opacity: tokens.opacity.pressed },

@@ -38,10 +38,15 @@ export const agentRoute = (agent: string): `/agent/${string}` => `/agent/${agent
  * One row's receipt. The row is identified by its log, which is what the feed keys rows by, so the
  * screen can find it again in what has already been read rather than asking the chain.
  */
-export const receiptRoute = (item: Pick<Activity, "tx" | "logIndex">) => ({
+export const receiptRoute = (item: Pick<Activity, "tx" | "logIndex" | "call">) => ({
   pathname: "/receipt" as const,
-  params: { tx: item.tx, log: String(item.logIndex) },
+  // and its call, where one operation paid several people and each is its own row
+  params: { tx: item.tx, log: String(item.logIndex), ...(item.call === undefined ? {} : { call: String(item.call) }) },
 });
+
+/** Whether a row is the one a receipt was opened for, from the route's own parameters. */
+export const isReceiptFor = (item: Pick<Activity, "tx" | "logIndex" | "call">, params: { readonly tx?: string; readonly log?: string; readonly call?: string }): boolean =>
+  item.tx === params.tx && String(item.logIndex) === params.log && (item.call === undefined ? params.call === undefined : String(item.call) === params.call);
 
 /** Everything an agent did, or everything every agent did when no agent is named. */
 export const activityRoute = (agent?: string) =>

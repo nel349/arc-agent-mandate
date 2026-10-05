@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { NetworkProfile } from "@kuiralabs/mandate-core";
 import type { Address } from "viem";
 import type { Activity } from "../arc/activity.ts";
 import { agentWalletOf } from "../arc/identity.ts";
@@ -14,7 +15,7 @@ import { agentWalletOf } from "../arc/identity.ts";
  * Kept out of the screen so the screen renders a number or nothing, and never a claim it has not
  * checked. A registry that will not answer shows nothing, which is what the screen said before.
  */
-export function useAgentIdentity(agent: Address | null, items: readonly Activity[]): bigint | null {
+export function useAgentIdentity(agent: Address | null, items: readonly Activity[], network: NetworkProfile): bigint | null {
   const [identity, setIdentity] = useState<bigint | null>(null);
 
   // Newest first, as the feed is ordered: the identity an agent is on now is the last it registered.
@@ -37,7 +38,7 @@ export function useAgentIdentity(agent: Address | null, items: readonly Activity
     void (async () => {
       for (const agentId of candidateKey.split(",").map(BigInt)) {
         try {
-          const wallet = await agentWalletOf(agentId);
+          const wallet = await agentWalletOf(agentId, network);
           if (!current) return;
           if (wallet.toLowerCase() === agent.toLowerCase()) {
             setIdentity(agentId);
@@ -50,7 +51,7 @@ export function useAgentIdentity(agent: Address | null, items: readonly Activity
       }
     })();
     return () => { current = false; };
-  }, [agent, candidateKey]);
+  }, [agent, candidateKey, network]);
 
   return identity;
 }

@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import type { Address } from "viem";
 import { connectArcAccount, WebAuthnMode, type ArcAccount } from "../arc/account.ts";
 import { balanceOf, sendUsdc, waitForSend } from "../arc/send.ts";
-import { Usdc } from "../arc/usdc.ts";
+import { Amount } from "../arc/amount.ts";
 
 /**
  * Read once at module scope, not per render.
@@ -127,7 +127,7 @@ function readField(error: unknown, field: string): unknown {
 
   const send = useCallback((to: Address) => step("send 0.01 USDC, gasless", async () => {
     if (!account) throw new Error("no account yet");
-    const userOpHash = await sendUsdc(account, { to, amount: Usdc.parse(DEMO_SEND_AMOUNT) });
+    const userOpHash = await sendUsdc(account, { to, amount: Amount.parse(DEMO_SEND_AMOUNT) });
     say(`  userOp ${userOpHash}`);
     const txHash = await waitForSend(account, userOpHash);
     say(`✓ final ${txHash}`);

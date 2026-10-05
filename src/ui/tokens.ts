@@ -9,6 +9,9 @@
  * It is easy to wave layout literals through as "just styling" — they are the same magic numbers
  * as anywhere else, and the second screen is where scattered values start disagreeing.
  */
+/** The one monospace face: data, section labels and the figures that are a screen's point. */
+const MONO = "Menlo";
+
 export const tokens = {
   /** `hair` is the gap inside a two-line row, where anything larger reads as two separate things. */
   space: { hair: 2, tiny: 3, xs: 6, sm: 10, md: 12, base: 16, lg: 20, xl: 28 },
@@ -37,10 +40,15 @@ export const tokens = {
       shadowOffset: { width: 0, height: 8 },
     },
   },
+  /**
+   * Squared, nearly. A card printed like a key listing has corners, and so does everything round it;
+   * the soft sixteen-point radius read as any fintech app. Kept just off zero so an edge does not
+   * shimmer on a phone's screen.
+   */
   radius: {
-    sm: 3,
-    md: 10,
-    lg: 16,
+    sm: 2,
+    md: 4,
+    lg: 6,
     /** Fully rounded. Large enough that any control shorter than it becomes a pill. */
     pill: 999,
   },
@@ -96,16 +104,22 @@ export const tokens = {
     footnote: { fontSize: 13, lineHeight: 18 },
     caption: { fontSize: 12, lineHeight: 16 },
     /**
-     * Over a group of rows. The only uppercase left, and it earns it by being small.
+     * Over a group of rows, in mono capitals spaced out like a printed label: the only uppercase
+     * left, and it earns it by being small.
      *
      * Footnote's metrics, which is what iOS sets its own grouped-list headings at. Without the line
      * height this was the heading that sat flush against the top edge of the card beneath it.
      */
-    section: { fontSize: 13, lineHeight: 18, fontWeight: "600", letterSpacing: 0.5, textTransform: "uppercase" },
+    section: { fontFamily: MONO, fontSize: 12, lineHeight: 18, fontWeight: "400", letterSpacing: 2, textTransform: "uppercase" },
+    /**
+     * A figure that is the point of a screen, a balance or a limit, in mono, as the allowance card
+     * prints it. Words stay in the system font; this is a number, compared digit by digit.
+     */
+    figure: { fontFamily: MONO, fontSize: 40, lineHeight: 48, fontWeight: "700", letterSpacing: -1 },
     /** Body's metrics: a button's label is a sentence, set at the same rhythm as one. */
     button: { fontSize: 17, lineHeight: 22, fontWeight: "600" },
     /** An address or a hash. Small enough that a whole address fits one line at the phone's width. */
-    data: { fontFamily: "Menlo", fontSize: 13, lineHeight: 18 },
+    data: { fontFamily: MONO, fontSize: 13, lineHeight: 18 },
   },
 
   size: {
@@ -168,8 +182,8 @@ export const tokens = {
   },
   opacity: { disabled: 0.4, pressed: 0.7 },
   font: {
-    /** For `type.data` and nowhere else. */
-    mono: "Menlo",
+    /** For data, section labels, figures and the allowance card. */
+    mono: MONO,
     /**
      * Figures that change while you watch them.
      *

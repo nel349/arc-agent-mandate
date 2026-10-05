@@ -1,13 +1,15 @@
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { isAddress } from "viem";
+import { NO_REQUEST, type AgentRequest } from "@kuiralabs/mandate-core";
 import { useLeave } from "../src/ui/useLeave.ts";
 import { AgentChip } from "../src/ui/AgentChip.tsx";
+import { AllowanceCard } from "../src/ui/AllowanceCard.tsx";
 import { AmountHero } from "../src/ui/AmountHero.tsx";
-import { ArcRing } from "../src/ui/ArcRing.tsx";
 import { Button } from "../src/ui/Button.tsx";
 import { ChoiceListRow } from "../src/ui/ChoiceListRow.tsx";
-import { DetailRow } from "../src/ui/DetailRow.tsx";
+import { CornerMarks } from "../src/ui/CornerMarks.tsx";
 import { Field } from "../src/ui/Field.tsx";
 import { ERROR_LINES, Note } from "../src/ui/Note.tsx";
 import { PresetChip } from "../src/ui/PresetChip.tsx";
@@ -17,9 +19,11 @@ import { Surface } from "../src/ui/Surface.tsx";
 import { WizardTopBar } from "../src/ui/WizardTopBar.tsx";
 import { cleanAgentName, MAX_AGENT_NAME } from "../src/ui/agent-names.ts";
 import { useAgentNames } from "../src/ui/agent-names-context.tsx";
+import { inCoin, unitOf } from "../src/ui/coin.ts";
 import { ALREADY_GRANTED } from "../src/ui/failure.ts";
-import { alreadyGranted, entryFromScan, entryFromText, mandateTermsFor } from "../src/ui/grant-entry.ts";
-import { exceedsWallet, grantedSentence, grantSummary, windowEndLabel } from "../src/ui/grant-format.ts";
+import { alreadyGranted, entryFromScan, entryFromText, mandateTermsFor, networkOfEntry, type AgentEntry } from "../src/ui/grant-entry.ts";
+import { amountPresets, CARD_TERMS, exceedsWallet, faceOf, grantedSentence, windowEndLabel } from "../src/ui/grant-format.ts";
+import { stepAfter, type GrantStep } from "../src/ui/grant-steps.ts";
 import { readGrantTerms } from "../src/ui/grant-terms.ts";
 import { feelSuccess } from "../src/ui/haptics.ts";
 import { shortAddress } from "../src/ui/mandate-format.ts";
@@ -28,26 +32,23 @@ import { useTheme } from "../src/ui/theme-context.tsx";
 import { tokens } from "../src/ui/tokens.ts";
 
 /**
- * Giving an agent an allowance: one full screen per question, in order.
+ * Giving an agent an allowance: the wallet issues it a card.
  *
- * Built the way Kuira's send wizard is. Each step owns the whole screen and asks one thing — who,
- * how much, how long — and the last shows all three as a sentence before Face ID. The amount step
- * gives the number the whole screen, with the step's Continue in the bar above it, so a person
- * types a limit into the space it deserves rather than into a field in a card.
+ * Scanning the agent's code is how nearly everyone arrives, so it is the screen's one big thing, and
+ * typing an address is a quiet way round it. The code can carry what the app the agent works for
+ * asks for, and then the next thing shown is the card itself, filled in, with every line still the
+ * person's to change. Whatever the code left out is asked one question per screen. The wallet names
+ * no app: anything shown about one came from the code.
  *
- * It used to be one form in a sheet: every question at once, stopping two thirds of the way down,
- * with the button inside the card. A flow of several steps is what Apple puts full screen.
+ * The card is the review. Everything about the allowance is printed on it once, the network sits on
+ * the frame above, the one sentence under it says what an allowance is, and the button says the
+ * amount it grants.
  */
-type Step = "agent" | "amount" | "window" | "review" | "done";
-
-/** The order the steps come in. "Done" is not in it: nothing goes back to it. */
-const ORDER: readonly Step[] = ["agent", "amount", "window", "review"];
-
-const TITLES: Readonly<Record<Step, string>> = {
-  agent: "Choose the agent",
+const TITLES: Readonly<Record<GrantStep, string>> = {
+  agent: "New allowance",
   amount: "Set the limit",
   window: "Choose how long",
-  review: "Review",
+  card: "Review",
   done: "",
 };
 
@@ -56,102 +57,124 @@ export default function GrantScreen() {
   const { nameGranted } = useAgentNames();
   const leave = useLeave();
   const c = useTheme().color;
+  const network = wallet.network;
 
-  const [step, setStep] = useState<Step>("agent");
+  /** Every step visited, so Back retraces exactly the questions this agent was asked. */
+  const [trail, setTrail] = useState<readonly GrantStep[]>(["agent"]);
+  const step = trail[trail.length - 1] ?? "agent";
   const [agent, setAgent] = useState("");
-  /**
-   * The one-time code the agent's QR carried, written into the grant so the agent can tell this
-   * allowance from any other granted to its address. Null when the address was typed.
-   */
+  /** The one-time code the agent's QR carried, written into the grant. Null when the address was typed. */
   const [pairing, setPairing] = useState<string | null>(null);
+  /** The chain the agent's code named, which decides where it is granted. Null when the address was typed. */
+  const [chainId, setChainId] = useState<number | null>(null);
+  /** What the app the agent works for asked for, from its code: a suggestion, every part changeable. */
+  const [request, setRequest] = useState<AgentRequest>(NO_REQUEST);
   const [name, setName] = useState("");
   const [amount, setAmount] = useState("");
-  const [days, setDays] = useState<string>(DEFAULT_DAYS);
+  const [days, setDays] = useState<string>("");
   const [daysCustom, setDaysCustom] = useState(false);
-  /** Open while the camera is up. The scanned value lands in `agent` directly. */
   const [scanning, setScanning] = useState(false);
+  /** The address field, shown only for someone who would rather type or paste than scan. */
+  const [typing, setTyping] = useState(false);
+  /** A change asked for from the card returns to it, rather than walking every question after. */
+  const [changing, setChanging] = useState(false);
+  /** A scan moves on by itself once the agent reads as ready; typing waits for Next. */
+  const [advanceWhenReady, setAdvanceWhenReady] = useState(false);
 
-  /**
-   * Whether this screen is still showing when the grant lands.
-   *
-   * The grant outlives the screen: it runs in the session, so someone can close the flow while
-   * Face ID and the chain do their part, and it still lands.
-   */
+  /** Whether this screen is still showing when the grant lands; it runs in the session and can outlive it. */
   const open = useRef(true);
   useEffect(() => () => { open.current = false; }, []);
 
-  /**
-   * One read of every answer, used by each step's gate, the review and the grant itself. They
-   * previously each decided for themselves and disagreed about the expiry in the dangerous
-   * direction — see `readGrantTerms`.
-   */
   const read = useMemo(() => readGrantTerms({ agent, amount, days }), [agent, amount, days]);
   const terms = "terms" in read ? read.terms : null;
   const problems = "problems" in read ? read.problems : NO_PROBLEMS;
 
-  /** This wallet already grants this agent, and the plugin allows one allowance per agent per wallet. */
+  /** Where this agent is granted: the network its code named, or the wallet's own for a typed address. */
+  const placed = networkOfEntry({ chainId }, network);
+  const onItsNetwork = "network" in placed && placed.network.chainId === network.chainId;
   const already = alreadyGranted(agent, mandate.mandates);
-  const agentReady = agent.length > 0 && problems.agent === null && !already;
+  const agentReady = agent.length > 0 && problems.agent === null && !already && onItsNetwork && !wallet.busy;
   const amountReady = amount.length > 0 && problems.amount === null;
-  const windowReady = problems.days === null;
+  const windowReady = days.length > 0 && problems.days === null;
+  const answered = { limit: amountReady, days: windowReady, changing };
 
-  /**
-   * What to call the agent on the later steps: the name just typed, or its address. Not a name from
-   * an earlier allowance, which belongs to that allowance.
-   */
+  /** What to call the agent: the name typed, or its address. */
   const who = cleanAgentName(name) || (isAddress(agent) ? shortAddress(agent) : agent);
+  const canGrant = terms !== null && !wallet.busy && !mandate.busy && mandate.ready === true && onItsNetwork;
+
+  const go = useCallback((next: GrantStep) => setTrail((was) => [...was, next]), []);
+  const back = useCallback(() => {
+    if (trail.length <= 1 || step === "done") leave();
+    else setTrail((was) => was.slice(0, -1));
+  }, [trail.length, step, leave]);
 
   /**
-   * Built from the terms that would actually be granted, never from a parallel set held for
-   * display. The sentence directly above the button is the one place that must not lie.
+   * An agent entered, by scan or by keyboard. Its code names the network it spends on, and the wallet
+   * moves there for the grant. What its app asked for fills in the answers, each still changeable.
    */
-  const summary = useMemo(
-    () => (terms === null ? null : grantSummary({ limit: terms.limit, days: terms.days })),
-    [terms],
-  );
-
-  const canGrant = terms !== null && !wallet.busy && !mandate.busy && mandate.ready === true;
-
-  /** Typed or pasted. The agent's whole link carries its pairing code; a bare address does not. */
-  const enterAgent = useCallback((typed: string) => {
-    const entry = entryFromText(typed);
+  const { switchNetwork } = wallet;
+  const take = useCallback((entry: AgentEntry) => {
     setAgent(entry.agent);
     setPairing(entry.pairing);
-  }, []);
+    setChainId(entry.chainId);
+    setRequest(entry.request);
+    if (entry.request.limit !== null) setAmount(entry.request.limit);
+    if (entry.request.days !== null) {
+      setDays(String(entry.request.days));
+      setDaysCustom(!WINDOWS.some((window) => window.days === String(entry.request.days)));
+    }
+    const where = networkOfEntry(entry, network);
+    if ("network" in where && where.network.chainId !== network.chainId) switchNetwork(where.network);
+  }, [network, switchNetwork]);
 
-  const back = useCallback(() => {
-    const previous = ORDER[ORDER.indexOf(step) - 1];
-    if (step === "done" || previous === undefined) leave();
-    else setStep(previous);
-  }, [step, leave]);
+  const enterAgent = useCallback((typed: string) => take(entryFromText(typed)), [take]);
 
-  /**
-   * An allowance bounds **how much and for how long**, not who.
-   *
-   * Requiring payees up front cannot work: an agent shopping the open web does not know who it
-   * will pay until it finds a service, and neither does the person granting. Counterparty
-   * scoping stays available in the SDK for when you genuinely do know, and an agent refused for
-   * an unknown payee says so in the conversation — which is where the person already is.
-   */
+  // A scanned agent moves on as soon as it reads as ready, which may wait on the wallet moving network.
+  useEffect(() => {
+    if (!advanceWhenReady || step !== "agent" || !agentReady) return;
+    setAdvanceWhenReady(false);
+    go(stepAfter("agent", answered));
+  }, [advanceWhenReady, step, agentReady, answered, go]);
+
+  /** From the card, one line changed and straight back. */
+  const change = useCallback((target: "amount" | "window") => { setChanging(true); go(target); }, [go]);
+  const next = useCallback((from: "amount" | "window") => {
+    if (changing) {
+      setChanging(false);
+      setTrail((was) => [...was.slice(0, was.lastIndexOf("card") + 1)]);
+      return;
+    }
+    go(stepAfter(from, answered));
+  }, [changing, go, answered]);
+
   const grant = useCallback(() => {
     if (terms === null) return;
     const chosenName = cleanAgentName(name);
     mandate.grant(
-      mandateTermsFor(terms, pairing, Date.now()),
-      // Runs when the grant has landed, not when it was asked for. The name is kept only then, so
-      // a cancelled Face ID does not leave a name behind for an agent that was never granted. It goes
-      // to this allowance alone, by the grant's own log.
+      mandateTermsFor(terms, pairing, Date.now(), request.payees),
+      // Runs when the grant has landed. The name is kept only then, for this allowance alone.
       (granted) => {
         nameGranted(terms.agent, granted, chosenName);
         feelSuccess();
-        if (open.current) setStep("done");
+        if (open.current) go("done");
       },
     );
-  }, [terms, name, pairing, mandate, nameGranted]);
+  }, [terms, name, pairing, request.payees, mandate, nameGranted, go]);
 
   const bar = (action?: { title: string; enabled: boolean; onPress: () => void }) => (
-    <WizardTopBar title={TITLES[step]} onBack={back} closes={step === "agent" || step === "done"} {...(action ? { action } : {})} />
+    <WizardTopBar
+      title={TITLES[step]}
+      // the network on the frame, until a card is showing, which prints it itself
+      {...(step === "card" || step === "done" ? {} : { detail: network.name })}
+      onBack={back}
+      closes={trail.length <= 1 || step === "done"}
+      {...(action ? { action } : {})}
+    />
   );
+
+  const face = terms === null
+    ? null
+    : faceOf({ terms, name: cleanAgentName(name) || null, askedBy: request.app, payees: request.payees, network });
 
   if (step === "agent") {
     return (
@@ -160,42 +183,53 @@ export default function GrantScreen() {
           visible={scanning}
           onClose={() => setScanning(false)}
           onScanned={(scanned) => {
-            const entry = entryFromScan(scanned);
-            setAgent(entry.agent);
-            setPairing(entry.pairing);
+            take(entryFromScan(scanned));
             setScanning(false);
+            setAdvanceWhenReady(true);
             feelSuccess();
           }}
         />
         <Screen
           header={bar()}
-          footer={<Button tier="solid" title="Next" onPress={() => setStep("amount")} disabled={!agentReady} />}
+          {...(typing ? { footer: <Button tier="solid" title="Next" onPress={() => go(stepAfter("agent", answered))} disabled={!agentReady} /> } : {})}
         >
-          <Button icon="qr-code-outline" title="Scan the agent's code" onPress={() => setScanning(true)} />
-          <Surface>
-            <Field
-              label="Agent address"
-              value={agent}
-              onChangeText={enterAgent}
-              placeholder="0x…"
-              hint="Scan your agent's code. The link it prints can be pasted here too."
-              problem={problems.agent}
-              confirmed={agentReady}
-              data
-            />
-            <Field
-              label="Name"
-              value={name}
-              onChangeText={setName}
-              placeholder="Optional, like Maze runner"
-              hint="What you call this agent. Kept on this phone only, so the list shows a name instead of an address."
-              maxLength={MAX_AGENT_NAME}
-            />
-          </Surface>
-          {agentReady && pairing === null && (
+          <Pressable
+            onPress={() => setScanning(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Scan your agent's code"
+            style={({ pressed }) => [styles.scan, pressed && styles.pressed]}
+          >
+            <CornerMarks color={c.muted} length={SCAN_MARK} stroke={tokens.border.hairline * 2} />
+            <Ionicons name="qr-code-outline" size={SCAN_GLYPH} color={c.paper} />
+            <Text style={[styles.scanTitle, { color: c.paper }]}>Scan your agent&apos;s code</Text>
+            <Text style={[styles.scanBody, { color: c.dim }]}>It shows one when you connect it on your computer.</Text>
+          </Pressable>
+
+          {typing ? (
+            <Surface>
+              <Field
+                label="Agent address"
+                value={agent}
+                onChangeText={enterAgent}
+                placeholder="0x…"
+                hint="The link your agent prints can be pasted here too."
+                problem={problems.agent}
+                confirmed={agentReady}
+                data
+              />
+            </Surface>
+          ) : (
+            <Pressable onPress={() => setTyping(true)} accessibilityRole="button" style={styles.quiet} hitSlop={tokens.space.sm}>
+              <Text style={[styles.quietText, { color: c.muted }]}>Paste or type its address instead</Text>
+            </Pressable>
+          )}
+
+          {"problem" in placed && <Note tone="warn">{placed.problem}</Note>}
+          {wallet.error !== null && <Note tone="warn" lines={ERROR_LINES}>{wallet.error}</Note>}
+          {already && <Note>{ALREADY_GRANTED}</Note>}
+          {typing && agentReady && pairing === null && (
             <Note>An agent using the Arc Mandate connector will not use this allowance. Scan its code instead.</Note>
           )}
-          {already && <Note>{ALREADY_GRANTED}</Note>}
         </Screen>
       </>
     );
@@ -205,22 +239,16 @@ export default function GrantScreen() {
     const balance = wallet.balance;
     const over = terms !== null && exceedsWallet(terms.limit, balance);
     return (
-      <Screen fill header={bar({ title: "Continue", enabled: amountReady, onPress: () => setStep("window") })}>
-        <AgentChip who={who} onEdit={() => setStep("agent")} />
-        <View style={styles.walletLine}>
-          <Text style={[styles.walletLabel, { color: c.muted }]}>In your wallet</Text>
-          <Text style={[styles.walletValue, { color: c.paper }]}>{balance?.format(2) ?? "—"} USDC</Text>
+      <Screen fill header={bar({ title: changing ? "Done" : "Continue", enabled: amountReady, onPress: () => next("amount") })}>
+        <AgentChip who={who} onEdit={() => setTrail(["agent"])} />
+        <View style={styles.amount}>
+          <AmountHero value={amount} onChangeText={setAmount} unit={unitOf(network)} problem={problems.amount} />
+          <Text style={[styles.balance, { color: over ? c.warn : c.dim }]}>
+            {balance === null ? `${unitOf(network)} in your wallet: reading` : `${inCoin(balance, network)} in your wallet`}
+          </Text>
         </View>
-        <Surface style={styles.heroPanel}>
-          <AmountHero value={amount} onChangeText={setAmount} unit="USDC" problem={problems.amount} />
-          {over && (
-            <Text style={[styles.over, { color: c.dim }]}>
-              More than your wallet holds now. The agent can only spend what is there when it pays.
-            </Text>
-          )}
-        </Surface>
         <View style={styles.presets}>
-          {AMOUNTS.map((preset) => (
+          {amountPresets(network).map((preset) => (
             <PresetChip key={preset} label={preset} selected={amount === preset} onPress={() => setAmount(preset)} />
           ))}
         </View>
@@ -232,11 +260,9 @@ export default function GrantScreen() {
     return (
       <Screen
         header={bar()}
-        {...(daysCustom
-          ? { footer: <Button tier="solid" title="Next" onPress={() => setStep("review")} disabled={!windowReady} /> }
-          : {})}
+        {...(daysCustom ? { footer: <Button tier="solid" title={changing ? "Done" : "Next"} onPress={() => next("window")} disabled={!windowReady} /> } : {})}
       >
-        <AgentChip who={who} onEdit={() => setStep("agent")} />
+        <AgentChip who={who} onEdit={() => setTrail(["agent"])} />
         <Surface style={styles.group}>
           {WINDOWS.map((window, index) => (
             <ChoiceListRow
@@ -244,8 +270,8 @@ export default function GrantScreen() {
               title={window.label}
               detail={windowEndLabel(Number(window.days))}
               selected={!daysCustom && days === window.days}
-              // One tap answers the question, so it moves straight on, as Kuira's token list does.
-              onPress={() => { setDays(window.days); setDaysCustom(false); setStep("review"); }}
+              // One tap answers the question, so it moves straight on.
+              onPress={() => { setDays(window.days); setDaysCustom(false); next("window"); }}
               first={index === 0}
             />
           ))}
@@ -259,117 +285,120 @@ export default function GrantScreen() {
         </Surface>
         {daysCustom && (
           <Surface>
-            <Field
-              label="Days"
-              value={days}
-              onChangeText={setDays}
-              placeholder="7"
-              keyboardType="decimal-pad"
-              problem={problems.days}
-            />
+            <Field label="Days" value={days} onChangeText={setDays} placeholder="7" keyboardType="decimal-pad" problem={problems.days} />
           </Surface>
         )}
-        <Text style={[styles.hint, { color: c.dim }]}>
-          After this the allowance stops working on its own, with nothing to remember.
-        </Text>
+        <Text style={[styles.hint, { color: c.dim }]}>After this the allowance stops working on its own.</Text>
       </Screen>
     );
   }
 
-  if (step === "review" && terms !== null) {
+  if (step === "card" && terms !== null && face !== null) {
     return (
       <Screen
         header={bar()}
         footer={
           <Button
             tier="solid"
-            title="Grant allowance"
+            title={`Grant ${inCoin(terms.limit, network)}`}
             onPress={grant}
             busy={mandate.pending?.kind === "grant"}
             disabled={!canGrant}
           />
         }
       >
-        <View style={styles.reviewHero}>
-          {/* The whole ring in the "still allowed" colour: nothing is spent on a new allowance. */}
-          <ArcRing spent={0} size={tokens.size.ring.review} label="" />
-          <Text style={[styles.reviewAmount, { color: c.paper }]}>
-            {terms.limit.format(2)}
-            <Text style={[styles.reviewUnit, { color: c.muted }]}>  USDC</Text>
-          </Text>
-          <Text style={[styles.reviewFor, { color: c.muted }]}>for {who}</Text>
+        <AllowanceCard face={face} />
+        <View style={styles.changes}>
+          <Pressable onPress={() => change("amount")} accessibilityRole="button" accessibilityLabel="Change limit" hitSlop={tokens.space.sm}>
+            <Text style={[styles.change, { color: c.muted }]}>CHANGE LIMIT</Text>
+          </Pressable>
+          <Text style={[styles.change, { color: c.dim }]}>/</Text>
+          <Pressable onPress={() => change("window")} accessibilityRole="button" accessibilityLabel="Change length" hitSlop={tokens.space.sm}>
+            <Text style={[styles.change, { color: c.muted }]}>CHANGE LENGTH</Text>
+          </Pressable>
         </View>
-        <Surface style={styles.group}>
-          <DetailRow label="Agent" value={who} first />
-          {who !== shortAddress(terms.agent) && <DetailRow label="Address" value={shortAddress(terms.agent)} data />}
-          <DetailRow label="Limit" value={`${terms.limit.format(2)} USDC`} />
-          <DetailRow label="Ends" value={windowEndLabel(terms.days).replace(/^Ends /, "")} />
+        <Text style={[styles.terms, { color: c.muted }]}>{CARD_TERMS}</Text>
+        <Surface>
+          <Field
+            label="Name"
+            value={name}
+            onChangeText={setName}
+            placeholder="What you call this agent"
+            hint="Kept on this phone only, so your list shows a name instead of an address."
+            maxLength={MAX_AGENT_NAME}
+          />
         </Surface>
-        {summary !== null && <Note>{summary}</Note>}
-        {exceedsWallet(terms.limit, wallet.balance) && (
-          <Note>{`That is more than the ${wallet.balance?.format(2) ?? ""} USDC in your wallet now. The agent can only spend what the wallet holds when it pays.`}</Note>
+        {exceedsWallet(terms.limit, wallet.balance) && wallet.balance !== null && (
+          <Note>{`Your wallet holds ${inCoin(wallet.balance, network)} now. The agent can only spend what is there when it pays.`}</Note>
         )}
+        {already && <Note>{ALREADY_GRANTED}</Note>}
         {mandate.error !== null && <Note tone="warn" lines={ERROR_LINES}>{mandate.error}</Note>}
-        {mandate.ready === false && <Note tone="warn">Allowances are not deployed on Arc testnet yet.</Note>}
+        {mandate.ready === false && <Note tone="warn">{`Allowances are not deployed on ${network.name} yet.`}</Note>}
       </Screen>
     );
   }
 
-  if (step === "done" && terms !== null) {
+  if (step === "done" && terms !== null && face !== null) {
     return (
-      <Screen centered header={bar()} footer={<Button tier="solid" title="Done" onPress={leave} />}>
+      <Screen header={bar()} footer={<Button tier="solid" title="Done" onPress={leave} />}>
+        <AllowanceCard face={{ ...face, spoken: grantedSentence({ who, limit: terms.limit, days: terms.days, network }) }} />
         <View style={styles.done}>
-          <ArcRing spent={0} size={tokens.size.ring.welcome} label="" />
           <Text style={[styles.doneTitle, { color: c.paper }]}>Allowance granted</Text>
-          <Text style={[styles.doneBody, { color: c.muted }]}>
-            {grantedSentence({ who, limit: terms.limit, days: terms.days })}
-          </Text>
+          <Text style={[styles.doneBody, { color: c.muted }]}>Nothing has left your wallet yet.</Text>
           {/* The next step is on the other device, so the phone says so rather than going quiet. */}
-          <Text style={[styles.doneNext, { color: c.paper }]}>
-            Next, on your computer: tell your agent what to do. It can start now.
-          </Text>
+          <Text style={[styles.doneNext, { color: c.paper }]}>Next, on your computer: tell your agent what to do.</Text>
         </View>
       </Screen>
     );
   }
 
-  // Reached only if the answers stopped reading between steps, which the gates prevent. Back to the
-  // start rather than a blank screen.
+  // Reached only if the answers stopped reading between steps, which the gates prevent.
   return (
     <Screen header={bar()}>
       <Note>Something in the answers no longer reads. Start again from the agent.</Note>
-      <Button title="Start again" onPress={() => setStep("agent")} />
+      <Button title="Start again" onPress={() => setTrail(["agent"])} />
     </Screen>
   );
 }
 
-/** The presets, as the strings the amount field edits, so a preset and a typed figure are one state. */
-const AMOUNTS: readonly string[] = ["5", "20", "100"];
 const WINDOWS: readonly { readonly label: string; readonly days: string }[] = [
   { label: "1 day", days: "1" },
   { label: "7 days", days: "7" },
   { label: "30 days", days: "30" },
 ];
-const DEFAULT_DAYS = "7";
 
 /** Nothing to complain about yet, and the same shape the reader returns. */
 const NO_PROBLEMS = { agent: null, amount: null, days: null } as const;
 
+/** The scan glyph, large enough to read as the screen's one thing to do. */
+const SCAN_GLYPH = 56;
+/** The registration marks round the scan panel: the scanner's own frame, smaller. */
+const SCAN_MARK = 22;
+/** Small capitals spaced out, as on the card. */
+const TRACKED = 2;
+
 const styles = StyleSheet.create({
+  scan: {
+    alignItems: "center",
+    gap: tokens.space.sm,
+    paddingVertical: tokens.space.xl * 2,
+    paddingHorizontal: tokens.space.lg,
+  },
+  scanTitle: tokens.type.title,
+  scanBody: { ...tokens.type.subheadline, textAlign: "center" },
+  pressed: { opacity: tokens.opacity.pressed },
+  quiet: { alignSelf: "center", paddingVertical: tokens.space.sm },
+  quietText: { ...tokens.type.subheadline, textDecorationLine: "underline" },
   group: { padding: 0, gap: 0, overflow: "hidden" },
-  walletLine: { flexDirection: "row", justifyContent: "space-between", alignItems: "baseline" },
-  walletLabel: tokens.type.subheadline,
-  walletValue: { ...tokens.type.subheadline, fontVariant: [...tokens.font.tabular] },
-  /** Takes every point the other parts leave, so the figure is the screen. */
-  heroPanel: { flex: 1, justifyContent: "center", gap: tokens.space.base },
-  over: { ...tokens.type.footnote, textAlign: "center" },
+  /** Takes the space the parts above and below leave, so the figure is the screen, with no box drawn round it. */
+  amount: { flex: 1, justifyContent: "center", gap: tokens.space.base },
+  balance: { ...tokens.type.footnote, textAlign: "center", fontVariant: [...tokens.font.tabular] },
   presets: { flexDirection: "row", gap: tokens.space.sm },
   hint: tokens.type.footnote,
-  reviewHero: { alignItems: "center", gap: tokens.space.xs, paddingVertical: tokens.space.base },
-  reviewAmount: { ...tokens.type.hero, marginTop: tokens.space.md, fontVariant: [...tokens.font.tabular] },
-  reviewUnit: { ...tokens.type.headline, fontWeight: "400", letterSpacing: 0 },
-  reviewFor: tokens.type.subheadline,
-  done: { alignItems: "center", gap: tokens.space.base },
+  changes: { flexDirection: "row", gap: tokens.space.md, justifyContent: "center" },
+  change: { ...tokens.type.caption, fontFamily: tokens.font.mono, letterSpacing: TRACKED },
+  terms: { ...tokens.type.subheadline, textAlign: "center" },
+  done: { alignItems: "center", gap: tokens.space.base, paddingTop: tokens.space.base },
   doneTitle: { ...tokens.type.title, textAlign: "center" },
   doneBody: { ...tokens.type.body, textAlign: "center" },
   doneNext: { ...tokens.type.headline, textAlign: "center" },

@@ -31,7 +31,8 @@ import { bundlerConfigured, bundlerSetupInstructions } from "./bundler.ts";
 import { createBundlerClient } from "viem/account-abstraction";
 import type { Address, Hex } from "viem";
 import type { PrivateKeyAccount } from "viem/accounts";
-import { toSessionKeyAccount } from "./session-account.ts";
+import { sendCorrectingGas, toSessionKeyAccount, type GasLimits } from "@kuiralabs/mandate-core";
+import { NETWORK } from "./network.ts";
 import { circleTransport } from "./bundler.ts";
 import type { Call } from "./gateway.ts";
 
@@ -128,15 +129,11 @@ async function submitNow({ agent, account, calls }: SpendRequest): Promise<Spend
  * signature, and the plugin recovers the signer from that signature to check it is a session key
  * of this account — a stub recovers to a random address, so validation reverts with `AA23` and
  * estimation always fails. Nothing about the operation is wrong; the method simply cannot ask this
- * question. So the limits are generous constants, and the paymaster pays for the headroom.
+ * question. So the limits start from the network's own figures, and are corrected from what the
+ * bundler names when it refuses them: Monad's wants far more preVerificationGas than Arc's, and a
+ * verification limit mostly used, since Monad bills the whole limit.
  */
-const GAS = {
-  callGasLimit: 500_000n,
-  verificationGasLimit: 500_000n,
-  preVerificationGas: 100_000n,
-  paymasterVerificationGasLimit: 150_000n,
-  paymasterPostOpGasLimit: 20_000n,
-};
+let gas: GasLimits = NETWORK.gas.agent;
 
 /**
  * How far above the chain's own estimate to bid.
@@ -171,13 +168,17 @@ async function sendWithFeeBump(bundler: Bundler, calls: readonly Call[]): Promis
     maxFeePerGas: estimate.maxFeePerGas * FEE_PREMIUM,
     maxPriorityFeePerGas: estimate.maxPriorityFeePerGas * FEE_PREMIUM,
   };
+  // the limits the bundler named and took are where the next payment starts, so a network's corrections are asked for once
+  const sendAt = async (offered: typeof fees): Promise<Hex> => {
+    const { sent, limits } = await sendCorrectingGas(gas, (tried) => bundler.sendUserOperation({ calls, ...tried, ...offered }));
+    gas = limits;
+    return sent;
+  };
   try {
-    return await bundler.sendUserOperation({ calls, ...GAS, ...fees });
+    return await sendAt(fees);
   } catch (cause) {
     if (!isStuckAtThisNonce(cause)) throw cause;
-    return bundler.sendUserOperation({
-      calls,
-      ...GAS,
+    return sendAt({
       maxFeePerGas: estimate.maxFeePerGas * REPLACEMENT_MULTIPLIER,
       maxPriorityFeePerGas: estimate.maxPriorityFeePerGas * REPLACEMENT_MULTIPLIER,
     });
