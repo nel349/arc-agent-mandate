@@ -323,14 +323,14 @@ export default function GrantScreen() {
         }
       >
         <AllowanceCard face={face} />
+        {/* Real buttons, each half the width: a change is the one thing to do here besides granting. */}
         <View style={styles.changes}>
-          <Pressable onPress={() => change("amount")} accessibilityRole="button" accessibilityLabel="Change limit" hitSlop={tokens.space.sm}>
-            <Text style={[styles.change, { color: c.muted }]}>CHANGE LIMIT</Text>
-          </Pressable>
-          <Text style={[styles.change, { color: c.dim }]}>/</Text>
-          <Pressable onPress={() => change("window")} accessibilityRole="button" accessibilityLabel="Change length" hitSlop={tokens.space.sm}>
-            <Text style={[styles.change, { color: c.muted }]}>CHANGE LENGTH</Text>
-          </Pressable>
+          <View style={styles.change}>
+            <Button icon="cash-outline" title="Change limit" onPress={() => change("amount")} />
+          </View>
+          <View style={styles.change}>
+            <Button icon="calendar-outline" title="Change length" onPress={() => change("window")} />
+          </View>
         </View>
         <Text style={[styles.terms, { color: c.muted }]}>{CARD_TERMS}</Text>
         {needsPayees && (
@@ -403,8 +403,6 @@ const NO_PROBLEMS = { agent: null, amount: null, days: null } as const;
 const SCAN_GLYPH = 56;
 /** The registration marks round the scan panel: the scanner's own frame, smaller. */
 const SCAN_MARK = 22;
-/** Small capitals spaced out, as on the card. */
-const TRACKED = 2;
 
 const styles = StyleSheet.create({
   scan: {
@@ -424,8 +422,8 @@ const styles = StyleSheet.create({
   balance: { ...tokens.type.footnote, textAlign: "center", fontVariant: [...tokens.font.tabular] },
   presets: { flexDirection: "row", gap: tokens.space.sm },
   hint: tokens.type.footnote,
-  changes: { flexDirection: "row", gap: tokens.space.md, justifyContent: "center" },
-  change: { ...tokens.type.caption, fontFamily: tokens.font.mono, letterSpacing: TRACKED },
+  changes: { flexDirection: "row", gap: tokens.space.sm },
+  change: { flex: 1 },
   terms: { ...tokens.type.subheadline, textAlign: "center" },
   done: { alignItems: "center", gap: tokens.space.base, paddingTop: tokens.space.base },
   doneTitle: { ...tokens.type.title, textAlign: "center" },
