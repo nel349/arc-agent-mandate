@@ -129,4 +129,27 @@ contract ArcPayeeScopeTest is ArcMscaHarness {
         vm.expectRevert(ISessionKeyPlugin.PermissionsCheckFailed.selector);
         _spendLocal(USDC_ERC20_VIEW, 0, abi.encodeWithSignature("transfer(address,uint256)", PAYEE, uint256(1e6)));
     }
+
+    /// A payee as grants list one since the agent became able to call functions: its functions
+    /// checked, and only the empty one allowed, which is what a call with no data presents.
+    function _listAsPlainPayee(address payee) private {
+        _apply(abi.encodeCall(ISessionKeyPermissionsUpdates.updateAccessListAddressEntry, (payee, true, true)));
+        _apply(abi.encodeCall(ISessionKeyPermissionsUpdates.updateAccessListFunctionEntry, (payee, bytes4(0), true)));
+    }
+
+    /// A payee listed for plain transfers is paid as before.
+    function test_aPayeeListedForPlainTransfersIsPaid() public {
+        _grantWithoutPayees();
+        _listAsPlainPayee(PAYEE);
+        _spendLocal(PAYEE, 1e18, "");
+    }
+
+    /// And cannot be called with the wallet: a payee that is a contract, the ERC-20 view here, takes
+    /// the coin and nothing else, so the agent cannot move what that contract holds for the wallet.
+    function test_aPayeeListedForPlainTransfersCannotBeCalled() public {
+        _grantWithoutPayees();
+        _listAsPlainPayee(USDC_ERC20_VIEW);
+        vm.expectRevert(ISessionKeyPlugin.PermissionsCheckFailed.selector);
+        _spendLocal(USDC_ERC20_VIEW, 0, abi.encodeWithSignature("transfer(address,uint256)", PAYEE, uint256(1e6)));
+    }
 }

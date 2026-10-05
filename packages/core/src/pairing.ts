@@ -1,4 +1,5 @@
-import { getAddress, isAddress, keccak256, toHex, type Address, type Hex } from "viem";
+import { getAddress, isAddress, keccak256, parseAbiItem, toFunctionSignature, toHex, type Address, type Hex } from "viem";
+import type { AllowedCalls } from "./grant.ts";
 
 /**
  * Tying a grant to the code it was made from.
@@ -49,9 +50,14 @@ export interface AgentRequest {
   readonly days: number | null;
   /** the only addresses the agent may pay, when the app names them; empty when it names none */
   readonly payees: readonly Address[];
+  /**
+   * The contract functions the agent may call with the wallet, as the app names them: a seat taken, a
+   * piece of work approved. Only these, and only on these contracts; empty when it names none.
+   */
+  readonly calls: readonly AllowedCalls[];
 }
 
-export const NO_REQUEST: AgentRequest = { app: null, limit: null, days: null, payees: [] };
+export const NO_REQUEST: AgentRequest = { app: null, limit: null, days: null, payees: [], calls: [] };
 
 /** The longest name an app may give itself, so a code cannot fill the screen with its own words. */
 export const MOST_APP_NAME = 40;
@@ -59,13 +65,37 @@ export const MOST_APP_NAME = 40;
 export const MOST_PAYEES = 5;
 /** The longest an allowance may be asked to last: ten years, as the wallet's own form allows. */
 export const MOST_DAYS = 3650;
+/** The most contracts a request may name functions on, and the most functions on each, so the code stays scannable. */
+export const MOST_CALLED_CONTRACTS = 3;
+export const MOST_FUNCTIONS = 5;
 /** A positive decimal with at most eighteen places, as every coin here counts. */
 const LIMIT = /^(?:0|[1-9]\d{0,17})(?:\.\d{1,18})?$/;
 /** A name a person can read: letters, digits, spaces and plain punctuation, no control characters. */
 const APP_NAME = /^[\p{L}\p{N} .,'&()\-]+$/u;
 
 /** The parameter each part of a link travels under. */
-const PARAM = { pairing: "pairing", app: "app", limit: "limit", days: "days", payees: "payees" } as const;
+const PARAM = { pairing: "pairing", app: "app", limit: "limit", days: "days", payees: "payees", calls: "calls" } as const;
+
+/**
+ * A function as the chain knows it, `name(type,type)`, or null when it is not one.
+ *
+ * Only the exact form is accepted, not a loose one the parser would tidy: `uint` and `uint256` are
+ * the same to a reader and different functions to the chain, so a signature that is not already exact
+ * would allow a function the app never meant.
+ */
+export function exactFunction(signature: string): string | null {
+  try {
+    const item = parseAbiItem(`function ${signature}`);
+    if (item.type !== "function") return null;
+    const exact = toFunctionSignature(item);
+    return exact === signature ? exact : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The calls as they travel in a link: short keys, since every character makes the code denser. */
+interface CallsOnTheWire { readonly c: string; readonly f: readonly string[] }
 
 /** What the agent's QR encodes: an EIP-681 link to its address on its chain, carrying the code and any request. */
 export function pairingLink(address: Address, chainId: number, code: string, request: AgentRequest = NO_REQUEST): string {
@@ -74,6 +104,10 @@ export function pairingLink(address: Address, chainId: number, code: string, req
   if (request.limit !== null) params.push(`${PARAM.limit}=${request.limit}`);
   if (request.days !== null) params.push(`${PARAM.days}=${request.days}`);
   if (request.payees.length > 0) params.push(`${PARAM.payees}=${request.payees.join(",")}`);
+  if (request.calls.length > 0) {
+    const wire: CallsOnTheWire[] = request.calls.map((call) => ({ c: call.contract, f: call.functions }));
+    params.push(`${PARAM.calls}=${encodeURIComponent(JSON.stringify(wire))}`);
+  }
   return `ethereum:${address}@${chainId}?${params.join("&")}`;
 }
 
@@ -91,6 +125,11 @@ export function requestProblem(request: AgentRequest): string | null {
   if (request.payees.length > MOST_PAYEES || request.payees.some((payee) => !isAddress(payee, { strict: false }))) {
     return `Payees are up to ${MOST_PAYEES} addresses.`;
   }
+  if (request.calls.length > MOST_CALLED_CONTRACTS || request.calls.some((call) =>
+    !isAddress(call.contract, { strict: false }) || call.functions.length === 0 || call.functions.length > MOST_FUNCTIONS
+    || call.functions.some((fn) => exactFunction(fn) === null))) {
+    return `Calls name up to ${MOST_CALLED_CONTRACTS} contracts, each with 1 to ${MOST_FUNCTIONS} functions written exactly, like takeSeat(uint256,uint8,address).`;
+  }
   return null;
 }
 
@@ -100,6 +139,7 @@ export interface RequestInput {
   readonly limit?: string | undefined;
   readonly days?: number | undefined;
   readonly payees?: readonly string[] | undefined;
+  readonly calls?: readonly { readonly contract: string; readonly functions: readonly string[] }[] | undefined;
 }
 
 /** An agent's request made ready to print, or why it cannot be. */
@@ -108,8 +148,13 @@ export function requestFrom(input: RequestInput): { readonly request: AgentReque
   if (written.length > MOST_PAYEES || !written.every((payee) => isAddress(payee, { strict: false }))) {
     return { problem: `Payees are up to ${MOST_PAYEES} addresses.` };
   }
+  const asked = input.calls ?? [];
+  if (!asked.every((call) => isAddress(call.contract, { strict: false }))) {
+    return { problem: `Calls name up to ${MOST_CALLED_CONTRACTS} contracts, each by its address.` };
+  }
   const request: AgentRequest = {
     app: input.app ?? null, limit: input.limit ?? null, days: input.days ?? null, payees: written.map((payee) => getAddress(payee)),
+    calls: asked.map((call) => ({ contract: getAddress(call.contract), functions: [...call.functions] })),
   };
   const problem = requestProblem(request);
   return problem === null ? { request } : { problem };
@@ -171,11 +216,35 @@ function readRequest(valueOf: (name: string) => string | null): AgentRequest | n
   }
   if (days !== null && !/^\d{1,4}$/.test(days)) return null;
   if (payees !== null && !payees.split(",").every((payee) => isAddress(payee, { strict: false }))) return null;
+  const calls = readCalls(valueOf(PARAM.calls));
+  if (calls === null) return null;
   const request: AgentRequest = {
     app,
     limit: valueOf(PARAM.limit),
     days: days === null ? null : Number(days),
     payees: payees === null ? [] : payees.split(",").map((payee) => getAddress(payee)),
+    calls,
   };
   return requestProblem(request) === null ? request : null;
+}
+
+/** The calls a link names, none when it names none, or null when what it names does not read. */
+function readCalls(encoded: string | null): readonly AllowedCalls[] | null {
+  if (encoded === null) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(decodeURIComponent(encoded));
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(parsed)) return null;
+  const calls: AllowedCalls[] = [];
+  for (const entry of parsed) {
+    if (typeof entry !== "object" || entry === null) return null;
+    const { c, f } = entry as Record<string, unknown>;
+    if (typeof c !== "string" || !isAddress(c, { strict: false })) return null;
+    if (!Array.isArray(f) || !f.every((fn): fn is string => typeof fn === "string")) return null;
+    calls.push({ contract: getAddress(c), functions: f });
+  }
+  return calls;
 }

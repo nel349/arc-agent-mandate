@@ -112,7 +112,8 @@ export default function GrantScreen() {
   const needsPayees = payeesRequired(network);
   const payeesRead = readPayees(payeesText);
   const payees = "payees" in payeesRead ? payeesRead.payees : [];
-  const payeesReady = "payees" in payeesRead && (!needsPayees || payees.length > 0);
+  // a function the app named counts as somebody the allowance reaches, as the core counts it
+  const payeesReady = "payees" in payeesRead && (!needsPayees || payees.length > 0 || request.calls.length > 0);
 
   const canGrant = terms !== null && !wallet.busy && !mandate.busy && mandate.ready === true && onItsNetwork && !already && payeesReady;
 
@@ -166,7 +167,7 @@ export default function GrantScreen() {
     if (terms === null) return;
     const chosenName = cleanAgentName(name);
     mandate.grant(
-      mandateTermsFor(terms, pairing, Date.now(), payees),
+      mandateTermsFor(terms, pairing, Date.now(), payees, request.calls),
       // Runs when the grant has landed. The name is kept only then, for this allowance alone.
       (granted) => {
         nameGranted(terms.agent, granted, chosenName);
@@ -174,7 +175,7 @@ export default function GrantScreen() {
         if (open.current) go("done");
       },
     );
-  }, [terms, name, pairing, payees, mandate, nameGranted, go]);
+  }, [terms, name, pairing, payees, request.calls, mandate, nameGranted, go]);
 
   const bar = (action?: { title: string; enabled: boolean; onPress: () => void }) => (
     <WizardTopBar
@@ -189,7 +190,7 @@ export default function GrantScreen() {
 
   const face = terms === null
     ? null
-    : faceOf({ terms, name: cleanAgentName(name) || null, askedBy: request.app, payees, network });
+    : faceOf({ terms, name: cleanAgentName(name) || null, askedBy: request.app, payees, calls: request.calls, network });
 
   if (step === "agent") {
     return (
@@ -333,7 +334,7 @@ export default function GrantScreen() {
           </View>
         </View>
         <Text style={[styles.terms, { color: c.muted }]}>{CARD_TERMS}</Text>
-        {needsPayees && (
+        {needsPayees && request.calls.length === 0 && (
           <Surface>
             <Field
               label="Who it may pay"

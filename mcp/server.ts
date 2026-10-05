@@ -21,7 +21,7 @@ loadEnv({ path: join(dirname(dirname(fileURLToPath(import.meta.url))), ".env"), 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { encodeFunctionData, formatEther, formatUnits, isAddress, isAddressEqual, parseAbi, parseEther, parseUnits, zeroAddress, type Address } from "viem";
+import { encodeFunctionData, formatEther, formatUnits, getAddress, isAddress, isAddressEqual, parseAbi, parseEther, parseUnits, zeroAddress, type Address } from "viem";
 import { loadOrCreateAgent } from "@kuiralabs/mandate-core/node";
 import { agentKeyPath } from "./keyPath.ts";
 import {
@@ -32,6 +32,7 @@ import {
 import { setUpIdentity, type IdentityOutcome, type Submit } from "./erc8004.ts";
 import { amountIn, NO_REQUEST, pairingLink, payeesRequired, requestFrom, type AgentRequest } from "@kuiralabs/mandate-core";
 import { briefingSteps } from "./briefing.ts";
+import { encodeCall } from "./call.ts";
 import { NETWORK } from "./network.ts";
 
 /** What the network's money is called, in everything the tools say. */
@@ -285,12 +286,16 @@ server.registerTool(
       limit: z.string().optional().describe(`A limit to ask for, in ${COIN}, as a decimal string, e.g. "0.01", when the app you work for says what it needs`),
       days: z.number().int().optional().describe("How many days to ask the allowance to last, when the app says"),
       payees: z.array(z.string()).optional().describe("The only addresses the allowance should let you pay, when the app names them"),
+      calls: z.array(z.object({
+        contract: z.string().describe("The contract's address"),
+        functions: z.array(z.string()).describe('Each function written exactly, like "takeSeat(uint256,uint8,address)"'),
+      })).optional().describe("The contract functions the app needs you to call with the wallet, when it names them; only these will be allowed"),
     },
   },
-  async ({ app, limit, days, payees }) => {
+  async ({ app, limit, days, payees, calls }) => {
     // What the app this agent works for asks the wallet to grant. The person sees every part of it on
     // the phone and can change it; a part that could not be read back is refused here, not printed.
-    const asked = requestFrom({ app, limit, days, payees });
+    const asked = requestFrom({ app, limit, days, payees, calls });
     if ("problem" in asked) return text(`The code was not made: ${asked.problem} Ask again without it, or with it corrected.`);
     const { request } = asked;
     let grant: Grant;
@@ -527,6 +532,40 @@ function paymentCall(to: Address, value: bigint, rail: Allowance["rail"]): Payme
   };
 }
 
+/** An amount of the coin as an agent wrote it, or the sentence saying why it is not one. Nothing is sent either way. */
+function amountOf(amount: string): { readonly value: bigint } | { readonly problem: string } {
+  if (!DECIMAL.test(amount)) return { problem: `Nothing was sent. "${amount}" is not an amount; give it as a plain decimal, like 2.50.` };
+  // Finer than the coin counts would round to nothing, and "must be positive" would not say why.
+  const places = amount.split(".")[1]?.length ?? 0;
+  if (places > NETWORK.coin.decimals) {
+    return { problem: `Nothing was sent. ${COIN} counts to ${NETWORK.coin.decimals} decimal places, and "${amount}" has ${places}.` };
+  }
+  return { value: parseEther(amount) };
+}
+
+/**
+ * Why a spend of `value` is refused before it is sent, or null when the allowance has room for it.
+ *
+ * Checked here purely so the agent gets a sentence it can act on. The chain refuses it either way; this
+ * only avoids spending a round trip to be told so.
+ */
+function refusedBeforeSending(allowance: Awaited<ReturnType<typeof requireMandate>>["allowance"], value: bigint): string | null {
+  if (allowance.expired) {
+    return `Refused before sending: this allowance expired. Nothing was spent. Ask the user to grant ` +
+      `a new one in the app with New allowance. The amount is not the problem; the window closed.`;
+  }
+  if (value <= allowance.spendableWei) return null;
+  // Which bound was hit changes what the user should do about it, so say which.
+  const walletIsTheLimit = allowance.walletBalanceWei < allowance.remainingWei;
+  return `Refused before sending: ${inCoin(value)} exceeds the ${allowance.spendable} ${COIN} available. ` +
+    (walletIsTheLimit
+      ? `The allowance permits ${allowance.remaining} ${COIN} but the wallet only holds ` +
+        `${allowance.walletBalance}, so the wallet is the limit — the user needs to add funds, ` +
+        `not raise the allowance.`
+      : `That is the allowance's remaining limit. Ask the user to raise it if this purchase ` +
+        `is worth it — do not retry a smaller amount unless that actually satisfies the task.`);
+}
+
 server.registerTool(
   "pay",
   {
@@ -548,39 +587,14 @@ server.registerTool(
     if (isAddressEqual(to, zeroAddress)) {
       return text("Nothing was sent. The zero address belongs to nobody, so a payment to it would be lost; give the payee's own address.");
     }
-    if (!DECIMAL.test(amount)) {
-      return text(`Nothing was sent. "${amount}" is not an amount; give it as a plain decimal, like 2.50.`);
-    }
-    // Finer than the coin counts would round to nothing, and "must be positive" would not say why.
-    const places = amount.split(".")[1]?.length ?? 0;
-    if (places > NETWORK.coin.decimals) {
-      return text(`Nothing was sent. ${COIN} counts to ${NETWORK.coin.decimals} decimal places, and "${amount}" has ${places}.`);
-    }
-    const value = parseEther(amount);
+    const read = amountOf(amount);
+    if ("problem" in read) return text(read.problem);
+    const value = read.value;
     if (value <= 0n) throw new Error("Amount must be positive.");
 
     const { account, allowance } = await requireMandate();
-    // Checked here purely so the agent gets a sentence it can act on. The chain refuses it either
-    // way; this only avoids spending a round trip to be told so.
-    if (allowance.expired) {
-      return text(
-        `Refused before sending: this allowance expired. Nothing was spent. Ask the user to grant ` +
-          `a new one in the app with New allowance. The amount is not the problem; the window closed.`,
-      );
-    }
-    if (value > allowance.spendableWei) {
-      // Which bound was hit changes what the user should do about it, so say which.
-      const walletIsTheLimit = allowance.walletBalanceWei < allowance.remainingWei;
-      return text(
-        `Refused before sending: ${inCoin(value)} exceeds the ${allowance.spendable} ${COIN} available. ` +
-          (walletIsTheLimit
-            ? `The allowance permits ${allowance.remaining} ${COIN} but the wallet only holds ` +
-              `${allowance.walletBalance}, so the wallet is the limit — the user needs to add funds, ` +
-              `not raise the allowance.`
-            : `That is the allowance's remaining limit. Ask the user to raise it if this purchase ` +
-              `is worth it — do not retry a smaller amount unless that actually satisfies the task.`),
-      );
-    }
+    const refusal = refusedBeforeSending(allowance, value);
+    if (refusal !== null) return text(refusal);
 
     const payment = paymentCall(to, value, allowance.rail);
     if ("problem" in payment) return text(payment.problem);
@@ -601,6 +615,60 @@ server.registerTool(
       `Paid ${inCoin(value)} to ${to}${reason ? ` for ${reason}` : ""}, from wallet ${walletName(account)}.\n` +
         `Transaction ${result.hash}\n` +
         `Remaining after this: about ${formatEther(allowance.remainingWei - value)} ${COIN}.`,
+    );
+  },
+);
+
+server.registerTool(
+  "call",
+  {
+    title: "Call a contract function",
+    description:
+      `Calls one function on a contract on ${NETWORK.name} with the user's wallet, sending ${COIN} with it when ` +
+      "the function takes payment, within the allowance they granted. Only the functions the allowance " +
+      "names can be called: the app you work for names them in the code you show the user, and the " +
+      "chain refuses anything else before it runs. Use it for an app's own steps, such as taking a seat " +
+      "or approving work; use pay to send money to someone.",
+    inputSchema: {
+      contract: z.string().describe("The contract's address (0x…)"),
+      function: z.string().describe('The function written exactly, like "takeSeat(uint256,uint8,address)"'),
+      args: z.array(z.string()).describe("Its arguments in order, each written as text: numbers as digits, addresses as 0x…, true or false"),
+      value: z.string().optional().describe(`${COIN} to send with the call, as a decimal string, when the function takes payment`),
+      reason: z.string().optional().describe("What this does, said back in the reply so the user can match it to the transaction"),
+    },
+  },
+  async ({ contract, function: signature, args, value: amount, reason }) => {
+    if (!isAddress(contract)) throw new Error(`Not an address: ${contract}`);
+    const call = encodeCall(signature, args);
+    if ("problem" in call) return text(`Nothing was sent. ${call.problem}`);
+    let value = 0n;
+    if (amount !== undefined) {
+      const read = amountOf(amount);
+      if ("problem" in read) return text(read.problem);
+      value = read.value;
+    }
+
+    const { account, allowance } = await requireMandate();
+    const refusal = refusedBeforeSending(allowance, value);
+    if (refusal !== null) return text(refusal);
+
+    const result = await submitSpend({ agent, account, calls: [{ to: getAddress(contract), value, data: call.data }] });
+    if (!result.ok) {
+      if ("setup" in result) {
+        return text(`Nothing was sent — this connector cannot submit yet.\n\n${result.reason}`);
+      }
+      return text(
+        `The chain refused this call: ${result.reason}\n` +
+          `Nothing was spent. Common causes: the allowance does not name ${call.name} on this contract (ask the ` +
+          `user to grant one from a code that names it), the contract itself refused the arguments, the ` +
+          `allowance is exhausted, or it was revoked.`,
+      );
+    }
+    return text(
+      `Called ${call.name} on ${contract}${value > 0n ? `, sending ${inCoin(value)}` : ""}` +
+        `${reason ? ` for ${reason}` : ""}, from wallet ${walletName(account)}.\n` +
+        `Transaction ${result.hash}` +
+        (value > 0n ? `\nRemaining after this: about ${formatEther(allowance.remainingWei - value)} ${COIN}.` : ""),
     );
   },
 );

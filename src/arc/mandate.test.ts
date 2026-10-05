@@ -3,14 +3,14 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import {
   createPublicClient, custom, decodeAbiParameters, decodeFunctionData, encodeErrorResult, getAddress,
-  parseAbi, parseAbiParameters, RawContractError, type Hex,
+  parseAbi, parseAbiParameters, RawContractError, toFunctionSelector, type Hex,
 } from "viem";
 import {
   buildChangeCallData, buildGrantPlan, keyIsGone, meterInForce, ownerGasStart, SESSION_KEY_PLUGIN,
   SESSION_KEY_PLUGIN_MANIFEST_HASH, type MandateTerms,
 } from "./mandate.ts";
 import { Amount } from "./amount.ts";
-import { MONAD_TESTNET, pairingTag } from "@kuiralabs/mandate-core";
+import { MONAD_TESTNET, pairingTag, PLAIN_TRANSFER } from "@kuiralabs/mandate-core";
 
 /**
  * These two constants are the SDK's only hard links to the deployed contract. If either drifts,
@@ -220,7 +220,8 @@ test("an unscoped allowance is an allowlist naming exactly what an agent calls, 
 test("a scoped allowance names its payees and the identity setup, never the USDC view or the Gateway", () => {
   assert.deepEqual(grantedPermissions(terms({ payees: [PAYEE], expiresAt: EXPIRES_AT })), [
     ["setAccessListType", ALLOWLIST],
-    ["updateAccessListAddressEntry", PAYEE, true, false],
+    ["updateAccessListAddressEntry", PAYEE, true, true],
+    ["updateAccessListFunctionEntry", PAYEE, PLAIN_TRANSFER, true],
     ["setNativeTokenSpendLimit", 10n * 10n ** 18n, 0],
     ...IDENTITY_SETUP,
     ["setGasSpendLimit", GAS_CEILING, 0],
@@ -244,7 +245,8 @@ test("scoping a live mandate takes the USDC view and the Gateway off the list, n
     ["updateAccessListAddressEntry", USDC_VIEW, false, false],
     ["updateAccessListAddressEntry", GATEWAY, false, false],
     ...IDENTITY_SETUP,
-    ["updateAccessListAddressEntry", PAYEE, true, false],
+    ["updateAccessListAddressEntry", PAYEE, true, true],
+    ["updateAccessListFunctionEntry", PAYEE, PLAIN_TRANSFER, true],
     ["setNativeTokenSpendLimit", 10n * 10n ** 18n, 0],
     ["setERC20SpendLimit", USDC_VIEW, NO_LIMIT, 0],
   ]);
@@ -538,7 +540,8 @@ test("on Monad a grant meters MON, allows the agent's identity and its payees, a
   assert.throws(() => onMonad(terms({ payees: [], limit })), /pays only the addresses it names/);
   assert.deepEqual(onMonad(terms({ payees: [PAYEE], limit })), [
     ["setAccessListType", ALLOWLIST],
-    ["updateAccessListAddressEntry", PAYEE, true, false],
+    ["updateAccessListAddressEntry", PAYEE, true, true],
+    ["updateAccessListFunctionEntry", PAYEE, PLAIN_TRANSFER, true],
     ["setNativeTokenSpendLimit", limit.toNativeUnits(), 0],
     ...IDENTITY_SETUP,
     ["setGasSpendLimit", GAS_CEILING, 0],
@@ -559,4 +562,18 @@ test("on Monad an owner's operation starts from figures that fit the wallet, so 
   // inside what the bundler accepted on a passkey wallet: at least what is used, at most 2.5 times it
   const used = 323_446n * 2n / 5n;
   assert.ok(MONAD_TESTNET.gas.owner.verificationGasLimit >= used && MONAD_TESTNET.gas.owner.verificationGasLimit <= 323_446n);
+});
+
+/** A seat taken, work approved: the app's named functions go into the grant after the agent's own identity. */
+test("the functions an app named are allowed on their contract, and nothing else on it", () => {
+  const contract = "0xc831b6e4414E064F7713A3b6017be4a1Eb9F5E9b";
+  const onMonad = (grant: MandateTerms): Permission[] =>
+    readPermissions(decodeFunctionData({ abi: grantAbi, data: buildGrantPlan(grant, true, MONAD_TESTNET).management }).args[2]);
+  const permissions = onMonad({ ...terms({ payees: [], limit: Amount.parse("1") }), calls: [{ contract, functions: ["takeSeat(uint256,uint8,address)", "approve(uint256,uint8,bytes32)"] }] });
+  const onIt = permissions.filter((permission) => permission[1] === contract);
+  assert.deepEqual(onIt, [
+    ["updateAccessListAddressEntry", contract, true, true],
+    ["updateAccessListFunctionEntry", contract, toFunctionSelector("takeSeat(uint256,uint8,address)"), true],
+    ["updateAccessListFunctionEntry", contract, toFunctionSelector("approve(uint256,uint8,bytes32)"), true],
+  ]);
 });

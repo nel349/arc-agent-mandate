@@ -127,11 +127,12 @@ export default function PreviewScreen() {
       <AllowanceCard face={{
         network: MONAD_TESTNET, limit: Amount.parse("0.01"), agent: "0x806dC09Fc68509E77B5909f88f2A934b3D2852E5",
         name: "Runner", ends: "11 Oct", askedBy: "A test app", payees: ["0xc831b6e4414E064F7713A3b6017be4a1Eb9F5E9b"],
+        calls: [{ contract: "0xc831b6e4414E064F7713A3b6017be4a1Eb9F5E9b", functions: ["join(uint256)", "submit(uint256,bytes32)"] }],
         spoken: "Runner can spend up to 0.01 MON until 11 Oct.",
       }} />
       <Label>Allowance card · Arc, typed by hand</Label>
       <AllowanceCard face={{
-        network: ARC_TESTNET, limit: Amount.parse("20"), agent: GOOD_ADDRESS, name: null, ends: null, askedBy: null, payees: [],
+        network: ARC_TESTNET, limit: Amount.parse("20"), agent: GOOD_ADDRESS, name: null, ends: null, askedBy: null, payees: [], calls: [],
         spoken: "This agent can spend up to 20.00 USDC with no end date.",
       }} />
 

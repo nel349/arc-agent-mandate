@@ -83,7 +83,8 @@ test("anything that is not an agent's code is refused rather than half read", ()
  * person can change it. The wallet itself names no app: whatever is shown came from the code.
  */
 const PAYEE = "0xc831b6e4414E064F7713A3b6017be4a1Eb9F5E9b";
-const ASKED: AgentRequest = { app: "Jobs & Co. (test)", limit: "0.01", days: 7, payees: [PAYEE] };
+const ASKED: AgentRequest = { app: "Jobs & Co. (test)", limit: "0.01", days: 7, payees: [PAYEE], calls: [] };
+const SEATS: AgentRequest["calls"] = [{ contract: PAYEE, functions: ["takeSeat(uint256,uint8,address)", "approve(uint256,uint8,bytes32)"] }];
 
 test("an app's request reads back exactly as it was asked, its name and all", () => {
   const link = pairingLink(AGENT, 10143, CODE, ASKED);
@@ -133,7 +134,34 @@ test("a request that could not be read back is refused before it is printed", ()
 
 test("what an agent hands over becomes a request, its payees checksummed, or the reason it cannot", () => {
   assert.deepEqual(requestFrom({ app: ASKED.app ?? undefined, limit: "0.01", days: 7, payees: [PAYEE.toLowerCase()] }), { request: ASKED });
+  assert.deepEqual(requestFrom({ calls: [{ contract: PAYEE.toLowerCase(), functions: [...(SEATS[0]?.functions ?? [])] }] }), { request: { ...NO_REQUEST, calls: SEATS } });
+  assert.ok("problem" in requestFrom({ calls: [{ contract: "0xnope", functions: ["f()"] }] }));
   assert.deepEqual(requestFrom({}), { request: NO_REQUEST });
   assert.ok("problem" in requestFrom({ payees: ["0xnope"] }));
   assert.ok("problem" in requestFrom({ limit: "free" }));
+});
+
+/**
+ * An app names the functions its agent calls with the wallet, and the code carries exactly those. A
+ * loose signature would name a different function than the contract's, so only the exact form reads.
+ */
+test("the functions an app names travel in the code and read back exactly", () => {
+  const asked: AgentRequest = { ...NO_REQUEST, limit: "1", calls: SEATS };
+  assert.deepEqual(readPairingLink(pairingLink(AGENT, 10143, CODE, asked))?.request, asked);
+});
+
+test("a function not written exactly, or more than a code may name, is refused rather than allowed loosely", () => {
+  const link = (calls: unknown) => `ethereum:${AGENT}@10143?pairing=${CODE}&calls=${encodeURIComponent(JSON.stringify(calls))}`;
+  for (const calls of [
+    [{ c: PAYEE, f: ["takeSeat(uint,uint8,address)"] }],
+    [{ c: PAYEE, f: ["takeSeat(uint256 jobId,uint8,address)"] }],
+    [{ c: PAYEE, f: [] }],
+    [{ c: "0xnope", f: ["f()"] }],
+    [{ c: PAYEE, f: ["a()", "b()", "c()", "d()", "e()", "g()"] }],
+    Array.from({ length: 4 }, () => ({ c: PAYEE, f: ["f()"] })),
+    { c: PAYEE, f: ["f()"] },
+  ]) {
+    assert.equal(readPairingLink(link(calls)), null, `accepted ${JSON.stringify(calls)}`);
+  }
+  assert.equal(readPairingLink(`ethereum:${AGENT}@10143?pairing=${CODE}&calls=%7Bnot-json`), null);
 });

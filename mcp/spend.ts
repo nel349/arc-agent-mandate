@@ -63,11 +63,10 @@ export const REFUSED_BY_ALLOWANCE = "refused by the allowance";
  * batch — `executeWithSessionKey` takes an array — and meters every call in it, so a batch is
  * bounded exactly as a single call is.
  *
- * The generality stops here, deliberately. Nothing an agent says reaches this as calldata: callers
- * build these calls from narrow arguments, so an agent can ask to pay an invoice or top up its
- * float and cannot ask to invoke an arbitrary function. A spend limit bounds the value moved, not
- * what is called, so that distinction is the whole difference between an agent that pays and an
- * agent that transacts.
+ * What may be called is the allowance's to decide, not this file's. A spend limit bounds the value
+ * moved, not what is called, so every grant is an allowlist: a payee takes only a plain transfer, and a
+ * contract is listed with only the functions its app's code named (core `permissionUpdates`). The
+ * `call` tool sends what the agent names, and the chain refuses anything the grant did not list.
  */
 export function submitSpend(request: SpendRequest): Promise<SpendResult> {
   return oneAtATime(() => submitNow(request));

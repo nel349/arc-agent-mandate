@@ -113,6 +113,8 @@ export function mandateTermsFor(
   terms: GrantTerms, pairing: string | null, nowMs: number,
   /** the only addresses the agent may pay, as the app's request named them; none names no limit on who */
   payees: readonly Address[] = [],
+  /** the contract functions the agent may call, as the app's request named them */
+  calls: AgentRequest["calls"] = [],
 ): MandateTerms {
   if (pairing !== null && !isPairingCode(pairing)) {
     throw new Error("a pairing code is 32 lowercase hex characters");
@@ -121,6 +123,7 @@ export function mandateTermsFor(
     agent: terms.agent,
     limit: terms.limit,
     payees: [...payees],
+    ...(calls.length > 0 ? { calls } : {}),
     expiresAt: Math.floor(nowMs / 1000) + Math.round(terms.days * SECONDS_PER_DAY),
     label: GRANT_LABEL,
     ...(pairing === null ? {} : { pairing }),

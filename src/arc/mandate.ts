@@ -11,7 +11,7 @@ import { ARC_CONTRACTS } from "./chain.ts";
 import type { ArcAccount } from "./account.ts";
 import { Amount } from "./amount.ts";
 import {
-  ARC_TESTNET, GrantError, grantCallData, identityCalls, sendCorrectingGas, type GasLimits, type NetworkProfile, SESSION_KEY_PLUGIN_MANIFEST_HASH as CORE_MANIFEST_HASH, type GrantTerms,
+  ARC_TESTNET, GrantError, grantCallData, identityCalls, PLAIN_TRANSFER, sendCorrectingGas, type AllowedCalls as CoreAllowedCalls, type GasLimits, type NetworkProfile, SESSION_KEY_PLUGIN_MANIFEST_HASH as CORE_MANIFEST_HASH, type GrantTerms,
 } from "@kuiralabs/mandate-core";
 
 /**
@@ -226,6 +226,8 @@ export interface MandateTerms {
    * without it is not used by the Arc Mandate connector.
    */
   readonly pairing?: string;
+  /** The contract functions the agent may call with the wallet, as its app's code named them. */
+  readonly calls?: readonly CoreAllowedCalls[];
 }
 
 export interface Mandate {
@@ -283,7 +285,7 @@ function coreTermsOf(terms: MandateTerms, network: NetworkProfile): GrantTerms {
     agent: terms.agent,
     limit: terms.limit.toNativeUnits(),
     payees: terms.payees,
-    calls: escrow ? [ESCROW_CALLS, identityCalls(network)] : [identityCalls(network)],
+    calls: [...(escrow ? [ESCROW_CALLS] : []), identityCalls(network), ...(terms.calls ?? [])],
     ...(terms.expiresAt !== undefined ? { expiresAt: terms.expiresAt } : {}),
     ...(terms.label !== undefined ? { label: terms.label } : {}),
     ...(terms.pairing !== undefined ? { pairing: terms.pairing } : {}),
@@ -327,9 +329,14 @@ function changeUpdates(change: MandateChange): Hex[] {
       ]
     : [];
 
+  // A payee receives the coin and nothing else, as a grant lists it (core `permissionUpdates`): its
+  // functions are checked and only the plain transfer is allowed, so it cannot be called with the wallet.
   for (const payee of payees) {
     updates.push(encodeFunctionData({
-      abi: updatesAbi, functionName: "updateAccessListAddressEntry", args: [payee, true, false],
+      abi: updatesAbi, functionName: "updateAccessListAddressEntry", args: [payee, true, true],
+    }));
+    updates.push(encodeFunctionData({
+      abi: updatesAbi, functionName: "updateAccessListFunctionEntry", args: [payee, PLAIN_TRANSFER, true],
     }));
   }
   if (change.limit !== undefined) {

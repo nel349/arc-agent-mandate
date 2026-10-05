@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { decodeAbiParameters, decodeFunctionData, getAddress, keccak256, parseAbi, parseAbiParameters, toFunctionSelector, toHex, type Address, type Hex } from "viem";
+import { decodeAbiParameters, decodeFunctionData, encodeFunctionData, getAddress, keccak256, parseAbi, parseAbiParameters, toFunctionSelector, toHex, type Address, type Hex } from "viem";
 import { ARC_GRANTS_BEFORE_THE_MOVE } from "./fixtures/arcGrantsBeforeTheMove.ts";
 import {
-  ACCESS_LIST, GrantError, grantCallData, grantTag, identityCalls, HIGHEST_REAL_LIMIT, PAYEES_REQUIRED, payeesRequired, permissionUpdates, permissionUpdatesAbi, railOf,
+  ACCESS_LIST, GrantError, grantCallData, grantTag, identityCalls, HIGHEST_REAL_LIMIT, PAYEES_REQUIRED, payeesRequired, permissionUpdates, permissionUpdatesAbi, PLAIN_TRANSFER, railOf,
   SESSION_KEY_PLUGIN_MANIFEST_HASH, type AllowedCalls, type GrantTerms,
 } from "./grant.ts";
 import { ARC_TESTNET, MONAD_TESTNET } from "./networks.ts";
@@ -27,13 +27,38 @@ const arcCalls = (payees: readonly Address[]): AllowedCalls[] => (payees.length 
 
 const lower = (addresses: readonly Address[]): Address[] => addresses.map((address) => address.toLowerCase() as Address);
 
-test("on Arc, every kind of grant is byte for byte what the wallet signed before the code moved here", () => {
-  const arc = (terms: Omit<GrantTerms, "calls">, installed: boolean): Hex =>
-    grantCallData(ARC_TESTNET, { ...terms, calls: arcCalls(terms.payees) }, installed);
+const arc = (terms: Omit<GrantTerms, "calls">, installed: boolean): Hex =>
+  grantCallData(ARC_TESTNET, { ...terms, calls: arcCalls(terms.payees) }, installed);
+
+test("on Arc, a grant naming no payees is byte for byte what the wallet signed before the code moved here", () => {
   assert.equal(arc({ agent: AGENT, limit: 5n * ONE, payees: [], pairing: "0123456789abcdef0123456789abcdef" }, false), ARC_GRANTS_BEFORE_THE_MOVE.unscopedScanned);
   assert.equal(arc({ agent: AGENT, limit: ONE / 2n, payees: [], label: "maze", expiresAt: 1_790_000_000 }, true), ARC_GRANTS_BEFORE_THE_MOVE.unscopedLabelledExpiring);
-  assert.equal(arc({ agent: AGENT, limit: (5n * ONE) / 4n, payees: lower(PAYEES), pairing: "fedcba9876543210fedcba9876543210" }, false), ARC_GRANTS_BEFORE_THE_MOVE.scopedScanned);
-  assert.equal(arc({ agent: AGENT, limit: 2n * ONE, payees: lower(PAYEES.slice(0, 1)), label: "rent", expiresAt: 1_800_000_000 }, true), ARC_GRANTS_BEFORE_THE_MOVE.scopedLabelledExpiring);
+});
+
+/**
+ * A grant naming payees changed on purpose, 5 Oct, when the agent became able to call functions: a
+ * payee used to be listed with any of its functions callable, which only plain transfers made safe.
+ * Everything else in those grants is as before, which is what this checks against the fixtures.
+ */
+test("on Arc, a grant naming payees differs from the old one only in its payees, now plain transfers", () => {
+  const permissionsOf = (data: Hex, installed: boolean): readonly Hex[] => installed
+    ? decodeFunctionData({ abi: parseAbi(["function addSessionKey(address, bytes32, bytes[])"]), data }).args[2]
+    : decodeAbiParameters(parseAbiParameters("address[], bytes32[], bytes[][]"), decodeFunctionData({
+        abi: parseAbi(["function installPlugin(address, bytes32, bytes, (address plugin, uint8 functionId)[])"]), data,
+      }).args[2])[2][0] ?? [];
+  const tightened = (old: readonly Hex[]): Hex[] => old.flatMap((update) => {
+    const { name, args } = read([update])[0] ?? { name: "", args: [] };
+    if (name !== "updateAccessListAddressEntry" || args[2] !== false) return [update];
+    const payee = args[0] as Address;
+    return [
+      encodeFunctionData({ abi: permissionUpdatesAbi, functionName: "updateAccessListAddressEntry", args: [payee, true, true] }),
+      encodeFunctionData({ abi: permissionUpdatesAbi, functionName: "updateAccessListFunctionEntry", args: [payee, PLAIN_TRANSFER, true] }),
+    ];
+  });
+  const scanned = { agent: AGENT, limit: (5n * ONE) / 4n, payees: lower(PAYEES), pairing: "fedcba9876543210fedcba9876543210" };
+  assert.deepEqual(permissionsOf(arc(scanned, false), false), tightened(permissionsOf(ARC_GRANTS_BEFORE_THE_MOVE.scopedScanned, false)));
+  const labelled = { agent: AGENT, limit: 2n * ONE, payees: lower(PAYEES.slice(0, 1)), label: "rent", expiresAt: 1_800_000_000 };
+  assert.deepEqual(permissionsOf(arc(labelled, true), true), tightened(permissionsOf(ARC_GRANTS_BEFORE_THE_MOVE.scopedLabelledExpiring, true)));
 });
 
 /** A grant's permissions, decoded back into what each one says. */
@@ -50,13 +75,15 @@ test("on Monad the limit is on MON itself, at full precision, and the payees nam
   const limit = 10n ** 16n + 7n; // 0.01 MON and seven wei: nothing is rounded away
   const updates = read(permissionUpdates(MONAD_TESTNET, { agent: AGENT, limit, payees: PAYEES }));
   assert.deepEqual(updates.map((update) => update.name), [
-    "setAccessListType", "updateAccessListAddressEntry", "updateAccessListAddressEntry", "setNativeTokenSpendLimit", "setGasSpendLimit",
+    "setAccessListType",
+    "updateAccessListAddressEntry", "updateAccessListFunctionEntry", "updateAccessListAddressEntry", "updateAccessListFunctionEntry",
+    "setNativeTokenSpendLimit", "setGasSpendLimit",
   ]);
   assert.deepEqual(updates[0]?.args, [ACCESS_LIST.allowlist]);
-  // a payee is listed outright, with no function checked, since it only receives value
-  assert.deepEqual(updates.slice(1, 3).map((update) => update.args), PAYEES.map((payee) => [payee, true, false]));
-  assert.deepEqual(updates[3]?.args, [limit, 0]);
-  assert.deepEqual(updates[4]?.args, [HIGHEST_REAL_LIMIT, 0]);
+  // a payee receives the coin and nothing else: its functions are checked, and only the plain transfer is allowed
+  assert.deepEqual(updates.slice(1, 5).map((update) => update.args), PAYEES.flatMap((payee) => [[payee, true, true], [payee, PLAIN_TRANSFER, true]]));
+  assert.deepEqual(updates[5]?.args, [limit, 0]);
+  assert.deepEqual(updates[6]?.args, [HIGHEST_REAL_LIMIT, 0]);
 });
 
 /**
@@ -79,13 +106,22 @@ test("a Monad grant never opens the list to every address: what it can reach is 
   assert.deepEqual(listed, [...PAYEES, IDENTITY.contract]);
 });
 
+test("on Monad a grant may name only functions to call, with no payee, since those are what it can reach", () => {
+  assert.doesNotThrow(() => permissionUpdates(MONAD_TESTNET, { agent: AGENT, limit: ONE, payees: [], calls: [POD_JOBS, IDENTITY] }));
+  // the identity alone is the agent's own setup, not something it was granted to reach
+  assert.throws(() => permissionUpdates(MONAD_TESTNET, { agent: AGENT, limit: ONE, payees: [], calls: [IDENTITY] }), GrantError);
+});
+
 test("a contract the agent may call is listed with its functions checked, and only the functions named are allowed", () => {
   const updates = read(permissionUpdates(MONAD_TESTNET, { agent: AGENT, limit: ONE, payees: PAYEES.slice(0, 1), calls: [POD_JOBS] }));
   const listed = updates.filter((update) => update.name === "updateAccessListAddressEntry");
-  // the payee is listed outright; the contract with its functions checked
-  assert.deepEqual(listed.map((update) => update.args), [[PAYEES[0], true, false], [POD_JOBS.contract, true, true]]);
+  // the payee and the contract both have their functions checked: the payee only a plain transfer, the
+  // contract only the functions named
+  assert.deepEqual(listed.map((update) => update.args), [[PAYEES[0], true, true], [POD_JOBS.contract, true, true]]);
   const functions = updates.filter((update) => update.name === "updateAccessListFunctionEntry");
-  assert.deepEqual(functions.map((update) => update.args), [[POD_JOBS.contract, toFunctionSelector("takeSeat(uint256,uint8,address)"), true]]);
+  assert.deepEqual(functions.map((update) => update.args), [
+    [PAYEES[0], PLAIN_TRANSFER, true], [POD_JOBS.contract, toFunctionSelector("takeSeat(uint256,uint8,address)"), true],
+  ]);
 });
 
 test("on Arc a grant naming no payees meters the ERC-20 view instead, in its six decimals, and opens no native spending", () => {

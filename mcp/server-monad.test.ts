@@ -41,7 +41,7 @@ test("on Monad the agent is offered paying and its allowance, and no buying, sin
   const client = await connectOnMonad();
   try {
     const { tools } = await client.listTools();
-    assert.deepEqual(tools.map((tool) => tool.name).sort(), ["check_allowance", "get_pairing_address", "pay"]);
+    assert.deepEqual(tools.map((tool) => tool.name).sort(), ["call", "check_allowance", "get_pairing_address", "pay"]);
     const pay = tools.find((tool) => tool.name === "pay");
     assert.match(pay?.description ?? "", /^Sends MON on Monad testnet/);
     assert.doesNotMatch(JSON.stringify(pay), /USDC/);
@@ -88,7 +88,7 @@ test("what the app asks for is printed into the code, and the wallet reads it ba
     const body = (result.content as { readonly text?: string }[]).map((part) => part.text ?? "").join("\n");
     const link = /ethereum:\S+/.exec(body)?.[0]?.replace(/[).,]+$/, "");
     assert.ok(link, `no link in ${body.slice(0, 200)}`);
-    assert.deepEqual(readPairingLink(link)?.request, { app: "A test app", limit: "0.01", days: 7, payees: [payee] });
+    assert.deepEqual(readPairingLink(link)?.request, { app: "A test app", limit: "0.01", days: 7, payees: [payee], calls: [] });
     assert.match(body, /It fills in what was asked for; check it, change anything/);
   } finally {
     await client.close();
@@ -131,6 +131,26 @@ test("on Monad a code that names no payees says the allowance will pay only who 
     assert.match(body, /On Monad testnet an allowance pays only the addresses it names/);
     const named = await client.callTool({ name: "get_pairing_address", arguments: { payees: ["0x9C1a07dCf5B8c1Da6025d84754Bb3a7d3345f281"] } });
     assert.doesNotMatch((named.content as { readonly text?: string }[]).map((part) => part.text ?? "").join("\n"), /pays only the addresses it names/);
+  } finally {
+    await client.close();
+  }
+});
+
+/**
+ * An app's steps, a seat taken or work approved, are calls to functions its code named. What does not
+ * read is refused here in words; what the allowance does not name is refused by the chain.
+ */
+test("a call that does not read is refused before anything is sent, saying what is wrong", async () => {
+  const client = await connectOnMonad();
+  try {
+    const say = async (args: Record<string, unknown>) => {
+      const result = await client.callTool({ name: "call", arguments: args });
+      return (result.content as { readonly text?: string }[]).map((part) => part.text ?? "").join("\n");
+    };
+    const contract = "0xc831b6e4414E064F7713A3b6017be4a1Eb9F5E9b";
+    assert.match(await say({ contract, function: "takeSeat(uint,uint8,address)", args: ["1", "2", contract] }), /^Nothing was sent\. "takeSeat\(uint,uint8,address\)" is not a function written exactly/);
+    assert.match(await say({ contract, function: "takeSeat(uint256,uint8,address)", args: ["1", "2"] }), /^Nothing was sent\. takeSeat takes 3 arguments; 2 were given/);
+    assert.match(await say({ contract, function: "takeSeat(uint256,uint8,address)", args: ["1", "2", contract], value: "0.0000000000000000001" }), /MON counts to 18 decimal places/);
   } finally {
     await client.close();
   }

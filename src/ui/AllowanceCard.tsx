@@ -24,6 +24,8 @@ export interface AllowanceFace {
   readonly askedBy: string | null;
   /** the only addresses it pays, when it names any */
   readonly payees: readonly Address[];
+  /** the contract functions it may call, when its app's code named any */
+  readonly calls: readonly { readonly contract: Address; readonly functions: readonly string[] }[];
   /** the whole card as one sentence, for a screen reader */
   readonly spoken: string;
 }
@@ -84,6 +86,14 @@ export function AllowanceCard({ face }: { readonly face: AllowanceFace }) {
             </Text>
           </Row>
         )}
+        {face.calls.map((call) => (
+          <Row key={call.contract} label="CALLS" color={c}>
+            <View>
+              <Text style={[styles.value, { color: c.paper }]}>{call.functions.map(nameOf).join(", ")}</Text>
+              <Text style={[styles.value, { color: c.muted }]}>on {shortFingerprint(call.contract)}</Text>
+            </View>
+          </Row>
+        ))}
         <Row label="ENDS" color={c}><Text style={[styles.value, { color: c.paper }]}>{(face.ends ?? "never").toUpperCase()}</Text></Row>
       </View>
     </View>
@@ -99,6 +109,9 @@ function Row({ label, color, children }: { readonly label: string; readonly colo
     </View>
   );
 }
+
+/** A function as a person reads it: its name, without the types the chain needs. */
+const nameOf = (signature: string): string => signature.slice(0, signature.indexOf("(")) || signature;
 
 const MARK_LENGTH = 12;
 const MARK_STROKE = 1.5;

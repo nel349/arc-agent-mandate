@@ -1,5 +1,5 @@
 import {
-  encodeAbiParameters, encodeFunctionData, keccak256, parseAbi, parseAbiParameters, toFunctionSelector, toHex,
+  encodeAbiParameters, encodeFunctionData, isAddressEqual, keccak256, parseAbi, parseAbiParameters, toFunctionSelector, toHex,
   type Address, type Hex,
 } from "viem";
 import type { NetworkProfile } from "./networks.ts";
@@ -117,8 +117,18 @@ export const railOf = (network: NetworkProfile, terms: Pick<GrantTerms, "payees"
  */
 export const payeesRequired = (network: NetworkProfile): boolean => network.contracts.erc20View === undefined;
 
-/** Said when a grant on such a network names nobody to pay. */
+/** Said when a grant on such a network names nobody to pay and nothing to call. */
 export const PAYEES_REQUIRED = "On this network an allowance pays only the addresses it names. Add who the agent may pay.";
+
+/**
+ * What a call with no data carries as its selector: the plugin reads the first four bytes, padded with
+ * zeros, so a plain transfer is the function `0x00000000`.
+ */
+export const PLAIN_TRANSFER: Hex = "0x00000000";
+
+/** How many things a grant lets the agent reach besides its own identity: payees, and contracts it may call. */
+const reachableBy = (network: NetworkProfile, terms: GrantTerms): number =>
+  terms.payees.length + (terms.calls ?? []).filter((call) => !isAddressEqual(call.contract, network.contracts.erc8004.identity)).length;
 
 /** The tag a grant carries: its pairing code's, when it came from a scanned code, or its label's. */
 export const grantTag = (terms: Pick<GrantTerms, "pairing" | "label">): Hex =>
@@ -137,13 +147,15 @@ function allow({ contract, functions }: AllowedCalls): Hex[] {
 /** The permissions a grant gives its session key, in the order the plugin applies them. */
 export function permissionUpdates(network: NetworkProfile, terms: GrantTerms): Hex[] {
   if (terms.limit <= 0n) throw new GrantError("a mandate must allow something; use revokeMandate to take one away");
-  if (payeesRequired(network) && terms.payees.length === 0) throw new GrantError(PAYEES_REQUIRED);
+  if (payeesRequired(network) && reachableBy(network, terms) === 0) throw new GrantError(PAYEES_REQUIRED);
 
   // an allowlist either way: what the agent may call is named below, and nothing else is reachable
   const updates: Hex[] = [encodeFunctionData({ abi: permissionUpdatesAbi, functionName: "setAccessListType", args: [ACCESS_LIST.allowlist] })];
   for (const payee of terms.payees) {
-    // plain payees receiving value, not contracts whose functions need gating
-    updates.push(encodeFunctionData({ abi: permissionUpdatesAbi, functionName: "updateAccessListAddressEntry", args: [payee, true, false] }));
+    // a payee receives the coin and nothing else: its functions are checked, and the only one allowed
+    // is the empty one, a plain transfer, so a payee that is a contract cannot be called with the wallet
+    updates.push(encodeFunctionData({ abi: permissionUpdatesAbi, functionName: "updateAccessListAddressEntry", args: [payee, true, true] }));
+    updates.push(encodeFunctionData({ abi: permissionUpdatesAbi, functionName: "updateAccessListFunctionEntry", args: [payee, PLAIN_TRANSFER, true] }));
   }
 
   const view = network.contracts.erc20View;

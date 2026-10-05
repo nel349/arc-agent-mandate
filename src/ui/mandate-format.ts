@@ -254,6 +254,7 @@ export function faceOfMandate(
     ends: mandate.expiresAt === undefined ? null : formatExpiry(new Date(mandate.expiresAt * 1000), now),
     askedBy: null,
     payees: [],
+    calls: [],
     spoken: agentRowLabel(mandate, name, network, now),
   };
 }

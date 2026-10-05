@@ -26,7 +26,7 @@ const manifest = JSON.parse(readFileSync(join(here, "package.json"), "utf8")) as
   readonly bin: Readonly<Record<string, string>>;
   readonly files: readonly string[];
 };
-const TOOLS = ["buy", "check_allowance", "get_pairing_address", "pay", "top_up"];
+const TOOLS = ["buy", "call", "check_allowance", "get_pairing_address", "pay", "top_up"];
 
 test("the published build starts, and offers the five tools", async () => {
   // the core first, as publishing has to: the published connector imports the published core

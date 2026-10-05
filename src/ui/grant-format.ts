@@ -105,12 +105,13 @@ export const CARD_TERMS =
 
 /** What a card being issued prints, from the answers and whatever the agent's code asked for. */
 export function faceOf({
-  terms, name, askedBy, payees, network, now = Date.now(),
+  terms, name, askedBy, payees, calls = [], network, now = Date.now(),
 }: {
   readonly terms: { readonly agent: Address; readonly limit: Amount; readonly days: number };
   readonly name: string | null;
   readonly askedBy: string | null;
   readonly payees: readonly Address[];
+  readonly calls?: AllowanceFace["calls"];
   readonly network: NetworkProfile;
   readonly now?: number;
 }): AllowanceFace {
@@ -123,6 +124,7 @@ export function faceOf({
     ends: until === null ? null : formatExpiry(until, now),
     askedBy,
     payees,
+    calls,
     spoken: grantSummary({ limit: terms.limit, days: terms.days, network, now }),
   };
 }

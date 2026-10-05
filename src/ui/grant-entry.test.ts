@@ -139,8 +139,8 @@ test("a code for a chain this wallet does not run on is refused before anything 
 
 test("what the app asked for arrives with the entry, and the payees it named reach the grant", () => {
   const payee = "0xc831b6e4414E064F7713A3b6017be4a1Eb9F5E9b";
-  const entry = entryFromText(pairingLink(AGENT, MONAD_TESTNET.chainId, CODE, { app: "A test app", limit: "0.01", days: 7, payees: [payee] }));
-  assert.deepEqual(entry.request, { app: "A test app", limit: "0.01", days: 7, payees: [payee] });
+  const entry = entryFromText(pairingLink(AGENT, MONAD_TESTNET.chainId, CODE, { app: "A test app", limit: "0.01", days: 7, payees: [payee], calls: [] }));
+  assert.deepEqual(entry.request, { app: "A test app", limit: "0.01", days: 7, payees: [payee], calls: [] });
   const terms = mandateTermsFor(termsOf(entry.agent), entry.pairing, NOW_MS, entry.request.payees);
   assert.deepEqual(terms.payees, [payee]);
   // a typed address asks for nothing, and its grant names no payees
@@ -159,4 +159,10 @@ test("an address that does not read, or more than a request may name, is refused
   assert.deepEqual(readPayees("0xc831b6e4414E064F7713A3b6017be4a1Eb9F5E9b, 0xnope"), { problem: PAYEES_UNREADABLE });
   const six = Array.from({ length: 6 }, (_, i) => `0x${String(i + 1).padStart(40, "0")}`).join(",");
   assert.deepEqual(readPayees(six), { problem: PAYEES_UNREADABLE });
+});
+
+test("the functions an app named reach the grant beside its payees, and none are added when it named none", () => {
+  const calls = [{ contract: "0xc831b6e4414E064F7713A3b6017be4a1Eb9F5E9b" as const, functions: ["takeSeat(uint256,uint8,address)"] }];
+  assert.deepEqual(mandateTermsFor(termsOf(AGENT), CODE, NOW_MS, [], calls).calls, calls);
+  assert.equal("calls" in mandateTermsFor(termsOf(AGENT), CODE, NOW_MS), false);
 });
