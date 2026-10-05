@@ -21,7 +21,7 @@ loadEnv({ path: join(dirname(dirname(fileURLToPath(import.meta.url))), ".env"), 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { encodeFunctionData, formatEther, formatUnits, isAddress, parseAbi, parseEther, parseUnits, type Address } from "viem";
+import { encodeFunctionData, formatEther, formatUnits, isAddress, isAddressEqual, parseAbi, parseEther, parseUnits, zeroAddress, type Address } from "viem";
 import { loadOrCreateAgent } from "@kuiralabs/mandate-core/node";
 import { agentKeyPath } from "./keyPath.ts";
 import {
@@ -30,7 +30,7 @@ import {
   type Allowance, type Grant,
 } from "./chain.ts";
 import { setUpIdentity, type IdentityOutcome, type Submit } from "./erc8004.ts";
-import { amountIn, NO_REQUEST, pairingLink, requestFrom, type AgentRequest } from "@kuiralabs/mandate-core";
+import { amountIn, NO_REQUEST, pairingLink, payeesRequired, requestFrom, type AgentRequest } from "@kuiralabs/mandate-core";
 import { briefingSteps } from "./briefing.ts";
 import { NETWORK } from "./network.ts";
 
@@ -106,6 +106,10 @@ async function showCode(request: AgentRequest = NO_REQUEST): Promise<string> {
     `allowance, then Scan the agent's code and point the camera at this one (or paste this link: ` +
     `${link}). ${asks ? "It fills in what was asked for; check it, change anything," : "Set a limit and how long it lasts,"} ` +
     `and confirm with your passkey. Tell me when it is done.` +
+    (payeesRequired(NETWORK) && request.payees.length === 0
+      ? `\n\nOn ${NETWORK.name} an allowance pays only the addresses it names. Ask again with payees ` +
+        `if you know who you will pay; otherwise the user adds them on the phone before granting.`
+      : "") +
     `${created ? "\n\n(A new key was generated for this agent.)" : ""}`
   );
 }
@@ -540,8 +544,17 @@ server.registerTool(
   },
   async ({ to, amount, reason }) => {
     if (!isAddress(to)) throw new Error(`Not an address: ${to}`);
+    // Nobody holds the zero address, so a payment to it is lost; said here rather than learned from the chain.
+    if (isAddressEqual(to, zeroAddress)) {
+      return text("Nothing was sent. The zero address belongs to nobody, so a payment to it would be lost; give the payee's own address.");
+    }
     if (!DECIMAL.test(amount)) {
       return text(`Nothing was sent. "${amount}" is not an amount; give it as a plain decimal, like 2.50.`);
+    }
+    // Finer than the coin counts would round to nothing, and "must be positive" would not say why.
+    const places = amount.split(".")[1]?.length ?? 0;
+    if (places > NETWORK.coin.decimals) {
+      return text(`Nothing was sent. ${COIN} counts to ${NETWORK.coin.decimals} decimal places, and "${amount}" has ${places}.`);
     }
     const value = parseEther(amount);
     if (value <= 0n) throw new Error("Amount must be positive.");

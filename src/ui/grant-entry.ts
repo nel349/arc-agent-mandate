@@ -1,5 +1,5 @@
-import { keccak256, toHex } from "viem";
-import { isPairingCode, networkByChainId, NO_REQUEST, type AgentRequest, type NetworkProfile } from "@kuiralabs/mandate-core";
+import { getAddress, isAddress, keccak256, toHex } from "viem";
+import { isPairingCode, MOST_PAYEES, networkByChainId, NO_REQUEST, type AgentRequest, type NetworkProfile } from "@kuiralabs/mandate-core";
 import type { Address } from "viem";
 import type { Mandate, MandateTerms } from "../arc/mandate.ts";
 import type { GrantTerms } from "./grant-terms.ts";
@@ -125,4 +125,18 @@ export function mandateTermsFor(
     label: GRANT_LABEL,
     ...(pairing === null ? {} : { pairing }),
   };
+}
+
+/** Said when the addresses typed for who the agent may pay do not read. */
+export const PAYEES_UNREADABLE = `Give up to ${MOST_PAYEES} addresses, each starting 0x, separated by commas.`;
+
+/**
+ * Who an allowance may pay, as typed: addresses separated by commas or spaces, each once, at most as many
+ * as a request may name. Empty reads as nobody, which a network that requires payees refuses at the grant.
+ */
+export function readPayees(text: string): { readonly payees: readonly Address[] } | { readonly problem: string } {
+  const parts = text.split(/[\s,]+/).filter((part) => part.length > 0);
+  if (!parts.every((part) => isAddress(part, { strict: false }))) return { problem: PAYEES_UNREADABLE };
+  const payees = [...new Set(parts.map((part) => getAddress(part)))];
+  return payees.length > MOST_PAYEES ? { problem: PAYEES_UNREADABLE } : { payees };
 }

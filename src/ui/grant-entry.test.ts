@@ -5,7 +5,7 @@ import { ARC_TESTNET, MONAD_TESTNET, NO_REQUEST, pairingLink, pairingTag } from 
 import { buildGrantPlan } from "../arc/mandate.ts";
 import { Amount } from "../arc/amount.ts";
 import {
-  alreadyGranted, entryFromScan, entryFromText, GRANT_LABEL, grantedWithoutCode, mandateTermsFor, networkOfEntry,
+  alreadyGranted, entryFromScan, entryFromText, GRANT_LABEL, grantedWithoutCode, mandateTermsFor, networkOfEntry, PAYEES_UNREADABLE, readPayees,
 } from "./grant-entry.ts";
 import { GRANT_PROBLEMS, readGrantTerms } from "./grant-terms.ts";
 import { readPairingLink } from "./pairing.ts";
@@ -146,4 +146,17 @@ test("what the app asked for arrives with the entry, and the payees it named rea
   // a typed address asks for nothing, and its grant names no payees
   assert.deepEqual(entryFromText(AGENT).request, NO_REQUEST);
   assert.deepEqual(mandateTermsFor(termsOf(AGENT), null, NOW_MS).payees, []);
+});
+
+test("who an allowance may pay reads as typed: checksummed, each once, commas or spaces between", () => {
+  const one = "0xc831b6e4414E064F7713A3b6017be4a1Eb9F5E9b";
+  const two = "0x9C1a07dCf5B8c1Da6025d84754Bb3a7d3345f281";
+  assert.deepEqual(readPayees(` ${one.toLowerCase()}, ${two}  ${one} `), { payees: [one, two] });
+  assert.deepEqual(readPayees(""), { payees: [] }, "nobody, which a network that requires payees refuses at the grant");
+});
+
+test("an address that does not read, or more than a request may name, is refused rather than dropped", () => {
+  assert.deepEqual(readPayees("0xc831b6e4414E064F7713A3b6017be4a1Eb9F5E9b, 0xnope"), { problem: PAYEES_UNREADABLE });
+  const six = Array.from({ length: 6 }, (_, i) => `0x${String(i + 1).padStart(40, "0")}`).join(",");
+  assert.deepEqual(readPayees(six), { problem: PAYEES_UNREADABLE });
 });

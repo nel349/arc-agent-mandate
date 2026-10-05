@@ -2,7 +2,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { isAddress } from "viem";
-import { NO_REQUEST, type AgentRequest } from "@kuiralabs/mandate-core";
+import { NO_REQUEST, payeesRequired, type AgentRequest } from "@kuiralabs/mandate-core";
 import { useLeave } from "../src/ui/useLeave.ts";
 import { AgentChip } from "../src/ui/AgentChip.tsx";
 import { AllowanceCard } from "../src/ui/AllowanceCard.tsx";
@@ -21,7 +21,7 @@ import { cleanAgentName, MAX_AGENT_NAME } from "../src/ui/agent-names.ts";
 import { useAgentNames } from "../src/ui/agent-names-context.tsx";
 import { inCoin, unitOf } from "../src/ui/coin.ts";
 import { ALREADY_GRANTED } from "../src/ui/failure.ts";
-import { alreadyGranted, entryFromScan, entryFromText, mandateTermsFor, networkOfEntry, type AgentEntry } from "../src/ui/grant-entry.ts";
+import { alreadyGranted, entryFromScan, entryFromText, mandateTermsFor, networkOfEntry, readPayees, type AgentEntry } from "../src/ui/grant-entry.ts";
 import { amountPresets, CARD_TERMS, exceedsWallet, faceOf, grantedSentence, windowEndLabel } from "../src/ui/grant-format.ts";
 import { stepAfter, type GrantStep } from "../src/ui/grant-steps.ts";
 import { readGrantTerms } from "../src/ui/grant-terms.ts";
@@ -70,6 +70,8 @@ export default function GrantScreen() {
   /** What the app the agent works for asked for, from its code: a suggestion, every part changeable. */
   const [request, setRequest] = useState<AgentRequest>(NO_REQUEST);
   const [name, setName] = useState("");
+  /** Who the agent may pay, as typed or as the app's request named them. */
+  const [payeesText, setPayeesText] = useState("");
   const [amount, setAmount] = useState("");
   const [days, setDays] = useState<string>("");
   const [daysCustom, setDaysCustom] = useState(false);
@@ -103,7 +105,16 @@ export default function GrantScreen() {
   // Not while this wallet already grants this agent: the plugin allows one allowance per agent per wallet
   // and refuses a second only after the passkey has been asked. The allowances may still be loading
   // when a scan lands on the card, so this is checked here and not only at the first step.
-  const canGrant = terms !== null && !wallet.busy && !mandate.busy && mandate.ready === true && onItsNetwork && !already;
+  /**
+   * Who it may pay. Where the network requires payees (Monad), an allowance naming nobody could pay
+   * nobody, so it is not granted until somebody is named; elsewhere they narrow it, and none is fine.
+   */
+  const needsPayees = payeesRequired(network);
+  const payeesRead = readPayees(payeesText);
+  const payees = "payees" in payeesRead ? payeesRead.payees : [];
+  const payeesReady = "payees" in payeesRead && (!needsPayees || payees.length > 0);
+
+  const canGrant = terms !== null && !wallet.busy && !mandate.busy && mandate.ready === true && onItsNetwork && !already && payeesReady;
 
   const go = useCallback((next: GrantStep) => setTrail((was) => [...was, next]), []);
   const back = useCallback(() => {
@@ -121,6 +132,7 @@ export default function GrantScreen() {
     setPairing(entry.pairing);
     setChainId(entry.chainId);
     setRequest(entry.request);
+    setPayeesText(entry.request.payees.join(", "));
     if (entry.request.limit !== null) setAmount(entry.request.limit);
     if (entry.request.days !== null) {
       setDays(String(entry.request.days));
@@ -154,7 +166,7 @@ export default function GrantScreen() {
     if (terms === null) return;
     const chosenName = cleanAgentName(name);
     mandate.grant(
-      mandateTermsFor(terms, pairing, Date.now(), request.payees),
+      mandateTermsFor(terms, pairing, Date.now(), payees),
       // Runs when the grant has landed. The name is kept only then, for this allowance alone.
       (granted) => {
         nameGranted(terms.agent, granted, chosenName);
@@ -162,7 +174,7 @@ export default function GrantScreen() {
         if (open.current) go("done");
       },
     );
-  }, [terms, name, pairing, request.payees, mandate, nameGranted, go]);
+  }, [terms, name, pairing, payees, mandate, nameGranted, go]);
 
   const bar = (action?: { title: string; enabled: boolean; onPress: () => void }) => (
     <WizardTopBar
@@ -177,7 +189,7 @@ export default function GrantScreen() {
 
   const face = terms === null
     ? null
-    : faceOf({ terms, name: cleanAgentName(name) || null, askedBy: request.app, payees: request.payees, network });
+    : faceOf({ terms, name: cleanAgentName(name) || null, askedBy: request.app, payees, network });
 
   if (step === "agent") {
     return (
@@ -321,6 +333,20 @@ export default function GrantScreen() {
           </Pressable>
         </View>
         <Text style={[styles.terms, { color: c.muted }]}>{CARD_TERMS}</Text>
+        {needsPayees && (
+          <Surface>
+            <Field
+              label="Who it may pay"
+              value={payeesText}
+              onChangeText={setPayeesText}
+              placeholder="0x…"
+              hint={`On ${network.name} an allowance pays only the addresses named here. The app that asked usually names them; several can be separated by commas.`}
+              problem={"problem" in payeesRead ? payeesRead.problem : null}
+              confirmed={payeesReady}
+              data
+            />
+          </Surface>
+        )}
         <Surface>
           <Field
             label="Name"

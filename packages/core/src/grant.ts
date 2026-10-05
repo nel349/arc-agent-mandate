@@ -105,6 +105,21 @@ export type Rail = "native" | "erc20";
 export const railOf = (network: NetworkProfile, terms: Pick<GrantTerms, "payees">): Rail =>
   network.contracts.erc20View !== undefined && terms.payees.length === 0 ? "erc20" : "native";
 
+/**
+ * Whether a grant on this network has to name who it may pay.
+ *
+ * The plugin limits an agent by the addresses it may call, and has no rule for "send the coin to anyone
+ * and call nothing else". Where the coin has an ERC-20 view (Arc), an allowance naming no payees pays
+ * anyone through the view, which is on the list and metered. Where it has none (Monad), an allowance
+ * naming no payees could pay nobody, and allowing every address would let the agent call any contract
+ * with the wallet: move tokens the limit does not count, or give away the identity the wallet owns. So
+ * there it names its payees, which an app's request supplies or the person adds.
+ */
+export const payeesRequired = (network: NetworkProfile): boolean => network.contracts.erc20View === undefined;
+
+/** Said when a grant on such a network names nobody to pay. */
+export const PAYEES_REQUIRED = "On this network an allowance pays only the addresses it names. Add who the agent may pay.";
+
 /** The tag a grant carries: its pairing code's, when it came from a scanned code, or its label's. */
 export const grantTag = (terms: Pick<GrantTerms, "pairing" | "label">): Hex =>
   terms.pairing !== undefined ? pairingTag(terms.pairing) : keccak256(toHex(terms.label ?? "mandate"));
@@ -122,6 +137,7 @@ function allow({ contract, functions }: AllowedCalls): Hex[] {
 /** The permissions a grant gives its session key, in the order the plugin applies them. */
 export function permissionUpdates(network: NetworkProfile, terms: GrantTerms): Hex[] {
   if (terms.limit <= 0n) throw new GrantError("a mandate must allow something; use revokeMandate to take one away");
+  if (payeesRequired(network) && terms.payees.length === 0) throw new GrantError(PAYEES_REQUIRED);
 
   // an allowlist either way: what the agent may call is named below, and nothing else is reachable
   const updates: Hex[] = [encodeFunctionData({ abi: permissionUpdatesAbi, functionName: "setAccessListType", args: [ACCESS_LIST.allowlist] })];

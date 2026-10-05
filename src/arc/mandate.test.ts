@@ -530,16 +530,12 @@ test("a network that did not answer is a failure, not a gone key", () => {
  * not there, so a grant names no escrow either way. What it allows besides paying is the agent's own
  * identity, at the same registry address as on Arc. Asserted in full and in order, as above.
  */
-test("on Monad a grant meters MON, allows the agent's identity, and names no escrow or ERC-20 view, payees or none", () => {
+test("on Monad a grant meters MON, allows the agent's identity and its payees, and names no escrow or ERC-20 view", () => {
   const onMonad = (grant: MandateTerms): Permission[] =>
     readPermissions(decodeFunctionData({ abi: grantAbi, data: buildGrantPlan(grant, true, MONAD_TESTNET).management }).args[2]);
   const limit = Amount.parse("0.25");
-  assert.deepEqual(onMonad(terms({ payees: [], limit })), [
-    ["setAccessListType", ALLOWLIST],
-    ["setNativeTokenSpendLimit", limit.toNativeUnits(), 0],
-    ...IDENTITY_SETUP,
-    ["setGasSpendLimit", GAS_CEILING, 0],
-  ]);
+  // naming nobody, it could pay nobody, so it is not built at all
+  assert.throws(() => onMonad(terms({ payees: [], limit })), /pays only the addresses it names/);
   assert.deepEqual(onMonad(terms({ payees: [PAYEE], limit })), [
     ["setAccessListType", ALLOWLIST],
     ["updateAccessListAddressEntry", PAYEE, true, false],
@@ -550,5 +546,5 @@ test("on Monad a grant meters MON, allows the agent's identity, and names no esc
 });
 
 test("on Monad a limit finer than USDC's six decimals is fine, since MON has no ERC-20 view to truncate it", () => {
-  assert.doesNotThrow(() => buildGrantPlan(terms({ payees: [], limit: Amount.parse("0.0000001") }), true, MONAD_TESTNET));
+  assert.doesNotThrow(() => buildGrantPlan(terms({ payees: [PAYEE], limit: Amount.parse("0.0000001") }), true, MONAD_TESTNET));
 });

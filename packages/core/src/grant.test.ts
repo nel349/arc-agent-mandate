@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { decodeAbiParameters, decodeFunctionData, getAddress, keccak256, parseAbi, parseAbiParameters, toFunctionSelector, toHex, type Address, type Hex } from "viem";
 import { ARC_GRANTS_BEFORE_THE_MOVE } from "./fixtures/arcGrantsBeforeTheMove.ts";
 import {
-  ACCESS_LIST, GrantError, grantCallData, grantTag, identityCalls, HIGHEST_REAL_LIMIT, permissionUpdates, permissionUpdatesAbi, railOf,
+  ACCESS_LIST, GrantError, grantCallData, grantTag, identityCalls, HIGHEST_REAL_LIMIT, PAYEES_REQUIRED, payeesRequired, permissionUpdates, permissionUpdatesAbi, railOf,
   SESSION_KEY_PLUGIN_MANIFEST_HASH, type AllowedCalls, type GrantTerms,
 } from "./grant.ts";
 import { ARC_TESTNET, MONAD_TESTNET } from "./networks.ts";
@@ -59,17 +59,31 @@ test("on Monad the limit is on MON itself, at full precision, and the payees nam
   assert.deepEqual(updates[4]?.args, [HIGHEST_REAL_LIMIT, 0]);
 });
 
-test("on Monad a grant naming no payees still meters MON, since there is no second balance to meter through", () => {
-  assert.equal(railOf(MONAD_TESTNET, { payees: [] }), "native");
-  const names = read(permissionUpdates(MONAD_TESTNET, { agent: AGENT, limit: ONE, payees: [] })).map((update) => update.name);
-  assert.ok(names.includes("setNativeTokenSpendLimit"));
-  assert.ok(!names.includes("setERC20SpendLimit"));
+/**
+ * Found paying on Monad testnet, 5 Oct: a grant naming no payees landed, and every payment under it was
+ * refused, since the allowlist held nothing payable. The plugin cannot say "send MON to anyone, call
+ * nothing else", and a list open to every address would let the agent call any contract with the wallet.
+ */
+test("on Monad a grant naming no payees is refused before it is signed, since it could pay nobody", () => {
+  assert.equal(payeesRequired(MONAD_TESTNET), true);
+  assert.equal(payeesRequired(ARC_TESTNET), false, "on Arc it pays anyone through the ERC-20 view");
+  assert.throws(() => permissionUpdates(MONAD_TESTNET, { agent: AGENT, limit: ONE, payees: [] }), (error: unknown) => error instanceof GrantError && error.message === PAYEES_REQUIRED);
+  assert.throws(() => grantCallData(MONAD_TESTNET, { agent: AGENT, limit: ONE, payees: [] }, true), GrantError);
+});
+
+test("a Monad grant never opens the list to every address: what it can reach is only what it names", () => {
+  const updates = read(permissionUpdates(MONAD_TESTNET, { agent: AGENT, limit: ONE, payees: PAYEES, calls: [IDENTITY] }));
+  assert.deepEqual(updates[0]?.args, [ACCESS_LIST.allowlist]);
+  assert.ok(!updates.some((update) => update.name === "setAccessListType" && update.args[0] !== ACCESS_LIST.allowlist));
+  const listed = updates.filter((update) => update.name === "updateAccessListAddressEntry").map((update) => update.args[0]);
+  assert.deepEqual(listed, [...PAYEES, IDENTITY.contract]);
 });
 
 test("a contract the agent may call is listed with its functions checked, and only the functions named are allowed", () => {
-  const updates = read(permissionUpdates(MONAD_TESTNET, { agent: AGENT, limit: ONE, payees: [], calls: [POD_JOBS] }));
+  const updates = read(permissionUpdates(MONAD_TESTNET, { agent: AGENT, limit: ONE, payees: PAYEES.slice(0, 1), calls: [POD_JOBS] }));
   const listed = updates.filter((update) => update.name === "updateAccessListAddressEntry");
-  assert.deepEqual(listed.map((update) => update.args), [[POD_JOBS.contract, true, true]]);
+  // the payee is listed outright; the contract with its functions checked
+  assert.deepEqual(listed.map((update) => update.args), [[PAYEES[0], true, false], [POD_JOBS.contract, true, true]]);
   const functions = updates.filter((update) => update.name === "updateAccessListFunctionEntry");
   assert.deepEqual(functions.map((update) => update.args), [[POD_JOBS.contract, toFunctionSelector("takeSeat(uint256,uint8,address)"), true]]);
 });
@@ -87,9 +101,9 @@ test("on Arc a grant naming no payees meters the ERC-20 view instead, in its six
 });
 
 test("an expiry is written last, as the window the key is valid in; none is written when none is given", () => {
-  const expiring = read(permissionUpdates(MONAD_TESTNET, { agent: AGENT, limit: ONE, payees: [], expiresAt: 1_800_000_000 }));
+  const expiring = read(permissionUpdates(MONAD_TESTNET, { agent: AGENT, limit: ONE, payees: PAYEES, expiresAt: 1_800_000_000 }));
   assert.deepEqual(expiring.at(-1), { name: "updateTimeRange", args: [0, 1_800_000_000] });
-  const lasting = read(permissionUpdates(MONAD_TESTNET, { agent: AGENT, limit: ONE, payees: [] }));
+  const lasting = read(permissionUpdates(MONAD_TESTNET, { agent: AGENT, limit: ONE, payees: PAYEES }));
   assert.ok(!lasting.some((update) => update.name === "updateTimeRange"));
 });
 
@@ -103,7 +117,7 @@ test("on Arc a limit too small for the six-decimal view is refused, since the gr
   assert.throws(() => permissionUpdates(ARC_TESTNET, { agent: AGENT, limit: 10n ** 11n, payees: [] }), /below 0\.000001 USDC cannot be expressed/);
   // the same amount is fine when payees are named, on the coin itself, and on Monad
   assert.doesNotThrow(() => permissionUpdates(ARC_TESTNET, { agent: AGENT, limit: 10n ** 11n, payees: PAYEES }));
-  assert.doesNotThrow(() => permissionUpdates(MONAD_TESTNET, { agent: AGENT, limit: 1n, payees: [] }));
+  assert.doesNotThrow(() => permissionUpdates(MONAD_TESTNET, { agent: AGENT, limit: 1n, payees: PAYEES }));
 });
 
 test("a first grant installs the network's plugin with the agent's key and its tag; a later one adds the key to it", () => {

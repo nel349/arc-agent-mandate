@@ -106,3 +106,32 @@ test("a request that could not be read back is refused, and no code is printed f
     await client.close();
   }
 });
+
+/** Found paying on Monad testnet, 5 Oct: both went out, or said the wrong thing, before these. */
+test("a payment finer than MON counts, or to the zero address, is refused before anything is sent, saying why", async () => {
+  const client = await connectOnMonad();
+  try {
+    const say = async (args: Record<string, string>) => {
+      const result = await client.callTool({ name: "pay", arguments: args });
+      return (result.content as { readonly text?: string }[]).map((part) => part.text ?? "").join("\n");
+    };
+    const payee = "0x9C1a07dCf5B8c1Da6025d84754Bb3a7d3345f281";
+    assert.match(await say({ to: payee, amount: "0.0000000000000000001" }), /^Nothing was sent\. MON counts to 18 decimal places, and "0\.0000000000000000001" has 19\.$/);
+    assert.match(await say({ to: "0x0000000000000000000000000000000000000000", amount: "0.001" }), /^Nothing was sent\. The zero address belongs to nobody/);
+  } finally {
+    await client.close();
+  }
+});
+
+test("on Monad a code that names no payees says the allowance will pay only who it names", async () => {
+  const client = await connectOnMonad();
+  try {
+    const result = await client.callTool({ name: "get_pairing_address", arguments: {} });
+    const body = (result.content as { readonly text?: string }[]).map((part) => part.text ?? "").join("\n");
+    assert.match(body, /On Monad testnet an allowance pays only the addresses it names/);
+    const named = await client.callTool({ name: "get_pairing_address", arguments: { payees: ["0x9C1a07dCf5B8c1Da6025d84754Bb3a7d3345f281"] } });
+    assert.doesNotMatch((named.content as { readonly text?: string }[]).map((part) => part.text ?? "").join("\n"), /pays only the addresses it names/);
+  } finally {
+    await client.close();
+  }
+});
