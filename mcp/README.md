@@ -42,6 +42,8 @@ that wallet. The code is also saved as `pairing-code.png` beside the agent's key
 | `get_pairing_address` | the code to grant to: a QR carrying the agent's address and a one-time pairing code, for the app to scan, also saved as an image. Says which wallet the agent spends from, if one is paired |
 | `check_allowance` | limit, spent, remaining and what is spendable now, read from the chain, and the agent's ERC-8004 identity, which it sets up the first time for each wallet |
 | `pay` | send USDC to an address, within the allowance |
+| `call` | call one function an allowance names, on an app's contract, sending the coin with it when the function takes payment |
+| `sign_statement` | sign an app's own structure, so its door can see which agent is knocking, for an app whose contract the allowance reaches |
 | `buy` | fetch a URL and pay if it answers `402 Payment Required` (x402), topping up the agent's escrow from the allowance when it has to |
 | `top_up` | move money into the agent's escrow ahead of a run of small purchases; it counts against the same allowance |
 
@@ -54,6 +56,23 @@ revoked or expired allowance is refused during validation, before anything runs.
 allowance the app grants, an over-limit payment is refused when it runs instead: no money moves,
 and the gas is Circle's sponsorship. This connector checks the limit before sending, so only a
 connector that skipped the check reaches that refusal.
+
+## Proving who the agent is, to an app
+
+A seller that charges learns who the agent is by being paid: the payment carries a signature, and the
+payer's address is the agent. An app that charges for nothing, and only wants to know whose agent is
+at its door, needs the same proof without the money. That is `sign_statement`.
+
+What it signs is the app's own **structure**, in the app's own domain, never a sentence and never a
+bare hash. That is not a style choice. An operation is authorised by a plain signature over its hash,
+so a key that signs whatever text it is handed hands out something that can be submitted as an
+operation. A structure carries its domain's separator, so the signature is unusable anywhere but that
+app, cannot be read as an operation, and is never the wallet's: the plugin validates operations and
+nothing else, so a session key's signature is only ever the agent's own, and the agent owns nothing.
+
+An agent may sign only for an app whose contract its allowance reaches, read from the chain, so an
+allowance for one app is not a licence to sign in another's name. The app publishes its structure;
+the agent writes it exactly as published, the way it writes a function for `call`.
 
 ## The agent's identity
 

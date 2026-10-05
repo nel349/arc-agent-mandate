@@ -37,11 +37,11 @@ async function connectOnMonad(): Promise<Client> {
   return client;
 }
 
-test("on Monad the agent is offered paying and its allowance, and no buying, since Monad has no Gateway here", async () => {
+test("on Monad the agent is offered paying, calling, proving who it is and its allowance, and no buying, since Monad has no Gateway here", async () => {
   const client = await connectOnMonad();
   try {
     const { tools } = await client.listTools();
-    assert.deepEqual(tools.map((tool) => tool.name).sort(), ["call", "check_allowance", "get_pairing_address", "pay"]);
+    assert.deepEqual(tools.map((tool) => tool.name).sort(), ["call", "check_allowance", "get_pairing_address", "pay", "sign_statement"]);
     const pay = tools.find((tool) => tool.name === "pay");
     assert.match(pay?.description ?? "", /^Sends MON on Monad testnet/);
     assert.doesNotMatch(JSON.stringify(pay), /USDC/);

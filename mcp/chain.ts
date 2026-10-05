@@ -129,6 +129,8 @@ export const pluginAbi = parseAbi([
   "function getNativeTokenSpendLimitInfo(address account, address sessionKey) view returns ((bool hasLimit, uint256 limit, uint256 limitUsed, uint48 refreshInterval, uint48 lastUsedTime))",
   "function getKeyTimeRange(address account, address sessionKey) view returns (uint48 validAfter, uint48 validUntil)",
   "function getERC20SpendLimitInfo(address account, address sessionKey, address token) view returns ((bool hasLimit, uint256 limit, uint256 limitUsed, uint48 refreshInterval, uint48 lastUsedTime))",
+  "function getAccessControlType(address account, address sessionKey) view returns (uint8)",
+  "function getAccessControlEntry(address account, address sessionKey, address targetAddress) view returns (bool isOnList, bool checkSelectors)",
   "function executeWithSessionKey((address target,uint256 value,bytes data)[] calls, address sessionKey) returns (bytes[])",
 ]);
 
@@ -572,4 +574,25 @@ function writeState(agentAddress: Address, patch: Partial<Remembered>): void {
   } catch {
     // Losing this costs a slower lookup next time, or a code shown again.
   }
+}
+
+/** `ContractAccessControlType`, by the position the plugin gives it. A grant from the app is always an allowlist. */
+const ACCESS = { allowlist: 0, denylist: 1, allowAll: 2 } as const;
+
+/**
+ * Whether this allowance reaches a contract at all: what the chain would let the agent call.
+ *
+ * Read for the one thing that is not a spend, which is proving to an app who the agent is. An app
+ * whose contract the allowance never named is not one this agent works for, so it does not sign in
+ * its name either.
+ */
+export async function allowanceReaches(account: Address, agentAddress: Address, contract: Address): Promise<boolean> {
+  const [kind, entry] = await Promise.all([
+    publicClient.readContract({ address: SESSION_KEY_PLUGIN, abi: pluginAbi, functionName: "getAccessControlType", args: [account, agentAddress] }),
+    publicClient.readContract({ address: SESSION_KEY_PLUGIN, abi: pluginAbi, functionName: "getAccessControlEntry", args: [account, agentAddress, contract] }),
+  ]);
+  const [isOnList] = entry;
+  if (kind === ACCESS.allowAll) return true;
+  if (kind === ACCESS.denylist) return !isOnList;
+  return isOnList;
 }

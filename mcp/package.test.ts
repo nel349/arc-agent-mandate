@@ -26,9 +26,9 @@ const manifest = JSON.parse(readFileSync(join(here, "package.json"), "utf8")) as
   readonly bin: Readonly<Record<string, string>>;
   readonly files: readonly string[];
 };
-const TOOLS = ["buy", "call", "check_allowance", "get_pairing_address", "pay", "top_up"];
+const TOOLS = ["buy", "call", "check_allowance", "get_pairing_address", "pay", "sign_statement", "top_up"];
 
-test("the published build starts, and offers the five tools", async () => {
+test("the published build starts, and offers every tool", async () => {
   // the core first, as publishing has to: the published connector imports the published core
   execFileSync(join(here, "..", "node_modules", ".bin", "tsc"), ["-p", join(here, "..", "packages", "core", "tsconfig.build.json")]);
   execFileSync(join(here, "..", "node_modules", ".bin", "tsc"), ["-p", join(here, "tsconfig.build.json")]);

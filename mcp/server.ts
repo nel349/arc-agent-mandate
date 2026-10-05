@@ -25,7 +25,7 @@ import { encodeFunctionData, formatEther, formatUnits, getAddress, isAddress, is
 import { loadOrCreateAgent } from "@kuiralabs/mandate-core/node";
 import { agentKeyPath } from "./keyPath.ts";
 import {
-  chain, findGrant, NATIVE_PER_ERC20, pairingToShow, publicClient, RAIL, readAllowance, rememberedEscrow,
+  allowanceReaches, chain, findGrant, NATIVE_PER_ERC20, pairingToShow, publicClient, RAIL, readAllowance, rememberedEscrow,
   rememberedGranter, rememberedIdentity, rememberEscrow, rememberIdentity, USDC_ERC20_VIEW,
   type Allowance, type Grant,
 } from "./chain.ts";
@@ -33,6 +33,7 @@ import { setUpIdentity, type IdentityOutcome, type Submit } from "./erc8004.ts";
 import { amountIn, NO_REQUEST, pairingLink, payeesRequired, requestFrom, type AgentRequest } from "@kuiralabs/mandate-core";
 import { briefingSteps } from "./briefing.ts";
 import { encodeCall } from "./call.ts";
+import { statementToSign } from "./statement.ts";
 import { NETWORK } from "./network.ts";
 
 /** What the network's money is called, in everything the tools say. */
@@ -155,7 +156,9 @@ const INSTRUCTIONS = [
     "can be revoked in the app.",
 ].join("\n");
 
-const server = new McpServer({ name: "arc-mandate", version: "0.0.2" }, { instructions: INSTRUCTIONS });
+// what the package says it is; package.test.ts fails when the two drift, since an agent that asks
+// which connector it is talking to is told this
+const server = new McpServer({ name: "arc-mandate", version: "0.1.1" }, { instructions: INSTRUCTIONS });
 
 /** An amount of the network's coin as a person reads it: dollars on Arc, MON on Monad. */
 const inCoin = (wei: bigint): string => amountIn(NETWORK, wei);
@@ -669,6 +672,53 @@ server.registerTool(
         `${reason ? ` for ${reason}` : ""}, from wallet ${walletName(account)}.\n` +
         `Transaction ${result.hash}` +
         (value > 0n ? `\nRemaining after this: about ${formatEther(allowance.remainingWei - value)} ${COIN}.` : ""),
+    );
+  },
+);
+
+server.registerTool(
+  "sign_statement",
+  {
+    title: "Prove to an app who you are",
+    description:
+      "Signs one of an app's own statements with this agent's key, so the app's door can see that the " +
+      "wallet's agent is the one knocking. Use it where an app asks for a signed statement rather than a " +
+      "payment, such as POD's git door. The app publishes the structure and its fields; write it exactly " +
+      "as it does. Only an app whose contract this allowance reaches can be signed for, and only its own " +
+      "structure: nothing here signs a sentence or a bare hash, which is what keeps a signature from " +
+      "being read as permission to spend.",
+    inputSchema: {
+      app: z.string().describe('The app\'s name, as its domain carries it, like "POD"'),
+      contract: z.string().describe("The app's contract, which its domain names (0x…)"),
+      statement: z.string().describe('The structure written exactly as the app publishes it, like "Door(string job,uint256 number,address seat,string role,uint64 until)"'),
+      values: z.array(z.string()).describe("Its fields' values in order, each written as text: numbers as digits, addresses as 0x…, true or false"),
+      version: z.string().optional().describe('The domain\'s version, if the app names one other than "1"'),
+    },
+  },
+  async ({ app, contract, statement, values, version }) => {
+    if (!isAddress(contract)) throw new Error(`Not an address: ${contract}`);
+    const asked = statementToSign({ app, version: version ?? "1", contract: getAddress(contract), chainId: chain.id, statement, values });
+    if ("problem" in asked) return text(`Nothing was signed. ${asked.problem}`);
+
+    const { account, allowance } = await requireMandate();
+    if (allowance.expired) {
+      return text(
+        `Nothing was signed: this allowance expired, so the chain no longer says this agent acts for ${walletName(account)}. ` +
+          `Ask the user to grant a new one in the app with New allowance.`,
+      );
+    }
+    if (!(await allowanceReaches(account, agent.address, getAddress(contract)))) {
+      return text(
+        `Nothing was signed: this allowance does not reach ${contract}, so this agent does not work for ${app}. ` +
+          `Ask the user to grant one from a code that names that contract.`,
+      );
+    }
+
+    const signature = await agent.signTypedData({ domain: asked.domain, types: asked.types, primaryType: asked.primaryType, message: asked.message });
+    return text(
+      `Signed ${asked.said}\n` +
+        `Signature ${signature}\n` +
+        `Signed by this agent, ${agent.address}, which ${walletName(account)} granted. Send it the way the app asks.`,
     );
   },
 );

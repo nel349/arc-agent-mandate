@@ -1,6 +1,6 @@
 {
   "name": "@kuiralabs/arc-mandate",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Let a coding agent spend a bounded allowance, and call the functions an app names, granted from your phone and enforced by the chain. Arc and Monad.",
   "repository": {
     "type": "git",
