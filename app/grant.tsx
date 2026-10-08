@@ -1,10 +1,12 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useRouter } from "expo-router";
 import { isAddress } from "viem";
 import { NO_REQUEST, payeesRequired, type AgentRequest } from "@kuiralabs/mandate-core";
 import { useLeave } from "../src/ui/useLeave.ts";
 import { AgentChip } from "../src/ui/AgentChip.tsx";
+import { AlreadyGranted } from "../src/ui/AlreadyGranted.tsx";
 import { AllowanceCard } from "../src/ui/AllowanceCard.tsx";
 import { AmountHero } from "../src/ui/AmountHero.tsx";
 import { Button } from "../src/ui/Button.tsx";
@@ -20,7 +22,6 @@ import { WizardTopBar } from "../src/ui/WizardTopBar.tsx";
 import { cleanAgentName, MAX_AGENT_NAME } from "../src/ui/agent-names.ts";
 import { useAgentNames } from "../src/ui/agent-names-context.tsx";
 import { inCoin, unitOf } from "../src/ui/coin.ts";
-import { ALREADY_GRANTED } from "../src/ui/failure.ts";
 import { alreadyGranted, entryFromScan, entryFromText, mandateTermsFor, networkOfEntry, readPayees, type AgentEntry } from "../src/ui/grant-entry.ts";
 import { amountPresets, CARD_TERMS, exceedsWallet, faceOf, grantedSentence, windowEndLabel } from "../src/ui/grant-format.ts";
 import { stepAfter, type GrantStep } from "../src/ui/grant-steps.ts";
@@ -29,6 +30,7 @@ import { feelSuccess } from "../src/ui/haptics.ts";
 import { shortAddress } from "../src/ui/mandate-format.ts";
 import { useSession } from "../src/ui/session-context.tsx";
 import { useTheme } from "../src/ui/theme-context.tsx";
+import { agentRoute } from "../src/ui/routes.ts";
 import { tokens } from "../src/ui/tokens.ts";
 
 /**
@@ -146,11 +148,21 @@ export default function GrantScreen() {
   const enterAgent = useCallback((typed: string) => take(entryFromText(typed)), [take]);
 
   // A scanned agent moves on as soon as it reads as ready, which may wait on the wallet moving network.
+  // One this wallet already grants never will be ready, so the wait is ended and the screen says why.
   useEffect(() => {
-    if (!advanceWhenReady || step !== "agent" || !agentReady) return;
+    if (!advanceWhenReady || step !== "agent") return;
+    if (already) {
+      setAdvanceWhenReady(false);
+      return;
+    }
+    if (!agentReady) return;
     setAdvanceWhenReady(false);
     go(stepAfter("agent", answered));
-  }, [advanceWhenReady, step, agentReady, answered, go]);
+  }, [advanceWhenReady, step, already, agentReady, answered, go]);
+
+  /** To the agent's own screen, where its allowance is revoked: in place of this one, so Back is the list. */
+  const router = useRouter();
+  const openItsAllowance = useCallback(() => router.replace(agentRoute(agent)), [router, agent]);
 
   /** From the card, one line changed and straight back. */
   const change = useCallback((target: "amount" | "window") => { setChanging(true); go(target); }, [go]);
@@ -221,6 +233,8 @@ export default function GrantScreen() {
             <Text style={[styles.scanBody, { color: c.dim }]}>It shows one when you connect it on your computer.</Text>
           </Pressable>
 
+          {already && <AlreadyGranted onOpen={openItsAllowance} />}
+
           {typing ? (
             <Surface>
               <Field
@@ -242,7 +256,6 @@ export default function GrantScreen() {
 
           {"problem" in placed && <Note tone="warn">{placed.problem}</Note>}
           {wallet.error !== null && <Note tone="warn" lines={ERROR_LINES}>{wallet.error}</Note>}
-          {already && <Note>{ALREADY_GRANTED}</Note>}
           {typing && agentReady && pairing === null && (
             <Note>An agent using the Arc Mandate connector will not use this allowance. Scan its code instead.</Note>
           )}
@@ -361,7 +374,7 @@ export default function GrantScreen() {
         {exceedsWallet(terms.limit, wallet.balance) && wallet.balance !== null && (
           <Note>{`Your wallet holds ${inCoin(wallet.balance, network)} now. The agent can only spend what is there when it pays.`}</Note>
         )}
-        {already && <Note>{ALREADY_GRANTED}</Note>}
+        {already && <AlreadyGranted onOpen={openItsAllowance} />}
         {mandate.error !== null && <Note tone="warn" lines={ERROR_LINES}>{mandate.error}</Note>}
         {mandate.ready === false && <Note tone="warn">{`Allowances are not deployed on ${network.name} yet.`}</Note>}
       </Screen>

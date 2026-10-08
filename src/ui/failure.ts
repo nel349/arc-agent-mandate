@@ -130,7 +130,7 @@ export const ARC_BUSY = busyOn(ARC_TESTNET);
  */
 export const ALREADY_GRANTED =
   "This agent already has an allowance from this wallet. To grant it again, revoke that one on the " +
-  "agent's screen first.";
+  "agent's screen first, then scan its code again.";
 
 export const MANDATE_FAILURES = [
   [new RegExp(`InvalidSessionKey|${INVALID_SESSION_KEY}`, "i"), ALREADY_GRANTED],

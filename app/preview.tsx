@@ -11,6 +11,7 @@ import { Field } from "../src/ui/Field.tsx";
 import { Label } from "../src/ui/Label.tsx";
 import { MandateCard } from "../src/ui/MandateCard.tsx";
 import { NetworkSwitch } from "../src/ui/NetworkSwitch.tsx";
+import { AlreadyGranted } from "../src/ui/AlreadyGranted.tsx";
 import { Note } from "../src/ui/Note.tsx";
 import { Surface } from "../src/ui/Surface.tsx";
 import { grantSummary } from "../src/ui/grant-format.ts";
@@ -83,6 +84,11 @@ export default function PreviewScreen() {
         <Note>{grantSummary({ limit: Amount.parse("5"), days: null, network: ARC_TESTNET, now: FIXED_NOW })}</Note>
         <Note>{grantSummary({ limit: Amount.parse("0.005"), days: 7, network: MONAD_TESTNET, now: FIXED_NOW })}</Note>
         <Note tone="warn">Not deployed to Arc testnet yet</Note>
+      </Surface>
+
+      <Label>Already granted · what a scan of an agent this wallet grants says</Label>
+      <Surface>
+        <AlreadyGranted onOpen={NOOP} />
       </Surface>
 
       <Label>Button · both tiers, and off</Label>
