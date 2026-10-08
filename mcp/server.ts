@@ -26,6 +26,7 @@ import { loadOrCreateAgent } from "@kuiralabs/mandate-core/node";
 import { agentKeyPath } from "./keyPath.ts";
 import {
   allowanceReaches, chain, findGrant, NATIVE_PER_ERC20, pairingToShow, publicClient, RAIL, readAllowance, rememberedEscrow,
+  searchStillToRead,
   rememberedGranter, rememberedIdentity, rememberEscrow, rememberIdentity, USDC_ERC20_VIEW,
   type Allowance, type Grant,
 } from "./chain.ts";
@@ -34,7 +35,7 @@ import { amountIn, NO_REQUEST, pairingLink, payeesRequired, requestFrom, type Ag
 import { briefingSteps } from "./briefing.ts";
 import { encodeCall } from "./call.ts";
 import { statementToSign } from "./statement.ts";
-import { NETWORK } from "./network.ts";
+import { NETWORK, walletFor } from "./network.ts";
 
 /** What the network's money is called, in everything the tools say. */
 const COIN = NETWORK.coin.symbol;
@@ -117,11 +118,10 @@ async function showCode(request: AgentRequest = NO_REQUEST): Promise<string> {
 }
 
 /**
- * Where the owner's wallet is: the Agent Mandate app, built for the web, on the domain the shared
- * testnet key is bound to. It opens in any phone's browser, so a person told to use "the app" can
- * be given a link rather than a store search that finds nothing.
+ * Where the owner's wallet is, on this connector's network. It opens in any phone's browser, so a
+ * person told to use "the app" can be given a link rather than a store search that finds nothing.
  */
-const WALLET_URL = "https://kuiralabs.github.io/mandate/";
+const WALLET_URL = walletFor(NETWORK);
 
 /**
  * What the agent is told the moment it connects, before it has done anything.
@@ -235,6 +235,21 @@ async function escrowLeftBehind(): Promise<string> {
       `address after Circle's delay.`;
 }
 
+/**
+ * What to add to an answer while the chain since the agent's code was shown is still being read.
+ *
+ * A code shown days ago and never scanned leaves days of chain to read for a grant carrying it, and
+ * one question reads only so much of it. Saying so is the difference between an agent that is
+ * catching up and one that looks hung, and it tells the person the answer may yet change.
+ */
+function stillReading(): string {
+  const left = searchStillToRead(agent.address);
+  if (left === null) return "";
+  return `\n\nStill reading ${NETWORK.name} for an allowance granted with the code this agent showed ` +
+    `earlier: ${left} blocks to go. This answer is from what has been read so far. Ask again and the ` +
+    `reading carries on from where it stopped.`;
+}
+
 async function requireMandate() {
   let grant: Grant;
   try {
@@ -260,7 +275,7 @@ async function requireMandate() {
     );
   }
   if (grant.status === "unpaired") {
-    throw new Error(grant.legacy === null ? NO_ALLOWANCE : pairAgain(grant.legacy));
+    throw new Error((grant.legacy === null ? NO_ALLOWANCE : pairAgain(grant.legacy)) + stillReading());
   }
   const account = grant.account;
   try {
@@ -323,7 +338,7 @@ server.registerTool(
             : `\n\nOne thing left before it can spend.\n\n${bundlerSetupInstructions()}`) +
           `\n\nTo move it to a different wallet, the user scans the code below with New allowance ` +
           `from that wallet. Until they do, it keeps spending from this one.\n\n` +
-          `${await showCode(request)}`,
+          `${await showCode(request)}${stillReading()}`,
       );
     }
     const preface = grant.status === "withdrawn"
@@ -332,7 +347,7 @@ server.registerTool(
         ? `This agent was paired before allowances carried a pairing code, so its allowance from ` +
           `wallet ${walletName(grant.legacy)} is not used. Scanning this code once fixes that.\n\n`
         : "";
-    return text(`${preface}${await showCode(request)}`);
+    return text(`${preface}${await showCode(request)}${stillReading()}`);
   },
 );
 
@@ -491,7 +506,7 @@ server.registerTool(
         // spendable above; the two together are what this agent can spend right now.
         ...(await escrowLine(allowance)),
         ...(await identityLines(account, allowance)),
-      ].join("\n"),
+      ].join("\n") + stillReading(),
     );
   },
 );

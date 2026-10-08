@@ -7,7 +7,9 @@ wallet inside limits you set on your phone and take back with your face.
 claude mcp add arc-mandate -s user -- npx -y @kuiralabs/arc-mandate
 ```
 
-The wallet it spends from opens in your phone's browser at https://kuiralabs.github.io/mandate/.
+The wallet it spends from opens in your phone's browser at https://kuiralabs.github.io/mandate/
+(on Monad, for now, at https://kuiralabs.github.io/mandate-next/). The connector names the right one
+for its network when it shows its code.
 Then, in the agent:
 
 > **you:** what's your payment address?

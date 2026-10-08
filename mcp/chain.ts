@@ -151,6 +151,37 @@ const LOG_WINDOW = NETWORK.logs.window;
 const RECENT = NETWORK.logs.recent;
 
 /**
+ * How many windows of a search are asked for at once.
+ *
+ * Monad's node takes a hundred blocks a query, so a code shown three days ago and never scanned was
+ * 7,380 queries, asked one after another: the best part of an hour in which every tool looked hung
+ * (8 October 2026). Its node answers fifteen requests a second from one address, and a request it
+ * turns away is asked again, so ten at a time is as fast as it will go and leaves room for the reads
+ * a check makes beside the search.
+ */
+export const WINDOWS_AT_ONCE = 10;
+
+/**
+ * How long one question may spend searching before it answers with what it has.
+ *
+ * A search that outlasts this is not given up: it has recorded how far it got, and the next question
+ * carries on from there. What a person must never get is silence.
+ */
+const SEARCH_FOR_AT_MOST_MS = Number(process.env.ARC_MANDATE_SEARCH_MS ?? 20_000);
+
+/** How many blocks of the last search are still unread, for the agent it was for; nothing when it reached the head. */
+let unread: { readonly agent: string; readonly blocks: bigint } | null = null;
+
+/**
+ * How much of the chain is still to be read for a grant carrying the code this agent last showed, or
+ * null when all of it has been. Until it has, an answer about which wallet the agent spends from is
+ * about what was found so far.
+ */
+export function searchStillToRead(agentAddress: Address): bigint | null {
+  return unread !== null && unread.agent === agentAddress.toLowerCase() ? unread.blocks : null;
+}
+
+/**
  * Declared standalone rather than found in the ABI array.
  *
  * `pluginAbi.find(...)` returns the union of every entry, so viem could not tell that the logs it
@@ -252,9 +283,10 @@ export async function findGrant(agentAddress: Address): Promise<Grant> {
 /**
  * The first wallet to grant this agent with the code it showed, or null if none has yet.
  *
- * Read forwards from where the code was shown, a window at a time and oldest first, so the first
- * grant made is the first found. Progress is recorded after every window, so a search cut off by a
- * rate limit resumes where it stopped instead of starting again and failing in the same place.
+ * Read forwards from where the code was shown, oldest first, so the first grant made is the first
+ * found: several windows are asked for at once, and what they hold is gone through in the order of
+ * the chain. Progress is recorded after every batch, so a search cut off by a rate limit, or by the
+ * time one question is allowed, resumes where it stopped instead of starting again.
  */
 async function firstGrantCarrying(agentAddress: Address, pairing: Pairing): Promise<Address | null> {
   // The head as it is now, never viem's copy from up to four seconds ago. A grant made just after one
@@ -268,22 +300,41 @@ async function firstGrantCarrying(agentAddress: Address, pairing: Pairing): Prom
   }
   const tag = pairingTag(pairing.code);
 
+  const startedAt = Date.now();
   let from = pairing.searchedTo === null ? shownAt : pairing.searchedTo + 1n;
   while (from <= head) {
-    const to = from + LOG_WINDOW < head ? from + LOG_WINDOW : head;
-    const logs = await publicClient.getLogs({
-      address: SESSION_KEY_PLUGIN, event: grantedEvent,
-      args: { sessionKey: agentAddress, tag }, fromBlock: from, toBlock: to,
-    });
-    // In the order they happened, so the first grant carrying the code is the one returned.
-    for (const log of logs) {
-      // Indexed arguments are optional in viem's type because a log that fails to decode still
-      // arrives. Skipping one is right: a grant we cannot read is not a grant we should trust.
-      if (log.args.account !== undefined) return log.args.account;
+    if (Date.now() - startedAt > SEARCH_FOR_AT_MOST_MS) {
+      // out of time for this question: what is left is said, and the next question carries on from here
+      unread = { agent: agentAddress.toLowerCase(), blocks: head - from + 1n };
+      return null;
     }
+    const windows: { readonly from: bigint; readonly to: bigint }[] = [];
+    for (let start = from; start <= head && windows.length < WINDOWS_AT_ONCE;) {
+      const to = start + LOG_WINDOW < head ? start + LOG_WINDOW : head;
+      windows.push({ from: start, to });
+      start = to + 1n;
+    }
+    const read = await Promise.all(windows.map((window) => publicClient.getLogs({
+      address: SESSION_KEY_PLUGIN, event: grantedEvent,
+      args: { sessionKey: agentAddress, tag }, fromBlock: window.from, toBlock: window.to,
+    })));
+    // Window by window in the order of the chain, and log by log in the order they happened, so the
+    // first grant carrying the code is the one returned however the answers came back.
+    for (const logs of read) {
+      for (const log of logs) {
+        // Indexed arguments are optional in viem's type because a log that fails to decode still
+        // arrives. Skipping one is right: a grant we cannot read is not a grant we should trust.
+        if (log.args.account !== undefined) {
+          unread = null;
+          return log.args.account;
+        }
+      }
+    }
+    const to = windows[windows.length - 1]?.to ?? head;
     writeState(agentAddress, { pairing: { code: pairing.code, shownAt, searchedTo: to } });
     from = to + 1n;
   }
+  unread = null;
   return null;
 }
 

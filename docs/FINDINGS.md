@@ -353,6 +353,40 @@ view would open `transferFrom`, the one function the meter does not count.
 The general lesson: a spend limit describes the money a key can move, not the authority it holds.
 A key that may make any zero-value call holds everything in the wallet that is not money.
 
+## 14. On Monad a search of the logs is a hundred blocks a query, and a code nobody scanned cost an hour
+
+Monad's public node refuses an `eth_getLogs` spanning more than 100 blocks, and makes about two and a
+half blocks a second. The connector looks for the grant carrying its pairing code from the block the
+code was shown, oldest first, so that the first grant made is the one found.
+
+A code shown on 5 October and never scanned left three days of chain to read on 8 October: 738,000
+blocks, 7,380 queries, asked one after another through a node that answers fifteen a second from one
+address. It took the best part of an hour, during which `check_allowance` and `get_pairing_address`
+answered nothing and the client gave up on the first after thirty minutes. Every other program on
+the machine reading the same node slowed it further.
+
+The search now asks for ten windows at once and goes through what they hold in the order of the
+chain, so the first grant still wins; one question searches for at most twenty seconds, records how
+far it got, and says how many blocks are left; the next carries on from there. Held in
+`mcp/chain-search.test.ts` against a stand-in node on a real port.
+
+The general lesson: a search that is resumable is not thereby bounded. Something that can take an
+hour has to say so within seconds, or it reads as broken.
+
+## 15. Monad's node overstates the gas of a call that pays its caller, when the fee is stated
+
+Found from POD, on 8 October, and written here because this project sends to Monad too. Asked
+`eth_estimateGas` for a call alone, Monad's public node answers what the call needs: 56,742 for a
+contract function that sends its caller a refund. Asked the same with `maxFeePerGas` stated, which
+is how viem's `prepareTransactionRequest` and so `writeContract` ask, it answered 1,183,207, and
+more the larger the refund. Monad then holds back the whole limit times the fee before it takes
+the transaction, so a wallet holding 0.06 MON was refused, for "Signer had insufficient balance", a
+call that costs 0.007. A call that only pays out is answered alike both ways.
+
+An account that sends through a bundler names its own gas, so the wallet and the connector here
+are not affected as they stand. Anything that sends an ordinary transaction from a key on Monad is:
+estimate with no fee fields, and state the gas.
+
 ---
 
 **How each claim is held up.** Findings 1–8 are exercised by `npm run gate` in this repository,
