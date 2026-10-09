@@ -118,3 +118,13 @@ test("no state file at all is answered rather than thrown at", async () => {
   const { rememberedGranter } = await load("absent");
   assert.equal(rememberedGranter(AGENT), null);
 });
+
+/**
+ * Arc's node takes ten thousand blocks a query and limits requests harder than Monad's, so a search
+ * there stays one query at a time: asking for several at once is for the node whose windows are small.
+ */
+test("on Arc a search asks for one window at a time, as it always has", async () => {
+  statePath({});
+  const chain = await load("one-at-a-time");
+  assert.equal(chain.WINDOWS_AT_ONCE, 1);
+});

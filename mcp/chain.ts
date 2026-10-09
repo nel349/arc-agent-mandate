@@ -150,6 +150,9 @@ const LOG_WINDOW = NETWORK.logs.window;
  */
 const RECENT = NETWORK.logs.recent;
 
+/** Below this many blocks a window is small enough that a long search is thousands of queries. */
+const SMALL_WINDOW = 1_000n;
+
 /**
  * How many windows of a search are asked for at once.
  *
@@ -158,8 +161,12 @@ const RECENT = NETWORK.logs.recent;
  * (8 October 2026). Its node answers fifteen requests a second from one address, and a request it
  * turns away is asked again, so ten at a time is as fast as it will go and leaves room for the reads
  * a check makes beside the search.
+ *
+ * Only where a window is small. Arc's node takes ten thousand blocks a query, so its searches are a
+ * few queries long, and it limits requests harder: twenty-four windowed queries in a row once used up
+ * its allowance (see server.test.ts). There the windows are asked for one at a time, as they were.
  */
-export const WINDOWS_AT_ONCE = 10;
+export const WINDOWS_AT_ONCE = LOG_WINDOW < SMALL_WINDOW ? 10 : 1;
 
 /**
  * How long one question may spend searching before it answers with what it has.
@@ -167,7 +174,13 @@ export const WINDOWS_AT_ONCE = 10;
  * A search that outlasts this is not given up: it has recorded how far it got, and the next question
  * carries on from there. What a person must never get is silence.
  */
-const SEARCH_FOR_AT_MOST_MS = Number(process.env.ARC_MANDATE_SEARCH_MS ?? 20_000);
+const SEARCH_FOR_AT_MOST_MS = searchTimeFrom(process.env.ARC_MANDATE_SEARCH_MS);
+
+/** The time a question may search for, as set, which only a test has reason to do; anything that is not a time is the default. */
+function searchTimeFrom(set: string | undefined): number {
+  const asked = Number(set);
+  return set !== undefined && Number.isFinite(asked) && asked > 0 ? asked : 20_000;
+}
 
 /** How many blocks of the last search are still unread, for the agent it was for; nothing when it reached the head. */
 let unread: { readonly agent: string; readonly blocks: bigint } | null = null;

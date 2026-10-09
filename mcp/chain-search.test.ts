@@ -115,6 +115,7 @@ test("a long stretch is read several windows at once, every block of it, and non
 
   assert.deepEqual(await chain.findGrant(AGENT), { status: "unpaired", legacy: null });
 
+  assert.equal(chain.WINDOWS_AT_ONCE, 10, "on Monad, where a window is a hundred blocks, ten are asked for at once");
   assert.ok(node.mostAtOnce > 1, "the windows were asked for one after another, as they were when it took an hour");
   assert.ok(node.mostAtOnce <= chain.WINDOWS_AT_ONCE, `more than ${chain.WINDOWS_AT_ONCE} were asked for at once, which the node turns away`);
   const read = [...node.windows].sort((a, b) => (a.from < b.from ? -1 : 1));
