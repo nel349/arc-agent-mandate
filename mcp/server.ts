@@ -36,7 +36,7 @@ import { PRODUCT_NAME } from "./product.ts";
 import { briefingSteps } from "./briefing.ts";
 import { encodeCall } from "./call.ts";
 import { statementToSign } from "./statement.ts";
-import { NETWORK, walletFor } from "./network.ts";
+import { NETWORK, WALLET_URL } from "./network.ts";
 
 /** What the network's money is called, in everything the tools say. */
 const COIN = NETWORK.coin.symbol;
@@ -122,7 +122,6 @@ async function showCode(request: AgentRequest = NO_REQUEST): Promise<string> {
  * Where the owner's wallet is, on this connector's network. It opens in any phone's browser, so a
  * person told to use "the app" can be given a link rather than a store search that finds nothing.
  */
-const WALLET_URL = walletFor(NETWORK);
 
 /**
  * What the agent is told the moment it connects, before it has done anything.

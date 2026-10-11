@@ -19,19 +19,13 @@ export function networkNamed(name: string | undefined): NetworkProfile {
 /** The network this connector was started for, read once from its environment. */
 export const NETWORK: NetworkProfile = networkNamed(process.env[NETWORK_SETTING]);
 
-/** The wallet as it is published, which runs on Arc. */
-const WALLET_PUBLISHED = "https://kuiralabs.github.io/mandate/";
-/** The wallet that also runs on Monad, published beside the other until it takes its place. */
-const WALLET_NEXT = "https://kuiralabs.github.io/mandate-next/";
-
 /**
- * Where the owner's wallet opens for a network: the Mandate, built for the web, on the
- * domain the shared testnet key is bound to.
+ * Where the owner's wallet opens: the Mandate, built for the web, on the domain the shared testnet
+ * key is bound to. One address, whatever network the agent is on.
  *
- * The network decides, because the published wallet does not run on every network the connector
- * does. A person on Monad sent to the published one found an app that could not see their agent's
- * code (8 October 2026), and nothing told them why.
+ * There were two for a while. The wallet at this address ran on Arc only, and the one that also ran
+ * on Monad was published beside it at `/mandate-next/` until it took this one's place, which it did
+ * on 11 October 2026. In between, a person on Monad sent here found an app that could not see their
+ * agent's code, so the connector chose by network. `/mandate-next/` now sends whoever opens it here.
  */
-export function walletFor(network: NetworkProfile): string {
-  return network === ARC_TESTNET ? WALLET_PUBLISHED : WALLET_NEXT;
-}
+export const WALLET_URL = "https://kuiralabs.github.io/mandate/";

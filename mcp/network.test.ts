@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ARC_TESTNET, MONAD_TESTNET } from "@kuiralabs/mandate-core";
-import { networkNamed, NETWORK_SETTING, walletFor } from "./network.ts";
+import { networkNamed, NETWORK_SETTING, WALLET_URL } from "./network.ts";
 
 test("with nothing set the connector is on Arc, as every install before this setting was", () => {
   assert.equal(networkNamed(undefined), ARC_TESTNET);
@@ -20,8 +20,8 @@ test("a network it does not know is refused, naming the setting and the ones it 
     error instanceof Error && error.message.includes(NETWORK_SETTING) && error.message.includes("arcTestnet and monadTestnet"));
 });
 
-test("a person is sent to the wallet that runs on their agent's network", () => {
-  // the published wallet runs on Arc; on Monad it was where people were sent and could not grant from
-  assert.equal(walletFor(ARC_TESTNET), "https://kuiralabs.github.io/mandate/");
-  assert.equal(walletFor(MONAD_TESTNET), "https://kuiralabs.github.io/mandate-next/");
+test("a person is sent to the one wallet, whatever network their agent is on", () => {
+  // There were two addresses while the wallet that runs on Monad was published beside the older one.
+  assert.equal(WALLET_URL, "https://kuiralabs.github.io/mandate/");
+  assert.equal(WALLET_URL.includes("mandate-next"), false);
 });
