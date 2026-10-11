@@ -36,7 +36,7 @@ export function Button({
   const c = useTheme().color;
   const off = busy || disabled;
   const solid = tier === "solid";
-  const ink = solid ? c.actionText : tone === "warn" ? c.warn : c.paper;
+  const ink = solid ? c.actionText : tone === "warn" ? c.stop : c.paper;
 
   return (
     <Pressable
@@ -58,7 +58,9 @@ export function Button({
               borderColor: c.hairline,
               borderTopColor: c.specular,
             },
-        off && styles.off,
+        // Dimmed when it cannot be pressed, and not while it is working: a button that is busy is the
+        // one thing on the screen that is happening, and at four tenths its spinner could not be seen.
+        disabled && !busy && styles.off,
         DIMS_ON_PRESS && pressed && !off && styles.pressed,
       ]}
     >
@@ -76,7 +78,7 @@ export function Button({
 
 const styles = StyleSheet.create({
   compact: {
-    borderRadius: tokens.radius.sm,
+    borderRadius: tokens.radius.pill,
     paddingHorizontal: tokens.space.base,
     alignItems: "center",
     justifyContent: "center",
@@ -85,7 +87,7 @@ const styles = StyleSheet.create({
     // the parent's own alignment, which is exactly the bug it caused.
   },
   base: {
-    borderRadius: tokens.radius.lg,
+    borderRadius: tokens.radius.pill,
     paddingVertical: tokens.space.base,
     paddingHorizontal: tokens.space.lg,
     alignItems: "center",

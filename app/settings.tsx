@@ -112,7 +112,7 @@ export default function SettingsScreen() {
                   they share. Both now carry the same orange, so a swatch showing only that could no
                   longer tell them apart. */}
               <View style={styles.swatch}>
-                <View style={[styles.chip, { backgroundColor: option.color.groundMid }]} />
+                <View style={[styles.chip, styles.chipGround, { backgroundColor: option.color.groundMid, borderColor: c.hairline }]} />
                 <View style={[styles.chip, { backgroundColor: option.color.actionFill }]} />
                 <View style={[styles.chip, { backgroundColor: option.color.signal }]} />
               </View>
@@ -196,7 +196,9 @@ const styles = StyleSheet.create({
     minHeight: tokens.size.tapTarget,
   },
   swatch: { flexDirection: "row", gap: tokens.space.tiny },
-  chip: { ...tokens.size.swatch, borderRadius: tokens.radius.sm },
+  chip: { ...tokens.size.swatch, borderRadius: tokens.radius.pill },
+  // A ground is nearly the colour of the card the swatch sits on, so it is outlined or it is not there.
+  chipGround: { borderWidth: tokens.border.hairline },
   labels: { flex: 1, gap: tokens.space.hair },
   name: tokens.type.body,
   note: tokens.type.footnote,
@@ -204,10 +206,10 @@ const styles = StyleSheet.create({
   address: { ...tokens.type.data, fontFamily: tokens.font.mono },
   mark: {
     width: tokens.size.mark, height: tokens.size.mark,
-    borderRadius: tokens.radius.sm, borderWidth: tokens.border.hairline,
+    borderRadius: tokens.radius.pill, borderWidth: tokens.border.hairline,
     alignItems: "center", justifyContent: "center",
   },
-  markOn: { width: tokens.size.markDot, height: tokens.size.markDot },
+  markOn: { width: tokens.size.markDot, height: tokens.size.markDot, borderRadius: tokens.radius.pill },
   plain: {
     flexDirection: "row", justifyContent: "space-between", alignItems: "center",
     paddingTop: tokens.space.xs,

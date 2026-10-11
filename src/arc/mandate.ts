@@ -223,7 +223,7 @@ export interface MandateTerms {
   /**
    * The one-time code the agent's QR carried, when the grant came from scanning it. Written into the
    * grant's tag, which is how the agent tells this grant from any other made to its address; a grant
-   * without it is not used by the Arc Mandate connector.
+   * without it is not used by the Mandate's connector.
    */
   readonly pairing?: string;
   /** The contract functions the agent may call with the wallet, as its app's code named them. */

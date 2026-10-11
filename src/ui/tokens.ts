@@ -9,8 +9,32 @@
  * It is easy to wave layout literals through as "just styling" — they are the same magic numbers
  * as anywhere else, and the second screen is where scattered values start disagreeing.
  */
-/** The one monospace face: data, section labels and the figures that are a screen's point. */
-const MONO = "Menlo";
+/**
+ * In a browser a face is named with somewhere to fall. A browser given one name it does not have
+ * draws its default, which is a serif: with the request for the faces blocked, or in the first
+ * second before they arrive, the whole wallet was set in Times. A native build is given the one
+ * name, which is all it takes, and falls to the system font by itself.
+ *
+ * Decided by whether there is a page, not by asking React Native, so this file stays free of it
+ * and a script can still read it.
+ */
+const IN_BROWSER = typeof document !== "undefined";
+const SYSTEM = "system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif";
+const FIXED_WIDTH = "ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace";
+const face = (name: string, falling: string): string => (IN_BROWSER ? `${name}, ${falling}` : name);
+
+/** The one monospace face, kept for what is compared character by character: an address, a hash. */
+const MONO = face("Menlo", FIXED_WIDTH);
+/**
+ * Pulse's two faces. Sora for headings, buttons and figures, rounded enough to sit with pills and
+ * rings; Manrope for anything read as a sentence. Both have equal-width digits when asked for them
+ * (measured: four ones and four zeros are the same width with `tabular-nums`, and are not without).
+ *
+ * Loaded for the web in `fonts.ts`. Where they have not loaded, the system font is drawn, which is a
+ * plainer app and not a broken one.
+ */
+const DISPLAY = face("Sora", SYSTEM);
+const TEXT = face("Manrope", SYSTEM);
 
 export const tokens = {
   /** `hair` is the gap inside a two-line row, where anything larger reads as two separate things. */
@@ -41,14 +65,13 @@ export const tokens = {
     },
   },
   /**
-   * Squared, nearly. A card printed like a key listing has corners, and so does everything round it;
-   * the soft sixteen-point radius read as any fintech app. Kept just off zero so an edge does not
-   * shimmer on a phone's screen.
+   * Round. Pulse draws a living thing, and nothing alive has a corner: a card is soft, a control is
+   * a pill, the mark is a ring. It was squared, nearly, when a card was printed like a key listing.
    */
   radius: {
-    sm: 2,
-    md: 4,
-    lg: 6,
+    sm: 10,
+    md: 14,
+    lg: 22,
     /** Fully rounded. Large enough that any control shorter than it becomes a pill. */
     pill: 999,
   },
@@ -57,7 +80,7 @@ export const tokens = {
   /**
    * Type roles, named after Apple's text styles and sized at their default Dynamic Type size.
    *
-   * **Words in the system font, data in mono.** Everything used to be uppercase Menlo, so a
+   * **Words in Pulse's two faces, data in mono.** Everything used to be uppercase Menlo, so a
    * heading, a field label, a button and a sentence all looked alike and nothing on a screen
    * ranked above anything else. Mono is now kept for what a person compares character by
    * character — an address, a hash — which is the same rule the web follows.
@@ -86,38 +109,45 @@ export const tokens = {
      * row from it — about 1.18 here. Safe this tight because it is one line of tabular figures, and
      * digits carry no descenders to clip.
      */
-    hero: { fontSize: 44, lineHeight: 52, fontWeight: "700", letterSpacing: -1 },
+    hero: { fontFamily: DISPLAY, fontSize: 44, lineHeight: 52, fontWeight: "700", letterSpacing: -1 },
     /**
-     * An amount being typed, as Kuira's send wizard sets it: very large and very light, so the
-     * number is the whole screen and still reads as something in progress rather than a total.
+     * An amount being typed, as Kuira's send wizard sets it: very large, so the number is the whole
+     * screen. It was very light too, in a face that had a weight that light; the display face does not.
      *
      * Tighter again, about 1.15, for the same reason — and because at this size spare leading is
      * dead space above a number somebody is watching themselves type.
      */
-    amountEntry: { fontSize: 60, lineHeight: 69, fontWeight: "200", letterSpacing: -1 },
-    largeTitle: { fontSize: 34, lineHeight: 41, fontWeight: "700", letterSpacing: 0.4 },
-    title: { fontSize: 22, lineHeight: 28, fontWeight: "700", letterSpacing: -0.3 },
-    headline: { fontSize: 17, lineHeight: 22, fontWeight: "600" },
-    body: { fontSize: 17, lineHeight: 22 },
-    callout: { fontSize: 16, lineHeight: 21 },
-    subheadline: { fontSize: 15, lineHeight: 20 },
-    footnote: { fontSize: 13, lineHeight: 18 },
-    caption: { fontSize: 12, lineHeight: 16 },
+    amountEntry: { fontFamily: DISPLAY, fontSize: 60, lineHeight: 69, fontWeight: "400", letterSpacing: -1 },
+    /** The one sentence a screen opens with, when the screen is there to say something. */
+    display: { fontFamily: DISPLAY, fontSize: 28, lineHeight: 34, fontWeight: "700", letterSpacing: -0.6 },
+    /** The product's name, where it is written as a mark. */
+    wordmark: { fontFamily: DISPLAY, fontSize: 20, lineHeight: 24, fontWeight: "700", letterSpacing: -0.3 },
+    /** The figure inside a ring: large enough to be the point, small enough to sit within it. */
+    ringFigure: { fontFamily: DISPLAY, fontSize: 24, lineHeight: 28, fontWeight: "700", letterSpacing: -0.5 },
+    largeTitle: { fontFamily: DISPLAY, fontSize: 34, lineHeight: 41, fontWeight: "700", letterSpacing: -0.6 },
+    title: { fontFamily: DISPLAY, fontSize: 22, lineHeight: 28, fontWeight: "700", letterSpacing: -0.4 },
+    headline: { fontFamily: DISPLAY, fontSize: 17, lineHeight: 22, fontWeight: "600", letterSpacing: -0.2 },
+    body: { fontFamily: TEXT, fontSize: 17, lineHeight: 24 },
+    callout: { fontFamily: TEXT, fontSize: 16, lineHeight: 22 },
+    subheadline: { fontFamily: TEXT, fontSize: 15, lineHeight: 21 },
+    footnote: { fontFamily: TEXT, fontSize: 13, lineHeight: 18 },
+    caption: { fontFamily: TEXT, fontSize: 12, lineHeight: 16 },
     /**
-     * Over a group of rows, in mono capitals spaced out like a printed label: the only uppercase
-     * left, and it earns it by being small.
+     * Over a group of rows: small, semibold, in the reading face and in sentence case. It was mono
+     * capitals spaced out like a printed label, which belonged to the key listing and shouted in a
+     * look where nothing else does.
      *
      * Footnote's metrics, which is what iOS sets its own grouped-list headings at. Without the line
      * height this was the heading that sat flush against the top edge of the card beneath it.
      */
-    section: { fontFamily: MONO, fontSize: 12, lineHeight: 18, fontWeight: "400", letterSpacing: 2, textTransform: "uppercase" },
+    section: { fontFamily: TEXT, fontSize: 13, lineHeight: 18, fontWeight: "600" },
     /**
-     * A figure that is the point of a screen, a balance or a limit, in mono, as the allowance card
-     * prints it. Words stay in the system font; this is a number, compared digit by digit.
+     * A figure that is the point of a screen, a balance or a limit. In the display face with
+     * equal-width digits, so it can count to a new value without the line twitching.
      */
-    figure: { fontFamily: MONO, fontSize: 40, lineHeight: 48, fontWeight: "700", letterSpacing: -1 },
-    /** Body's metrics: a button's label is a sentence, set at the same rhythm as one. */
-    button: { fontSize: 17, lineHeight: 22, fontWeight: "600" },
+    figure: { fontFamily: DISPLAY, fontSize: 40, lineHeight: 48, fontWeight: "700", letterSpacing: -1 },
+    /** A button's label is a sentence, in the display face so it reads as the thing to press. */
+    button: { fontFamily: DISPLAY, fontSize: 16, lineHeight: 22, fontWeight: "700" },
     /** An address or a hash. Small enough that a whole address fits one line at the phone's width. */
     data: { fontFamily: MONO, fontSize: 13, lineHeight: 18 },
   },
@@ -149,6 +179,19 @@ export const tokens = {
       preset: 54,
     },
 
+    /**
+     * The widest a screen's content is drawn, in a window wider than a phone.
+     *
+     * The wallet is a phone's app that also opens in a laptop's browser, where a button the width
+     * of the window and a sentence a metre long are what it used to show. Past this the content
+     * stays a column in the middle and the ground goes on behind it.
+     */
+    column: 480,
+    /** A window shorter than this is a phone with its browser's bars showing, and a screen with a lot on it draws less. */
+    shortWindow: 740,
+    /** Shorter than this is the smallest phones, where a screen keeps only what it cannot do without. */
+    tinyWindow: 600,
+
     /** The bar a full-screen step draws for itself: back, title and one action, as Kuira's wizard does. */
     topBar: 56,
 
@@ -178,12 +221,16 @@ export const tokens = {
      * weight if it is ever drawn larger — a fixed stroke on a bigger circle reads as a thin hoop,
      * which is how a mark stops looking like the same mark.
      */
-    ring: { row: 44, card: 52, review: 120, hero: 176, welcome: 120, strokeRatio: 0.12 },
+    ring: { wordmark: 24, row: 44, card: 52, review: 120, hero: 176, welcome: 124, welcomeShort: 96, strokeRatio: 0.12 },
   },
   opacity: { disabled: 0.4, pressed: 0.7 },
   font: {
-    /** For data, section labels, figures and the allowance card. */
+    /** For an address or a hash, and nothing else. */
     mono: MONO,
+    /** Headings, buttons and figures. */
+    display: DISPLAY,
+    /** Sentences. */
+    text: TEXT,
     /**
      * Figures that change while you watch them.
      *

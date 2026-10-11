@@ -1,5 +1,8 @@
 import { AgentRow } from "./AgentRow.tsx";
 import { useAgentIdentity } from "./useAgentIdentity.ts";
+import { useAgentNames } from "./agent-names-context.tsx";
+import { lastSpentBy } from "./pulse.ts";
+import { usePulse } from "./usePulse.ts";
 import { useSession } from "./session-context.tsx";
 import type { Mandate } from "../arc/mandate.ts";
 
@@ -23,8 +26,14 @@ export function AgentRowLive({
 }) {
   const { activity, wallet } = useSession();
   const identity = useAgentIdentity(mandate.agent, activity.items, wallet.network);
+  // How it is, from when this allowance last paid. The rows of an earlier allowance for the same
+  // agent are left out, as its own screen leaves them out, so the two cannot say different things.
+  const { inCurrentAllowance } = useAgentNames();
+  const { pulse } = usePulse(
+    mandate, lastSpentBy(mandate, activity.items.filter(inCurrentAllowance)), wallet.network.chainId,
+  );
 
   return (
-    <AgentRow mandate={mandate} network={wallet.network} name={name} identity={identity} onPress={onPress} first={first} />
+    <AgentRow mandate={mandate} network={wallet.network} name={name} identity={identity} onPress={onPress} first={first} pulse={pulse} />
   );
 }

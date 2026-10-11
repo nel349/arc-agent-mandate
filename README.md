@@ -2,11 +2,11 @@
   <img src="brand/mark.svg" alt="" width="132" height="132">
 </p>
 
-<h1 align="center">Agent Mandate</h1>
+<h1 align="center">Mandate</h1>
 
 <p align="center">
   <strong>An agent key that can only spend what you allowed.</strong><br>
-  <sub>The full circle is the limit. The drawn part is what is gone.<br>
+  <sub>The full circle is the limit. The lit part is what is left.<br>
   That is the mark, and it is also the whole product.</sub>
 </p>
 

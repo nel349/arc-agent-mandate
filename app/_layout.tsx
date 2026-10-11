@@ -3,9 +3,15 @@ import { useEffect } from "react";
 import { Platform } from "react-native";
 import { AgentNamesProvider } from "../src/ui/agent-names-context.tsx";
 import { applyStoredEndpoint } from "../src/ui/endpoint-setting.ts";
+import { loadFonts } from "../src/ui/fonts.ts";
+import { preparePage } from "../src/ui/page.ts";
 import { stackChrome } from "../src/ui/navigation-chrome.ts";
 import { SessionProvider } from "../src/ui/session-context.tsx";
 import { ThemeProvider, useTheme } from "../src/ui/theme-context.tsx";
+
+// Before the first screen is drawn, so the first words are set in the faces they were measured in.
+loadFonts();
+preparePage();
 
 /** A bar with no fill of its own, over a screen that paints its own ground. */
 const TRANSPARENT = "transparent";

@@ -12,6 +12,8 @@ import { useAgentNames } from "../src/ui/agent-names-context.tsx";
 import { clockTime, weekdayDayMonth } from "../src/ui/calendar.ts";
 import { shortAddress } from "../src/ui/mandate-format.ts";
 import { rowKey } from "../src/arc/activity.ts";
+import { feedOf } from "../src/ui/arrivals.ts";
+import { useArrivals } from "../src/ui/useArrivals.ts";
 import { useOpenReceipt } from "../src/ui/useOpenReceipt.ts";
 import { useSession } from "../src/ui/session-context.tsx";
 import { useTheme } from "../src/ui/theme-context.tsx";
@@ -36,6 +38,8 @@ export default function ActivityScreen() {
   const title = scoped === null ? "Activity" : ofAllowance(scoped) ?? shortAddress(scoped);
 
   const open = useOpenReceipt();
+  // The rows that have landed since this screen last drew the feed, which come in lit.
+  const arrived = useArrivals(activity.items, feedOf(wallet.network.chainId, wallet.account?.address));
 
   return (
     <>
@@ -64,6 +68,7 @@ export default function ActivityScreen() {
                   text={text}
                   onPress={open}
                   first={index === 0}
+                  fresh={arrived.has(rowKey(item))}
                 />
               );
             })}

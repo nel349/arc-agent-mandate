@@ -21,6 +21,9 @@ import { shortFingerprint } from "../../../src/ui/fingerprint.ts";
 import { useSession } from "../../../src/ui/session-context.tsx";
 import { useTheme } from "../../../src/ui/theme-context.tsx";
 import { tokens } from "../../../src/ui/tokens.ts";
+import { feedOf } from "../../../src/ui/arrivals.ts";
+import { useArrivals } from "../../../src/ui/useArrivals.ts";
+import { useCountedAmount } from "../../../src/ui/useCountedAmount.ts";
 import { useShareAddress } from "../../../src/ui/useShareAddress.ts";
 
 /**
@@ -58,11 +61,19 @@ export default function AllowancesScreen() {
   // Without a wallet this tab does not exist: `app/(tabs)/_layout.tsx` has already sent the person
   // to the welcome screen. This is the frame before that redirect lands, not a state to design for.
   const shareAddress = useShareAddress(wallet.account?.address ?? "");
+  // Whose figures these are. A balance on another network is another number, and counts from nothing.
+  const scope = feedOf(wallet.network.chainId, wallet.account?.address);
+  // Money arriving or leaving is seen: the balance counts to its new value.
+  const counted = useCountedAmount(wallet.balance, scope);
+  // The rows that have landed since this screen last drew the feed, which come in lit.
+  const arrived = useArrivals(activity.items, scope);
   if (wallet.account === null) return null;
 
   const address = wallet.account.address;
   const network = wallet.network;
-  const balance = wallet.balance === null ? null : figure(wallet.balance, network);
+  const balance = counted === null ? null : figure(counted, network);
+  // Said to a screen reader as it is, not as it was a tenth of a second ago on the way there.
+  const spokenBalance = wallet.balance === null ? "Unknown" : figure(wallet.balance, network);
   // The first read has not come back yet. Saying "no allowances" before knowing would be a claim.
   const loading = mandate.ready === null && mandate.error === null;
 
@@ -95,7 +106,7 @@ export default function AllowancesScreen() {
           <View
             style={styles.balanceBlock}
             accessible
-            accessibilityLabel={`${balance ?? "Unknown"} ${unitOf(network)} in your wallet`}
+            accessibilityLabel={`${spokenBalance} ${unitOf(network)} in your wallet`}
           >
             <Text style={[styles.balance, { color: c.paper }]} numberOfLines={1} adjustsFontSizeToFit>
               {balance ?? "—"}
@@ -144,7 +155,9 @@ export default function AllowancesScreen() {
         <Surface style={styles.group}>
           {mandate.mandates.map((item, index) => (
             <AgentRowLive
-              key={item.agent}
+              // By network as well as agent: the same agent can hold an allowance on each, and a row
+              // carried over a switch would count from one network's figures to the other's, and beat.
+              key={`${network.chainId}:${item.agent}`}
               mandate={item}
               name={ofAllowance(item.agent)}
               onPress={open}
@@ -168,6 +181,7 @@ export default function AllowancesScreen() {
                   text={text}
                   onPress={openReceipt}
                   first={index === 0}
+                  fresh={arrived.has(rowKey(item))}
                 />
               );
             })}

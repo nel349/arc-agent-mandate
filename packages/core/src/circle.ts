@@ -15,7 +15,7 @@ export interface CircleCredentials {
 }
 
 /**
- * The testnet values the Agent Mandate web wallet already publishes, so an agent can pay on testnet with
+ * The testnet values the Mandate's web wallet already publishes, so an agent can pay on testnet with
  * nothing to set up. Not secret: anyone who opens the wallet's page can read them, Circle refuses a test
  * key on mainnet, and a key authorises nothing alone, since a spend still needs a session key's
  * signature that the owner's mandate permits. What it shares is the gas: one testnet sponsorship policy

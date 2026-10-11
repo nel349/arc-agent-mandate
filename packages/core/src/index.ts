@@ -10,5 +10,6 @@ export * from "./grant.ts";
 export * from "./money.ts";
 export * from "./networks.ts";
 export * from "./pairing.ts";
+export * from "./product.ts";
 export * from "./sessionKeyAccount.ts";
 export * from "./steps.ts";

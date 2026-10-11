@@ -1,8 +1,13 @@
 import { useState } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
-import { ARC_TESTNET, MONAD_TESTNET } from "@kuiralabs/mandate-core";
+import { ARC_TESTNET, MONAD_TESTNET, type NetworkProfile } from "@kuiralabs/mandate-core";
 import type { Activity } from "../src/arc/activity.ts";
 import { ActivityRow } from "../src/ui/ActivityRow.tsx";
+import { AgentGauge } from "../src/ui/AgentGauge.tsx";
+import { Granted } from "../src/ui/Granted.tsx";
+import { pulseOf } from "../src/ui/pulse.ts";
+import { PulseLine } from "../src/ui/PulseLine.tsx";
+import { WelcomeExample } from "../src/ui/WelcomeExample.tsx";
 import { activityRowText } from "../src/ui/activity-format.ts";
 import { AgentRow } from "../src/ui/AgentRow.tsx";
 import { AllowanceCard } from "../src/ui/AllowanceCard.tsx";
@@ -45,6 +50,33 @@ export default function PreviewScreen() {
       contentContainerStyle={styles.content}
       contentInsetAdjustmentBehavior="automatic"
     >
+      <Label>Pulse · a payment landing, on a row and on an agent&apos;s own screen</Label>
+      <PaymentLanding network={ARC_TESTNET} limit="50" spentBefore="25" each="1.25" button="Play a payment" />
+      {/* A coin with eighteen places, where a figure on its way used to show six of them. */}
+      <PaymentLanding network={MONAD_TESTNET} limit="0.01" spentBefore="0" each="0.002" button="Play a payment on Monad" />
+
+      <Label>Pulse · the line, spending, resting and stopped</Label>
+      <Surface>
+        <PulseLine pulse="spending" label="Spending now" />
+        <PulseLine pulse="resting" label="Resting" />
+        <PulseLine pulse="stopped" label="Stopped" />
+      </Surface>
+
+      <Label>Pulse · an agent resting, one with nothing left, one that has ended</Label>
+      <AgentGauge network={ARC_TESTNET} mandate={FRESH} lastSpent={null} />
+      <AgentGauge network={ARC_TESTNET} mandate={SPENT_OUT} lastSpent={NOW_SECONDS() - 30} />
+      <AgentGauge network={ARC_TESTNET} mandate={EXPIRED} lastSpent={NOW_SECONDS() - 86_400} />
+
+      <Label>Pulse · a small coin, and a figure long enough to need shrinking</Label>
+      <AgentGauge network={MONAD_TESTNET} mandate={MONAD_SPENT} lastSpent={null} />
+      <AgentGauge network={ARC_TESTNET} mandate={LARGE} lastSpent={null} />
+
+      <Label>The moment an allowance is granted</Label>
+      <Surface><Granted /></Surface>
+
+      <Label>The welcome screen&apos;s example</Label>
+      <WelcomeExample unit="USDC" />
+
       <Label>Field · the three states</Label>
       <Surface>
         <Field
@@ -60,6 +92,7 @@ export default function PreviewScreen() {
           onChangeText={NOOP}
           problem={null}
           confirmed
+          data
         />
         <Field
           label="Rejected"
@@ -168,6 +201,54 @@ export default function PreviewScreen() {
   );
 }
 
+/**
+ * A payment, played: the same row, gauge and feed row the product draws, given a mandate that has
+ * just spent a little more. Pressing the button is the only way to see a beat without an agent and a
+ * chain, which is the reason this screen exists.
+ */
+function PaymentLanding({ network, limit, spentBefore, each, button }: {
+  readonly network: NetworkProfile;
+  readonly limit: string;
+  readonly spentBefore: string;
+  /** What one press pays. */
+  readonly each: string;
+  readonly button: string;
+}) {
+  const [paid, setPaid] = useState<readonly Activity[]>([]);
+  const spent = paid.reduce((total, item) => total.add(item.amount ?? Amount.ZERO), Amount.parse(spentBefore));
+  const lastSpent = paid[0]?.at ?? NOW_SECONDS() - 300;
+  const mandate = sample(limit, spent.format(PLAYED_PLACES), NOW_SECONDS() + 86_400, Amount.ZERO, lastSpent);
+
+  const play = () => setPaid((before) => [{
+    kind: "paid", agent: GOOD_ADDRESS, amount: Amount.parse(each), to: FEED_AGENT, call: 0,
+    at: NOW_SECONDS(), block: PLAYED_FROM_BLOCK + BigInt(before.length),
+    tx: `0x${(before.length + 1).toString(16).padStart(64, "0")}`, logIndex: 0,
+  }, ...before]);
+
+  return (
+    <>
+      <Surface style={styles.group}>
+        <AgentRow network={network} mandate={mandate} name="Scout" onPress={NOOP} first pulse={pulseOf(mandate, lastSpent)} />
+      </Surface>
+      <AgentGauge network={network} mandate={mandate} lastSpent={lastSpent} />
+      {paid.length > 0 && (
+        <Surface style={styles.group}>
+          {paid.slice(0, PLAYED_ROWS).map((item, index) => {
+            const text = activityRowText(item, { name: "Scout", withAgent: true, underDayHeading: false });
+            return <ActivityRow key={item.tx} network={network} item={item} text={text} onPress={NOOP} first={index === 0} fresh />;
+          })}
+        </Surface>
+      )}
+      <Button title={button} onPress={play} />
+    </>
+  );
+}
+
+/** Enough places to keep what a small coin's payments add up to. */
+const PLAYED_PLACES = 6;
+const PLAYED_ROWS = 3;
+const PLAYED_FROM_BLOCK = 61_500_000n;
+
 const NOOP = () => {};
 const GOOD_ADDRESS = "0x68c91fb4f4e7f0236fd68c7d2605b5740787b17e";
 
@@ -205,6 +286,10 @@ const sample = (limit: string, spent: string, expiresAt?: number, agentFloat = A
 const FRESH = sample("50", "0", NOW_SECONDS() + 7 * 86_400);
 const HALF_SPENT = sample("50", "25", NOW_SECONDS() + 86_400, Amount.ZERO, NOW_SECONDS() - 300);
 const EXPIRED = sample("50", "50", NOW_SECONDS() - 86_400);
+/** A limit with more digits than a ring has room for at full size. */
+const LARGE = sample("12500", "154.25", NOW_SECONDS() + 30 * 86_400);
+/** All of it gone with days still to run: stopped because there is nothing left, not because it ended. */
+const SPENT_OUT = sample("50", "50", NOW_SECONDS() + 3 * 86_400);
 /** Left over from when a grant sent the agent a float. Should not happen to a new mandate. */
 const WITH_DUST = sample("50", "10", NOW_SECONDS() + 3 * 86_400, Amount.parse("0.5"));
 /** The two ends rounding could lie about: a little spent must not read as none, and nearly all as all. */

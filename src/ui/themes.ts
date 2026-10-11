@@ -1,7 +1,7 @@
 /**
- * Two palettes, one shape.
+ * Four palettes, one shape.
  *
- * Both were designed against the same screen, so switching is a colour change and nothing else —
+ * All were designed against the same screens, so switching is a colour change and nothing else —
  * no layout moves, no component learns which theme it is in. Named the way Kuira names its own
  * (`Appearance · Void`), because a person picks a *look*, not a hex value.
  *
@@ -9,10 +9,9 @@
  * change spacing is a second layout in disguise, and the second one is always the one nobody
  * tested.
  *
- * **The meaning colours are the web's.** `signal`, `untested` and `good` carry the values the maze
- * draws in `arc-maze/src/web/brand.ts`, so the number that matters is the same orange on the phone
- * and on the page. The phone used to spend lime on it, and a lime ring closing all the way round is
- * how Apple marks a goal met — which is the opposite of an allowance running out.
+ * **In the three older palettes the meaning colours are the web's.** `signal`, `untested` and `good`
+ * carry the values the maze draws in `arc-maze/src/web/brand.ts`, so the number that matters is the
+ * same orange on the phone and on the page. Pulse has its own three, described where it is defined.
  */
 
 export interface Palette {
@@ -44,8 +43,31 @@ export interface Palette {
   readonly good: string;
   /** The unfilled part of a meter: present, but clearly not spent. */
   readonly track: string;
-  /** A refusal. Shared across themes on purpose: it is the one event that should never blend in. */
+  /**
+   * The ring's two parts, and what each turns to when little is left.
+   *
+   * Stated per theme because the themes disagree about which part carries the news. The older ones
+   * draw what is gone in ink over a quiet ring, and turn that ink to `signal` near the end. Pulse
+   * draws what is left, alive, over a dark track, and it is the living part that turns.
+   */
+  readonly ring: {
+    readonly left: string;
+    readonly leftLow: string;
+    readonly gone: string;
+    readonly goneLow: string;
+    /** An allowance whose window has closed: both parts without colour, since none of it can be spent. */
+    readonly leftEnded: string;
+    readonly goneEnded: string;
+  };
+  /** Something needs putting right or reading: a field that will not do, a notice that blocks. */
   readonly warn: string;
+  /**
+   * Stopped: refused by the chain, revoked, or ended, and the action that takes something away.
+   *
+   * Apart from `warn` because in Pulse it is the one meaning coral has, and a mistyped address is
+   * not an agent being stopped. The older palettes have one amber for both, as they always did.
+   */
+  readonly stop: string;
   /** Fill and text for the single primary action on a screen. */
   readonly actionFill: string;
   readonly actionText: string;
@@ -62,7 +84,47 @@ export interface Theme {
   readonly color: Palette;
 }
 
-export type ThemeId = "cipher" | "machine" | "arc";
+export type ThemeId = "pulse" | "cipher" | "machine" | "arc";
+
+/**
+ * Pulse, the Mandate's own look. An agent with somebody's money is working where they cannot see
+ * it, and this is where they see that it is alive.
+ *
+ * **Three colours, one meaning each.** Mint is alive: what is left, an agent at work, and the one
+ * button that matters. Sun asks for attention: an allowance running low, or something to put right.
+ * Coral is stopped, by the chain or by the owner, and nothing else is ever coral. The ground is a deep green that is neither Arc's blue nor Monad's
+ * purple, so a network is a small tag on a card and never the look of the whole app.
+ *
+ * `muted` and `dim` are measured against `groundHigh`, as in every theme: about 11:1 and 7.6:1.
+ */
+const pulse: Theme = {
+  id: "pulse",
+  name: "Pulse",
+  note: "Deep green, mint for what is alive",
+  color: {
+    groundHigh: "#0C1F1C",
+    groundMid: "#071412",
+    groundLow: "#040C0B",
+    paper: "#E6F4EF",
+    muted: "#B7D0C8",
+    dim: "#8FB0A6",
+    glass: "rgba(120, 230, 195, 0.055)",
+    specular: "rgba(160, 255, 220, 0.16)",
+    hairline: "rgba(120, 230, 195, 0.14)",
+    signal: "#FFC857",
+    untested: "#46F0B1",
+    good: "#46F0B1",
+    // The part that is gone is 3:1 against a card, so a ring with nothing left is still a ring. It
+    // was #153530, 1.15:1: spent out and ended both read as an empty slot.
+    track: "#33756A",
+    ring: { left: "#46F0B1", leftLow: "#FFC857", gone: "#33756A", goneLow: "#33756A", leftEnded: "#86A39B", goneEnded: "#4E6F67" },
+    warn: "#FFC857",
+    stop: "#FF8A78",
+    actionFill: "#46F0B1",
+    actionText: "#04130F",
+    blurTint: "dark",
+  },
+};
 
 /**
  * Graphite, the wallet's own look: near-black with a cool cast, ink in place of colour, so that the
@@ -90,7 +152,9 @@ const cipher: Theme = {
     untested: "#9DB3C4",
     good: "#7FC4A0",
     track: "#22262A",
+    ring: { left: "#9DB3C4", leftLow: "#9DB3C4", gone: "#E6E8E6", goneLow: "#E39B5B", leftEnded: "#22262A", goneEnded: "#8E9392" },
     warn: "#E8B44A",
+    stop: "#E8B44A",
     actionFill: "#E6E8E6",
     actionText: "#0B0C0D",
     blurTint: "dark",
@@ -116,7 +180,9 @@ const machine: Theme = {
     untested: "#7AA6D8",
     good: "#6BBF8F",
     track: "#2A2824",
+    ring: { left: "#7AA6D8", leftLow: "#7AA6D8", gone: "#EAE7DE", goneLow: "#E8874A", leftEnded: "#2A2824", goneEnded: "#999389" },
     warn: "#E8B44A",
+    stop: "#E8B44A",
     actionFill: "#EAE7DE",
     actionText: "#12110F",
     blurTint: "dark",
@@ -148,16 +214,18 @@ const arc: Theme = {
     untested: "#8DB8EC",
     good: "#72C89A",
     track: "#1E3049",
+    ring: { left: "#8DB8EC", leftLow: "#8DB8EC", gone: "#E6EEF9", goneLow: "#F0925A", leftEnded: "#1E3049", goneEnded: "#8DA4C2" },
     warn: "#E8B44A",
+    stop: "#E8B44A",
     actionFill: "#5FBFFF",
     actionText: "#071019",
     blurTint: "dark",
   },
 };
 
-export const THEMES: readonly Theme[] = [cipher, machine, arc];
-export const DEFAULT_THEME_ID: ThemeId = "cipher";
+export const THEMES: readonly Theme[] = [pulse, cipher, machine, arc];
+export const DEFAULT_THEME_ID: ThemeId = "pulse";
 
 export function themeById(id: string | null): Theme {
-  return THEMES.find((t) => t.id === id) ?? cipher;
+  return THEMES.find((t) => t.id === id) ?? pulse;
 }

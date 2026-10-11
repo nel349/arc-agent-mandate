@@ -35,11 +35,11 @@ const styles = StyleSheet.create({
   chip: {
     flex: 1,
     height: tokens.size.control.preset,
-    borderRadius: tokens.radius.md,
+    borderRadius: tokens.radius.pill,
     borderWidth: tokens.border.hairline,
     alignItems: "center",
     justifyContent: "center",
   },
-  label: { ...tokens.type.headline, fontFamily: tokens.font.mono, fontWeight: "400" },
+  label: { ...tokens.type.headline, fontVariant: [...tokens.font.tabular] },
   pressed: { opacity: tokens.opacity.pressed },
 });

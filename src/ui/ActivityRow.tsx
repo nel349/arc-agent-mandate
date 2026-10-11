@@ -1,11 +1,13 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { memo } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { memo, useEffect, useState } from "react";
+import { Animated, Easing, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import type { NetworkProfile } from "@kuiralabs/mandate-core";
 import type { Activity, ActivityKind } from "../arc/activity.ts";
 import { activityAmount, type ActivityRowText } from "./activity-format.ts";
 import { unitOf } from "./coin.ts";
+import { ARRIVE_MS, LIT_MS } from "./motion.ts";
 import { DIMS_ON_PRESS, ripple } from "./press.ts";
+import { useReducedMotion } from "./useReducedMotion.ts";
 import { useTheme } from "./theme-context.tsx";
 import { tokens } from "./tokens.ts";
 
@@ -26,8 +28,10 @@ const GLYPHS: Readonly<Record<ActivityKind, keyof typeof Ionicons.glyphMap>> = {
  * agent's screen and the home screen can each say it the way their context needs.
  */
 function ActivityRowView({
-  item, network, text, onPress, first,
+  item, network, text, onPress, first, fresh = false,
 }: {
+  /** It has just arrived, so it comes in lit and the light fades. Read once, when the row first appears. */
+  readonly fresh?: boolean;
   readonly item: Activity;
   /** the network the row happened on, which names its coin */
   readonly network: NetworkProfile;
@@ -38,6 +42,29 @@ function ActivityRowView({
   const c = useTheme().color;
   const amount = activityAmount(item);
   const { title, detail } = text;
+  const reduced = useReducedMotion();
+  // Decided when the row first appears and never again: a row is new once.
+  const [light] = useState(() => {
+    const fading = new Animated.Value(fresh ? 1 : 0);
+    return { lit: fresh, fades: !reduced, fading, opacity: fading.interpolate({ inputRange: [0, 1], outputRange: [0, LIT_AT] }) };
+  });
+  const [marked, setMarked] = useState(light.lit);
+  useEffect(() => {
+    if (!light.lit) return;
+    // With less motion asked for the light does not fade: it stays for as long as a fade would
+    // take and then is gone, so the row is still told apart and nothing moves.
+    if (!light.fades) {
+      const done = setTimeout(() => setMarked(false), ARRIVE_MS + LIT_MS);
+      return () => clearTimeout(done);
+    }
+    const fade = Animated.timing(light.fading, {
+      toValue: 0, duration: LIT_MS, delay: ARRIVE_MS, easing: Easing.in(Easing.quad),
+      // The web has no native driver; asking for one there only logs a warning for every row.
+      useNativeDriver: Platform.OS !== "web",
+    });
+    fade.start(({ finished }) => { if (finished) setMarked(false); });
+    return () => fade.stop();
+  }, [light]);
 
   return (
     <Pressable
@@ -52,7 +79,10 @@ function ActivityRowView({
         DIMS_ON_PRESS && pressed && { backgroundColor: c.glass },
       ]}
     >
-      <View style={[styles.glyph, { borderColor: c.hairline }]}>
+      {marked && (
+        <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: c.untested, opacity: light.opacity }]} />
+      )}
+      <View style={[styles.glyph, { backgroundColor: c.glass, borderColor: c.hairline }]}>
         <Ionicons name={GLYPHS[item.kind]} size={tokens.size.buttonIcon} color={c.muted} />
       </View>
       <View style={styles.text}>
@@ -88,6 +118,9 @@ export const ActivityRow = memo(ActivityRowView, (a, b) =>
   a.text.titleIsAddress === b.text.titleIsAddress,
 );
 
+/** How strongly a new row is lit, at its brightest. The same as a payment in the welcome screen's example. */
+const LIT_AT = 0.2;
+
 const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
@@ -100,7 +133,7 @@ const styles = StyleSheet.create({
   glyph: {
     width: tokens.size.ring.row,
     height: tokens.size.ring.row,
-    borderRadius: tokens.radius.sm,
+    borderRadius: tokens.radius.pill,
     borderWidth: tokens.border.hairline,
     alignItems: "center",
     justifyContent: "center",
@@ -110,5 +143,5 @@ const styles = StyleSheet.create({
   /** Matches the agent list, where an unnamed agent is also its address in mono. */
   address: tokens.type.data,
   detail: tokens.type.footnote,
-  amount: { ...tokens.type.headline, fontFamily: tokens.font.mono, fontWeight: "400" },
+  amount: { ...tokens.type.headline, fontVariant: [...tokens.font.tabular] },
 });

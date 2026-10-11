@@ -25,7 +25,7 @@ const WALLET_PUBLISHED = "https://kuiralabs.github.io/mandate/";
 const WALLET_NEXT = "https://kuiralabs.github.io/mandate-next/";
 
 /**
- * Where the owner's wallet opens for a network: the Agent Mandate app, built for the web, on the
+ * Where the owner's wallet opens for a network: the Mandate, built for the web, on the
  * domain the shared testnet key is bound to.
  *
  * The network decides, because the published wallet does not run on every network the connector

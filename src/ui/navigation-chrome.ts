@@ -1,5 +1,6 @@
 import { Platform } from "react-native";
 import type { Theme } from "./themes.ts";
+import { tokens } from "./tokens.ts";
 
 /**
  * How the app's stacks draw their chrome, in one place.
@@ -21,8 +22,13 @@ const TRANSPARENT = "transparent";
 export function stackChrome(color: Theme["color"]) {
   return {
     headerTintColor: color.paper,
-    headerTitleStyle: { color: color.paper },
-    headerLargeTitleStyle: { color: color.paper },
+    // A weight the display face is loaded in. Left to the navigator it asks for 500 on the web,
+    // which is not one, and the title was drawn lighter than the labels under it.
+    headerTitleStyle: { color: color.paper, fontFamily: tokens.font.display, fontWeight: "600" as const },
+    headerLargeTitleStyle: { color: color.paper, fontFamily: tokens.font.display, fontWeight: "700" as const },
+    // In a browser the title sits over the column the screen is drawn in, wide window or narrow.
+    // At the leading edge it was a third of a laptop's window away from everything it named.
+    ...(Platform.OS === "web" ? { headerTitleAlign: "center" as const } : {}),
     headerShadowVisible: false,
     headerLargeTitleShadowVisible: false,
     contentStyle: { backgroundColor: color.groundMid },

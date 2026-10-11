@@ -5,11 +5,18 @@ import type { NetworkProfile } from "@kuiralabs/mandate-core";
 import type { Mandate } from "../arc/mandate.ts";
 import { figure, unitOf } from "./coin.ts";
 import { ArcRing } from "./ArcRing.tsx";
+import { Beat } from "./Beat.tsx";
+import type { Pulse } from "./pulse.ts";
+import { useCountedAmount } from "./useCountedAmount.ts";
+import { useEased } from "./useEased.ts";
+import { useReducedMotion } from "./useReducedMotion.ts";
+import { useRises } from "./useRises.ts";
 import { identityLabel } from "./activity-format.ts";
 import { shortFingerprint } from "./fingerprint.ts";
 import { agentRowLabel, endsLine, fractionUsed, hasEnded } from "./mandate-format.ts";
 import { accentOf } from "./network-look.ts";
 import { DIMS_ON_PRESS, ripple } from "./press.ts";
+import { RING_WARNS_AT } from "./ring-geometry.ts";
 import { useTheme } from "./theme-context.tsx";
 import { tokens } from "./tokens.ts";
 
@@ -25,8 +32,10 @@ import { tokens } from "./tokens.ts";
  * whether to step in.
  */
 function AgentRowView({
-  mandate, network, name, identity = null, onPress, first,
+  mandate, network, name, identity = null, onPress, first, pulse = "resting",
 }: {
+  /** How the agent is. A spending one says so before when its allowance ends. */
+  readonly pulse?: Pulse;
   readonly mandate: Mandate;
   /** the network the allowance is on, which names its coin */
   readonly network: NetworkProfile;
@@ -46,12 +55,20 @@ function AgentRowView({
 }) {
   const c = useTheme().color;
   const ended = hasEnded(mandate);
+  // The figure warns at the ring's own threshold, so the number is never calm beside a ring that is not.
+  const low = !ended && fractionUsed(mandate) >= RING_WARNS_AT;
+  // A payment: the ring moves to its new place, a halo leaves it, and the figure counts down.
+  const reduced = useReducedMotion();
+  const spent = useEased(fractionUsed(mandate), reduced);
+  const payments = useRises(mandate.spent.toNativeUnits());
+  const remaining = useCountedAmount(mandate.remaining);
+  const spending = pulse === "spending";
 
   return (
     <Pressable
       onPress={() => onPress(mandate.agent)}
       accessibilityRole="button"
-      accessibilityLabel={agentRowLabel(mandate, name, network)}
+      accessibilityLabel={`${agentRowLabel(mandate, name, network)}${spending ? ` ${SPENDING}.` : ""}`}
       accessibilityHint="Opens this allowance"
       android_ripple={ripple(c.specular)}
       style={({ pressed }) => [
@@ -60,9 +77,10 @@ function AgentRowView({
         DIMS_ON_PRESS && pressed && { backgroundColor: c.glass },
       ]}
     >
-      {/* the network's edge, as on its card */}
-      <View style={[styles.edge, { backgroundColor: accentOf(network) }]} />
-      <ArcRing spent={fractionUsed(mandate)} ended={ended} label="" size={tokens.size.ring.row} />
+      <View style={styles.ring}>
+        <Beat count={payments} size={tokens.size.ring.row} color={c.untested} />
+        <ArcRing spent={spent} ended={ended} label="" size={tokens.size.ring.row} />
+      </View>
 
       <View style={styles.who}>
         {name !== null ? (
@@ -72,9 +90,18 @@ function AgentRowView({
             {shortFingerprint(mandate.agent)}
           </Text>
         )}
-        <Text style={[styles.ends, { color: ended ? c.warn : c.dim }]} numberOfLines={1}>
-          {endsLine(mandate)}
-        </Text>
+        {spending ? (
+          <View style={styles.spending}>
+            <View style={[styles.dot, { backgroundColor: c.untested }]} />
+            <Text style={[styles.ends, styles.news, { color: c.untested }]} numberOfLines={1}>{SPENDING}</Text>
+            {/* When it ends is still said, after the news and cut short if there is no room for both. */}
+            <Text style={[styles.ends, styles.after, { color: c.dim }]} numberOfLines={1}>{`· ${endsLine(mandate)}`}</Text>
+          </View>
+        ) : (
+          <Text style={[styles.ends, { color: ended ? c.stop : c.dim }]} numberOfLines={1}>
+            {endsLine(mandate)}
+          </Text>
+        )}
         {/*
           Its own line, and named in full.
 
@@ -90,10 +117,14 @@ function AgentRowView({
       </View>
 
       <View style={styles.figure}>
-        <Text style={[styles.amount, { color: ended ? c.dim : c.paper }]}>
-          {figure(mandate.remaining, network)}
+        <Text style={[styles.amount, { color: ended ? c.dim : low ? c.signal : c.paper }]}>
+          {figure(remaining, network)}
         </Text>
-        <Text style={[styles.unit, { color: c.dim }]}>{unitOf(network)} LEFT</Text>
+        {/* The network's one colour, as a dot beside the coin it is counted in. */}
+        <View style={styles.unitRow}>
+          <View style={[styles.dot, { backgroundColor: accentOf(network) }]} />
+          <Text style={[styles.unit, { color: c.dim }]}>{unitOf(network)} left</Text>
+        </View>
       </View>
 
       <Ionicons name="chevron-forward" size={tokens.size.chevron} color={c.dim} />
@@ -107,6 +138,7 @@ export const AgentRow = memo(AgentRowView, (a, b) =>
   a.network.chainId === b.network.chainId &&
   a.identity === b.identity &&
   a.first === b.first &&
+  a.pulse === b.pulse &&
   a.onPress === b.onPress &&
   a.mandate.agent === b.mandate.agent &&
   a.mandate.limit.toNativeUnits() === b.mandate.limit.toNativeUnits() &&
@@ -114,10 +146,9 @@ export const AgentRow = memo(AgentRowView, (a, b) =>
   a.mandate.expiresAt === b.mandate.expiresAt,
 );
 
-/** The network's stripe, the card's own width. */
-const EDGE_WIDTH = 3;
-/** Small capitals spaced out, as on the card. */
-const UNIT_TRACKING = 1.5;
+/** The network's dot beside the coin, and the dot beside "Spending now". */
+const DOT = 6;
+const SPENDING = "Spending now";
 
 const styles = StyleSheet.create({
   row: {
@@ -128,13 +159,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: tokens.space.base,
     minHeight: tokens.size.tapTarget,
   },
+  ring: { alignItems: "center", justifyContent: "center" },
+  spending: { flexDirection: "row", alignItems: "center", gap: tokens.space.xs },
+  // The news keeps its width and is never broken; what follows it gives way.
+  news: { flexShrink: 0 },
+  after: { flexShrink: 1 },
   who: { flex: 1, gap: tokens.space.hair },
   name: tokens.type.headline,
   address: tokens.type.data,
   ends: tokens.type.footnote,
   identity: tokens.type.caption,
   figure: { alignItems: "flex-end" },
-  amount: { ...tokens.type.headline, fontFamily: tokens.font.mono },
-  unit: { ...tokens.type.caption, fontFamily: tokens.font.mono, letterSpacing: UNIT_TRACKING },
-  edge: { position: "absolute", left: 0, top: 0, bottom: 0, width: EDGE_WIDTH },
+  amount: { ...tokens.type.headline, fontVariant: [...tokens.font.tabular] },
+  unitRow: { flexDirection: "row", alignItems: "center", gap: tokens.space.xs },
+  dot: { width: DOT, height: DOT, borderRadius: tokens.radius.pill },
+  unit: tokens.type.caption,
 });

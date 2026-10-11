@@ -1,12 +1,12 @@
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, Linking, Platform, StyleSheet, Text, View } from "react-native";
+import { Alert, Linking, Platform, StyleSheet, Text } from "react-native";
 import { ActivityRow } from "../../src/ui/ActivityRow.tsx";
 import { AllowanceCard } from "../../src/ui/AllowanceCard.tsx";
-import { ArcRing } from "../../src/ui/ArcRing.tsx";
+import { AgentGauge } from "../../src/ui/AgentGauge.tsx";
 import { MoreRow } from "../../src/ui/MoreRow.tsx";
 import { activityRowText, lastSpentAt } from "../../src/ui/activity-format.ts";
-import { figure, formatAmount, inCoin, unitOf } from "../../src/ui/coin.ts";
+import { formatAmount, unitOf } from "../../src/ui/coin.ts";
 import { Button } from "../../src/ui/Button.tsx";
 import { confirmInBrowser } from "../../src/ui/confirm-in-browser.ts";
 import { DetailRow } from "../../src/ui/DetailRow.tsx";
@@ -19,13 +19,14 @@ import { MAX_AGENT_NAME } from "../../src/ui/agent-names.ts";
 import { useAgentNames } from "../../src/ui/agent-names-context.tsx";
 import { feelWarning } from "../../src/ui/haptics.ts";
 import {
-  agentHoldingNote, allowanceSentence, faceOfMandate, fractionUsed, hasEnded, identityLabel, lastUsedLabel,
-  leftLine, revokeWarning,
+  agentHoldingNote, faceOfMandate, identityLabel, lastUsedLabel, revokeWarning,
 } from "../../src/ui/mandate-format.ts";
 import { scoreLabel, scoreMeaning, scoreTitle, writtenBy } from "../../src/ui/reputation-format.ts";
 import { activityRoute } from "../../src/ui/routes.ts";
 import { useAgentIdentity } from "../../src/ui/useAgentIdentity.ts";
 import { useAgentReputation } from "../../src/ui/useAgentReputation.ts";
+import { feedOf } from "../../src/ui/arrivals.ts";
+import { useArrivals } from "../../src/ui/useArrivals.ts";
 import { rowKey } from "../../src/arc/activity.ts";
 import { useOpenReceipt } from "../../src/ui/useOpenReceipt.ts";
 import { useSession } from "../../src/ui/session-context.tsx";
@@ -68,6 +69,8 @@ export default function AgentScreen() {
    */
   const reputation = useAgentReputation(identity, network);
   const newest = reputation[0];
+  // The rows that have landed since this screen last drew the feed, which come in lit.
+  const arrived = useArrivals(activity.items, feedOf(network.chainId, walletAddress));
 
   /** What is being typed into the name field, or `null` when it shows the kept name. */
   const [draft, setDraft] = useState<string | null>(null);
@@ -126,7 +129,6 @@ export default function AgentScreen() {
     );
   }
 
-  const ended = hasEnded(found);
   const holding = agentHoldingNote(found.agentFloat);
   // This allowance's rows only. The agent's earlier allowances are in "See all", each under its own name.
   const payments = activity.items.filter(
@@ -139,20 +141,10 @@ export default function AgentScreen() {
     <>
       <Stack.Screen options={{ title: name ?? "Allowance" }} />
       <Screen>
-        {/* The allowance as the card it was issued as; everything printed on it is said nowhere else here. */}
+        {/* First, what somebody opens this screen to watch: what is left, and whether it is spending. */}
+        <AgentGauge mandate={found} network={network} lastSpent={lastUsed.lastUsedAt} />
+        {/* Then the allowance as the card it was issued as: its terms, which do not change. */}
         <AllowanceCard face={faceOfMandate({ mandate: found, name, network })} />
-        <View style={styles.left}>
-          <ArcRing
-            spent={fractionUsed(found)}
-            ended={ended}
-            size={tokens.size.ring.card}
-            label={`${figure(found.spent, network)} of ${inCoin(found.limit, network)} spent`}
-          />
-          <View style={styles.leftText}>
-            <Text style={[styles.leftLine, { color: ended ? c.dim : c.paper }]}>{leftLine(found, network)}</Text>
-            {ended && <Text style={[styles.sentence, { color: c.warn }]}>{allowanceSentence(found, network)}</Text>}
-          </View>
-        </View>
 
         {mandate.error !== null && <Note tone="warn" lines={ERROR_LINES}>{mandate.error}</Note>}
         {holding !== null && <Note tone="warn">{`This agent's own wallet holds money: ${holding}.`}</Note>}
@@ -178,6 +170,7 @@ export default function AgentScreen() {
                   text={text}
                   onPress={openReceipt}
                   first={index === 0}
+                  fresh={arrived.has(rowKey(item))}
                 />
               );
             })}
@@ -249,17 +242,10 @@ export default function AgentScreen() {
   );
 }
 
-/** Small capitals spaced out a little, as on the card. */
-const LEFT_TRACKING = 1;
-
 /** The latest few on the agent's own screen; "See all" has the rest. */
 const AGENT_ROWS = 5;
 
 const styles = StyleSheet.create({
-  left: { flexDirection: "row", alignItems: "center", gap: tokens.space.md },
-  leftText: { flex: 1, gap: tokens.space.hair },
-  leftLine: { ...tokens.type.data, letterSpacing: LEFT_TRACKING },
-  sentence: tokens.type.footnote,
   group: { padding: 0, gap: 0, overflow: "hidden" },
   goneTitle: tokens.type.headline,
   goneBody: tokens.type.subheadline,

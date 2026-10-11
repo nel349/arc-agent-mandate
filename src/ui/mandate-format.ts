@@ -192,7 +192,7 @@ export function agentRowLabel(mandate: Mandate, name: string | null, network: Ne
 /**
  * The line under what is left: the limit it is out of, and what has gone.
  *
- * The figure above it counts down and the ring fills up. This line is the one that names both
+ * The figure above it counts down and the ring empties with it. This line is the one that names both
  * directions in words. The card used to put "19.89 of 20.00" beside a bare "1%", two numbers side by
  * side that counted opposite ways, with nothing saying which was which.
  */
@@ -257,10 +257,4 @@ export function faceOfMandate(
     calls: [],
     spoken: agentRowLabel(mandate, name, network, now),
   };
-}
-
-/** What is left and what has gone, as the line under an agent's card: "0.008 MON LEFT · 0.002 SPENT (20%)". */
-export function leftLine(mandate: Mandate, network: NetworkProfile): string {
-  const left = `${figure(mandate.remaining, network)} ${unitOf(network)} LEFT`;
-  return mandate.spent.isZero() ? `${left} · NOTHING SPENT` : `${left} · ${figure(mandate.spent, network)} SPENT (${spentPercentLabel(mandate)})`;
 }

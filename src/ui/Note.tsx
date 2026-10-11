@@ -1,3 +1,4 @@
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { StyleSheet, Text, View } from "react-native";
 import { useTheme } from "./theme-context.tsx";
 import { tokens } from "./tokens.ts";
@@ -17,9 +18,13 @@ export const ERROR_LINES = 3;
  * each — a wallet error, a mandate error, and a not-deployed notice — which is how three things
  * that mean "read this" ended up looking like three unrelated bits of text.
  *
- * `warn` is for something that went wrong or is blocking. The default is for a statement of fact,
- * and gets a leading rule rather than a colour, so a summary of what you are about to authorise
- * does not read as an alarm.
+ * `warn` is for something that went wrong or is blocking, and takes the attention colour and its
+ * glyph. The default is for a statement of fact, and stays quiet, so a summary of what you are about
+ * to authorise does not read as an alarm.
+ *
+ * A glyph and a sentence, with no box. It was boxed for a moment, with the radius and hairline of a
+ * text field, and a note under a field could not be told from one; several in a card were boxes in
+ * a box. Before that it had a rule down its leading edge.
  */
 export function Note({
   children, tone = "plain", lines,
@@ -39,7 +44,13 @@ export function Note({
   const warn = tone === "warn";
 
   return (
-    <View style={[styles.block, { borderLeftColor: warn ? c.warn : c.hairline }]}>
+    <View style={styles.block}>
+      <Ionicons
+        name={warn ? "alert-circle-outline" : "information-circle-outline"}
+        size={tokens.size.chevron}
+        color={warn ? c.warn : c.dim}
+        style={styles.glyph}
+      />
       <Text style={[styles.text, { color: warn ? c.warn : c.dim }]} numberOfLines={lines}>
         {children}
       </Text>
@@ -48,12 +59,8 @@ export function Note({
 }
 
 const styles = StyleSheet.create({
-  block: {
-    borderLeftWidth: 2,
-    paddingLeft: tokens.space.md,
-    paddingVertical: tokens.space.xs,
-  },
-  // A sentence, so the system font. It was mono, which made the one line meant to be read in full
-  // the hardest one on the screen to read.
-  text: tokens.type.footnote,
+  block: { flexDirection: "row", alignItems: "flex-start", gap: tokens.space.xs },
+  // Dropped by the difference between the line's height and the glyph's, so it sits on the first line.
+  glyph: { marginTop: (tokens.type.footnote.lineHeight - tokens.size.chevron) / 2 },
+  text: { ...tokens.type.footnote, flex: 1 },
 });

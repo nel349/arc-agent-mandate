@@ -4,6 +4,7 @@ import type { Address } from "viem";
 import type { Mandate, MandateTerms } from "../arc/mandate.ts";
 import type { GrantTerms } from "./grant-terms.ts";
 import { readPairingLink, type ScannedAgent } from "./pairing.ts";
+import { PRODUCT_NAME } from "./product.ts";
 
 /**
  * The grant screen's decisions about who is being granted, kept apart from the screen.
@@ -87,7 +88,7 @@ const SECONDS_PER_DAY = 86_400;
 const LABEL_TAGS: readonly string[] = [keccak256(toHex(GRANT_LABEL)), keccak256(toHex("mandate"))];
 
 /**
- * Whether a grant carries no pairing code, so an agent using the Arc Mandate connector ignores it.
+ * Whether a grant carries no pairing code, so an agent using the Mandate's connector ignores it.
  *
  * The phone could not tell: every allowance looked the same on screen, including the ones the agent
  * would never spend from, and the only symptom was an agent that kept asking to be paired. Unknown,
@@ -99,7 +100,7 @@ export function grantedWithoutCode(tag: string | undefined): boolean {
 
 /** Said about such a grant, wherever it is shown. */
 export const NO_PAIRING_CODE =
-  "Granted from a typed address, so it carries no agent code. An agent using the Arc Mandate " +
+  `Granted from a typed address, so it carries no agent code. An agent using the ${PRODUCT_NAME} ` +
   "connector will not spend from this allowance; scan the agent's code to grant one it will use.";
 
 /**

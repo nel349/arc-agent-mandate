@@ -32,6 +32,7 @@ import {
 } from "./chain.ts";
 import { setUpIdentity, type IdentityOutcome, type Submit } from "./erc8004.ts";
 import { amountIn, NO_REQUEST, pairingLink, payeesRequired, requestFrom, type AgentRequest } from "@kuiralabs/mandate-core";
+import { PRODUCT_NAME } from "./product.ts";
 import { briefingSteps } from "./briefing.ts";
 import { encodeCall } from "./call.ts";
 import { statementToSign } from "./statement.ts";
@@ -105,7 +106,7 @@ async function showCode(request: AgentRequest = NO_REQUEST): Promise<string> {
     `Grant an allowance to:\n\n${await pairingCode(link)}\n    ${agent.address}\n\n` +
     `The code carries a one-time pairing code, so only an allowance granted by scanning it reaches ` +
     `this agent.${saved}\n\n` +
-    `Step 3 of 5, on your phone: open the Agent Mandate wallet (${WALLET_URL}), tap New ` +
+    `Step 3 of 5, on your phone: open the ${PRODUCT_NAME} wallet (${WALLET_URL}), tap New ` +
     `allowance, then Scan the agent's code and point the camera at this one (or paste this link: ` +
     `${link}). ${asks ? "It fills in what was asked for; check it, change anything," : "Set a limit and how long it lasts,"} ` +
     `and confirm with your passkey. Tell me when it is done.` +
@@ -135,7 +136,7 @@ const WALLET_URL = walletFor(NETWORK);
  */
 const INSTRUCTIONS = [
   "This connector lets you spend from your user's wallet, inside an allowance they grant from the " +
-    "Agent Mandate app on their phone. The chain enforces the limit; you cannot exceed it.",
+    `${PRODUCT_NAME} app on their phone. The chain enforces the limit; you cannot exceed it.`,
   "",
   "The path, in five steps, the same words the app and the maze page use:",
   ...briefingSteps(NETWORK, WALLET_URL),
@@ -194,7 +195,7 @@ function unreachable(cause: unknown): string {
 
 /** Said when no grant carries this agent's code, and no wallet was ever paired with it. */
 const NO_ALLOWANCE =
-  `No allowance yet.\n\nStep 3 of 5, on the user's phone: in the Agent Mandate wallet ` +
+  `No allowance yet.\n\nStep 3 of 5, on the user's phone: in the ${PRODUCT_NAME} wallet ` +
   `(${WALLET_URL}), tap New allowance, then Scan the agent's code, set a limit and how long, and ` +
   `confirm with their passkey. Call ` +
   `get_pairing_address to show the code. It carries a one-time pairing code, and an allowance ` +

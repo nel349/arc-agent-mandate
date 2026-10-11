@@ -5,8 +5,8 @@ const ALL: readonly CornerAt[] = ["topLeft", "topRight", "bottomLeft", "bottomRi
 
 /**
  * Four L-shaped brackets at the corners of whatever holds them: the frame the scanner aims with, and
- * the registration marks an allowance card is printed inside. One drawing, so the two read as one
- * family. The parent sets the size; the marks sit on its edges and take no space.
+ * the tile that opens it. The parent sets the size; the marks sit on its edges and take no space.
+ * An allowance card used to be printed inside them too, when it was drawn as a key listing.
  */
 export function CornerMarks({
   color, length, stroke, radius = 0,

@@ -5,8 +5,7 @@ import { tokens } from "./tokens.ts";
 /**
  * A section heading.
  *
- * Small, uppercase, letterspaced, in the system font: the one place uppercase survives, over a
- * group of rows, the way iOS sets its own. The same in every theme, because typography is
+ * Small and semibold in the reading face, in sentence case, over a group of rows. The same in every theme, because typography is
  * structure. Only the colour comes from the palette.
  *
  * `dim` is for a heading that names something already obvious from what sits under it; the default

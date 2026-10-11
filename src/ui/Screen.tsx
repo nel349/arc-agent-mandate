@@ -160,7 +160,8 @@ export function Screen({
           style={StyleSheet.absoluteFill}
         />
       )}
-      {footer}
+      {/* The same column the content above is drawn in, so a button is never wider than what it acts on. */}
+      <View style={styles.column} pointerEvents="box-none">{footer}</View>
     </View>
   );
 
@@ -199,7 +200,12 @@ const styles = StyleSheet.create({
    * So: 20 at the edge of the screen, 16 between blocks, 16 inside a card, 12 between a card's own
    * rows. Monotonic, every value a step, and the same on both platforms.
    */
-  content: { padding: tokens.space.lg, gap: tokens.space.base },
+  content: {
+    padding: tokens.space.lg, gap: tokens.space.base,
+    // A column in the middle of a window wider than a phone. See `tokens.size.column`.
+    width: "100%", maxWidth: tokens.size.column, alignSelf: "center",
+  },
+  column: { width: "100%", maxWidth: tokens.size.column - tokens.space.lg * 2, alignSelf: "center", gap: tokens.space.sm },
   footer: {
     position: "absolute",
     left: 0,
@@ -207,6 +213,5 @@ const styles = StyleSheet.create({
     bottom: 0,
     paddingHorizontal: tokens.space.lg,
     paddingTop: tokens.space.xl,
-    gap: tokens.space.sm,
   },
 });

@@ -1,15 +1,19 @@
 import { Redirect } from "expo-router";
 import { useState } from "react";
-import { Platform, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Platform, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArcRing } from "../src/ui/ArcRing.tsx";
 import { Button } from "../src/ui/Button.tsx";
 import { ERROR_LINES, Note } from "../src/ui/Note.tsx";
+import { WORDMARK } from "../src/ui/product.ts";
 import { ROUTES } from "../src/ui/routes.ts";
 import { Screen } from "../src/ui/Screen.tsx";
 import { unitOf } from "../src/ui/coin.ts";
 import { useSession } from "../src/ui/session-context.tsx";
 import { useTheme } from "../src/ui/theme-context.tsx";
 import { tokens } from "../src/ui/tokens.ts";
+import { WelcomeExample } from "../src/ui/WelcomeExample.tsx";
+import { exampleLayout } from "../src/ui/welcome-demo.ts";
 
 /**
  * The first screen anyone sees, and the only one that exists before there is a wallet.
@@ -35,9 +39,12 @@ export default function WelcomeScreen() {
 /**
  * What the app is for, before asking for anything.
  *
- * It used to say "No wallet yet" over two buttons and nothing else. It now shows the ring as the
- * idea and says what a passkey means here, because "Create a wallet" is a big ask from an app that
- * has not yet said why.
+ * It shows the product working before it asks for a wallet: the name, an example of an agent
+ * spending down an allowance and being refused past it, and one sentence. "Create a wallet" is a big
+ * ask from an app that has not yet shown why.
+ *
+ * It used to be a still ring over a paragraph, with the name nowhere on it, and before that "No
+ * wallet yet" over two buttons.
  */
 function Welcome() {
   const { wallet } = useSession();
@@ -47,13 +54,19 @@ function Welcome() {
    * tapping either put a spinner on both.
    */
   const [chosen, setChosen] = useState<"create" | "signIn" | null>(null);
+  const insets = useSafeAreaInsets();
+  // On the smallest phones the second sentence and the line under the buttons give way, so the
+  // headline is not behind the buttons. The same measure the example card draws by.
+  const { tiny } = exampleLayout(useWindowDimensions().height, tokens.size.shortWindow, tokens.size.tinyWindow);
   const working = (which: "create" | "signIn") => wallet.busy && chosen === which;
 
   return (
     <Screen
-      centered
       footer={
         <>
+          {/* Above the buttons that caused it, where it cannot be under them: below the sentence it
+              was behind the footer on a short phone, and a cancelled passkey showed nothing. */}
+          {wallet.error !== null && <Note tone="warn" lines={ERROR_LINES}>{wallet.error}</Note>}
           <Button
             tier="solid"
             title="Create a wallet"
@@ -67,21 +80,41 @@ function Welcome() {
             busy={working("signIn")}
             disabled={wallet.busy}
           />
+          {!tiny && (
+            <Text style={[styles.opensWith, { color: c.dim }]}>
+              Opens with {OPENS_WITH}. No password, nothing to write down.
+            </Text>
+          )}
         </>
       }
     >
-      <View style={styles.welcome}>
-        <ArcRing spent={WELCOME_RING} size={tokens.size.ring.welcome} label="" />
-        <Text style={[styles.welcomeTitle, { color: c.paper }]}>Let an agent spend, within limits</Text>
-        <Text style={[styles.welcomeBody, { color: c.muted }]}>
-          {`Give an AI agent an allowance in ${unitOf(wallet.network)}. It can spend up to the limit you set, until the date you choose, and you can take it back at any time.`}
+      {/* Android draws under its status bar, and this is the one screen with no bar of its own and
+          nothing centring it clear; iOS insets the scroll view itself. */}
+      {Platform.OS === "android" && <View style={{ height: insets.top }} />}
+      <Wordmark />
+      <WelcomeExample unit={unitOf(wallet.network)} />
+      <View style={styles.say}>
+        <Text style={[styles.headline, { color: c.paper }]} accessibilityRole="header">
+          {HEADLINE}
         </Text>
-        <Text style={[styles.welcomeNote, { color: c.dim }]}>
-          Your wallet opens with {OPENS_WITH}. There is no password, and nothing to write down.
-        </Text>
-        {wallet.error !== null && <Note tone="warn" lines={ERROR_LINES}>{wallet.error}</Note>}
+        {!tiny && (
+          <Text style={[styles.body, { color: c.muted }]}>
+            Give it a limit and an end date. It cannot spend past either, each payment shows here within seconds, and you can stop it at any moment.
+          </Text>
+        )}
       </View>
     </Screen>
+  );
+}
+
+/** The name, as a mark: the ring beside it. The first thing on the first screen, where it was missing. */
+function Wordmark() {
+  const c = useTheme().color;
+  return (
+    <View style={styles.wordmark} accessible accessibilityRole="header" accessibilityLabel={WORDMARK}>
+      <ArcRing spent={MARK_RING} size={tokens.size.ring.wordmark} label="" />
+      <Text style={[styles.name, { color: c.paper }]}>{WORDMARK}</Text>
+    </View>
   );
 }
 
@@ -92,30 +125,37 @@ function Welcome() {
  */
 const OPENS_WITH = Platform.OS === "ios" ? "Face ID" : "a passkey";
 
-/** Between launch and the wallet: the ring and one line. */
+/**
+ * Between launch and the wallet: the name, and what is happening.
+ *
+ * The system's own spinner, as everywhere else something is being waited for. The heartbeat line
+ * is not used for it: that line says an agent is spending, and nothing is.
+ */
 function Opening() {
   const c = useTheme().color;
   return (
     <Screen centered>
-      <View style={styles.welcome}>
-        <ArcRing spent={WELCOME_RING} size={tokens.size.ring.welcome} label="" />
-        <Text style={[styles.welcomeNote, { color: c.dim }]}>Opening your wallet</Text>
+      <View style={styles.opening}>
+        <Wordmark />
+        <ActivityIndicator color={c.untested} accessibilityLabel="Opening your wallet" />
+        <Text style={[styles.opensWith, { color: c.dim }]}>Opening your wallet</Text>
       </View>
     </Screen>
   );
 }
 
-/** Enough of the ring drawn to read as a limit partly used, which is the whole idea in one shape. */
-const WELCOME_RING = 0.35;
+/** The last three words are kept together, so a wide window does not break the line as "beat / by beat". */
+const HEADLINE = "Watch your agent spend, beat\u00a0by\u00a0beat.";
+
+/** Enough of the ring gone to read as a limit partly used, which is the whole idea in one shape. */
+const MARK_RING = 0.35;
 
 const styles = StyleSheet.create({
-  // Centred vertically by `Screen centered`; this only centres across and spaces the parts.
-  welcome: {
-    alignItems: "center",
-    gap: tokens.space.base,
-    paddingHorizontal: tokens.space.base,
-  },
-  welcomeTitle: { ...tokens.type.title, textAlign: "center" },
-  welcomeBody: { ...tokens.type.body, textAlign: "center" },
-  welcomeNote: { ...tokens.type.footnote, textAlign: "center" },
+  wordmark: { flexDirection: "row", alignItems: "center", gap: tokens.space.sm },
+  name: tokens.type.wordmark,
+  say: { gap: tokens.space.sm, paddingTop: tokens.space.xs },
+  headline: tokens.type.display,
+  body: tokens.type.subheadline,
+  opensWith: { ...tokens.type.caption, textAlign: "center" },
+  opening: { alignItems: "center", gap: tokens.space.base, paddingHorizontal: tokens.space.xl },
 });

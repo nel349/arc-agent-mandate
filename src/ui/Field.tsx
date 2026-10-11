@@ -108,7 +108,7 @@ const styles = StyleSheet.create({
   // `lineHeight` is dropped from both: on a single-line input iOS adds it above the text rather
   // than around it, which pushes the value visibly low in its box.
   dataText: { fontFamily: tokens.type.data.fontFamily, fontSize: tokens.type.data.fontSize },
-  numberText: { fontSize: tokens.type.body.fontSize, fontVariant: [...tokens.font.tabular] },
+  numberText: { fontFamily: tokens.font.text, fontSize: tokens.type.body.fontSize, fontVariant: [...tokens.font.tabular] },
   problem: tokens.type.footnote,
   mark: tokens.type.headline,
 });

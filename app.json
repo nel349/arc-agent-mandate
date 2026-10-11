@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Arc Agent Mandate",
+    "name": "Mandate",
     "slug": "arc-agent-mandate",
     "scheme": "arcmandate",
     "version": "0.1.0",
@@ -26,7 +26,7 @@
       "adaptiveIcon": {
         "foregroundImage": "./brand/android/adaptive-foreground.png",
         "monochromeImage": "./brand/android/adaptive-monochrome.png",
-        "backgroundColor": "#12110F"
+        "backgroundColor": "#071412"
       }
     },
     "plugins": [

@@ -10,7 +10,7 @@ review itself.
 
 ## Beta App Description
 
-> Arc Agent Mandate is a developer tool from the ETHOnline hackathon. It lets somebody give an AI
+> Mandate is a developer tool from the ETHOnline hackathon. It lets somebody give an AI
 > agent a spending allowance on a test blockchain, and take it away again.
 >
 > The phone is the control surface. You create a wallet that opens with Face ID, add test dollars to

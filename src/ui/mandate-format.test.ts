@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import { ARC_TESTNET, MONAD_TESTNET } from "@kuiralabs/mandate-core";
 import assert from "node:assert/strict";
-import { agentHoldingNote, agentRowLabel, allowanceSentence, faceOfMandate, leftLine, endsLine, expiryLabel, expiryLine, hasEnded, fractionUsed, identityLabel, lastUsedLabel, revokeWarning, shortAddress, spentLine, spentPercentLabel } from "./mandate-format.ts";
+import { agentHoldingNote, agentRowLabel, allowanceSentence, faceOfMandate, endsLine, expiryLabel, expiryLine, hasEnded, fractionUsed, identityLabel, lastUsedLabel, revokeWarning, shortAddress, spentLine, spentPercentLabel } from "./mandate-format.ts";
 import { Amount } from "../arc/amount.ts";
 import type { Mandate } from "../arc/mandate.ts";
 
@@ -322,9 +322,4 @@ test("an agent's card prints what the chain says of its allowance, and nothing i
   assert.equal(face.askedBy, null, "who asked is not on the chain, so it is not printed");
   assert.deepEqual(face.payees, []);
   assert.match(face.spoken, /^Runner\. 0\.008 MON left of 0\.01\./);
-});
-
-test("the line under the card says what is left and what has gone, and nothing printed on the card", () => {
-  assert.equal(leftLine(mandate("0.01", "0.002"), MONAD_TESTNET), "0.008 MON LEFT · 0.002 SPENT (20%)");
-  assert.equal(leftLine(mandate("20", "0"), ARC_TESTNET), "20.00 USDC LEFT · NOTHING SPENT");
 });

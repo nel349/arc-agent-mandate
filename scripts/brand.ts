@@ -5,14 +5,17 @@
  *
  * Writes `brand/`, which `app.json` names for the app's icon and Android's adaptive one. Drawn here
  * rather than exported from a design tool so it cannot drift from the ring in the app: the stroke
- * ratio comes from `tokens.ts` and the colours from the Machine palette in `themes.ts`, the same
- * values `ArcRing` draws with. Change the ring and every asset below changes with it.
+ * ratio comes from `tokens.ts`, the colours from the Pulse palette in `themes.ts`, the arc from
+ * `ring-geometry.ts` and the name from the package the wallet and the connector share. They are
+ * what `ArcRing` draws with. Change the ring and every asset below changes with it.
  *
  * Nothing to install. A PNG is a few chunks around a deflated grid of pixels, and Node has deflate
  * and CRC-32 built in; an SVG is text.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { crc32, deflateSync } from "node:zlib";
+import { PRODUCT_NAME } from "../packages/core/src/product.ts";
+import { ringGeometry, roundedArc } from "../src/ui/ring-geometry.ts";
 import { THEMES } from "../src/ui/themes.ts";
 import { tokens } from "../src/ui/tokens.ts";
 
@@ -26,33 +29,33 @@ const RING_SHARE = 0.62;
  * best and clipped at worst, so the ring is drawn inside it and the rest of the canvas is empty.
  */
 const ANDROID_SAFE = 72 / 108;
-/** A third drawn: a limit partly used, which neither a spinner nor a finished goal looks like. */
+/** About a third gone: a limit partly used, which neither a spinner nor a finished goal looks like. */
 const SPENT = 0.35;
 /** Samples per pixel along each axis, for smooth edges without a graphics library. */
 const SUPERSAMPLE = 4;
 /**
- * How present the unspent part of the ring is in Android's themed icon.
+ * How present the part of the ring that is gone is in Android's themed icon.
  *
  * A themed icon is drawn from the alpha channel alone: the launcher throws the colours away and
  * tints what is left with the wallpaper's. One flat silhouette would turn the mark into a plain
- * hoop and lose the thing it says, so the two arcs are told apart by how solid they are instead of
- * by hue, and the shape survives the tinting.
+ * hoop and lose the thing it says, so the two parts are told apart by how solid they are instead
+ * of by hue, and the shape survives the tinting.
  */
 const MONOCHROME_TRACK_ALPHA = 0.42;
 
 const here = (path: string): string => decodeURIComponent(new URL(`../${path}`, import.meta.url).pathname);
 
-const machine = THEMES.find((theme) => theme.id === "machine");
-if (machine === undefined) throw new Error("The Machine palette is missing from themes.ts.");
-const { groundMid, paper, untested } = machine.color;
+const pulse = THEMES.find((theme) => theme.id === "pulse");
+if (pulse === undefined) throw new Error("The Pulse palette is missing from themes.ts.");
+const { groundMid, ring } = pulse.color;
 
 type Rgba = readonly [number, number, number, number];
 const rgb = (hex: string, alpha = 255): Rgba =>
   [...[0, 2, 4].map((i) => Number.parseInt(hex.slice(1 + i, 3 + i), 16)), alpha] as unknown as Rgba;
 
 const GROUND = rgb(groundMid);
-const INK = rgb(paper);
-const ALLOWED = rgb(untested);
+const LEFT = rgb(ring.left);
+const GONE = rgb(ring.gone);
 const NOTHING: Rgba = [0, 0, 0, 0];
 
 /** One drawing of the mark: how big, on what, and how much of the square it fills. */
@@ -62,7 +65,7 @@ interface Drawing {
   readonly ground: Rgba | null;
   /** Ring diameter as a share of the canvas. */
   readonly share: number;
-  /** Both arcs in one ink, told apart by alpha, as Android's themed icon needs. */
+  /** Both parts in one ink, told apart by alpha, as Android's themed icon needs. */
   readonly monochrome?: boolean;
 }
 
@@ -77,25 +80,28 @@ function shade({ size, ground, share, monochrome = false }: Drawing) {
   const stroke = diameter * tokens.size.ring.strokeRatio;
   const radius = (diameter - stroke) / 2;
   const centre = size / 2;
-  const endAngle = SPENT * 2 * Math.PI;
-  /** Where the spent arc's round ends sit, as `ArcRing` draws them with `strokeLinecap="round"`. */
-  const caps = [0, endAngle].map(
+  // The part that is left, as `ArcRing` draws it: a dash with round ends that sit inside it, so
+  // what is seen is exactly what is left. See `roundedArc`.
+  const arc = roundedArc(ringGeometry(SPENT, radius), stroke);
+  const from = (arc.from * Math.PI) / 180;
+  const to = from + arc.dash / radius;
+  const ends = [from, to].map(
     (angle) => [centre + radius * Math.sin(angle), centre - radius * Math.cos(angle)] as const,
   );
-  // The spent arc is full-strength ink either way; only the track changes between the two.
-  const spentInk: Rgba = INK;
-  const allowedInk: Rgba = monochrome
-    ? [INK[0], INK[1], INK[2], Math.round(255 * MONOCHROME_TRACK_ALPHA)]
-    : ALLOWED;
+  // What is left is full-strength either way; only the part that is gone changes between the two.
+  const leftInk: Rgba = LEFT;
+  const goneInk: Rgba = monochrome
+    ? [LEFT[0], LEFT[1], LEFT[2], Math.round(255 * MONOCHROME_TRACK_ALPHA)]
+    : GONE;
 
   return (x: number, y: number): Rgba => {
     const dx = x - centre;
     const dy = y - centre;
-    if (caps.some(([cx, cy]) => Math.hypot(x - cx, y - cy) <= stroke / 2)) return spentInk;
+    if (ends.some(([ex, ey]) => Math.hypot(x - ex, y - ey) <= stroke / 2)) return leftInk;
     if (Math.abs(Math.hypot(dx, dy) - radius) > stroke / 2) return ground ?? NOTHING;
-    // Clockwise from twelve o'clock, where the app's ring starts.
+    // Clockwise from twelve o'clock, where the gone part starts.
     const angle = (Math.atan2(dx, -dy) + 2 * Math.PI) % (2 * Math.PI);
-    return angle <= endAngle ? spentInk : allowedInk;
+    return angle >= from && angle <= to ? leftInk : goneInk;
   };
 }
 
@@ -172,24 +178,26 @@ function png(size: number, channels: number, pixels: Buffer): Buffer {
 
 /**
  * The same geometry as text, for everywhere a drawing should not be a grid of pixels: a README, a
- * slide, a page. Two circles and a dash array, which is all the mark has ever been.
+ * slide, a page. Two circles and a dash array, which is all the mark has ever been: the ring of what
+ * is gone, and over it the arc of what is left.
  */
 function svg({ ground, share, size = 100 }: { ground: string | null; share: number; size?: number }): string {
   const diameter = size * share;
   const stroke = diameter * tokens.size.ring.strokeRatio;
   const radius = (diameter - stroke) / 2;
-  const circumference = 2 * Math.PI * radius;
   const centre = size / 2;
+  const geometry = ringGeometry(SPENT, radius);
+  const arc = roundedArc(geometry, stroke);
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" `,
-    `role="img" aria-label="Arc Agent Mandate">`,
+    `role="img" aria-label="${PRODUCT_NAME}">`,
     ground === null ? "" : `<rect width="${size}" height="${size}" fill="${ground}"/>`,
-    `<circle cx="${centre}" cy="${centre}" r="${radius.toFixed(3)}" fill="none" stroke="${untested}" `,
+    `<circle cx="${centre}" cy="${centre}" r="${radius.toFixed(3)}" fill="none" stroke="${ring.gone}" `,
     `stroke-width="${stroke.toFixed(3)}"/>`,
-    `<circle cx="${centre}" cy="${centre}" r="${radius.toFixed(3)}" fill="none" stroke="${paper}" `,
+    `<circle cx="${centre}" cy="${centre}" r="${radius.toFixed(3)}" fill="none" stroke="${ring.left}" `,
     `stroke-width="${stroke.toFixed(3)}" stroke-linecap="round" `,
-    `stroke-dasharray="${(circumference * SPENT).toFixed(3)} ${circumference.toFixed(3)}" `,
-    `transform="rotate(-90 ${centre} ${centre})"/>`,
+    `stroke-dasharray="${arc.dash.toFixed(3)} ${geometry.circumference.toFixed(3)}" `,
+    `transform="rotate(${(arc.from - 90).toFixed(3)} ${centre} ${centre})"/>`,
     `</svg>`,
   ].join("");
 }
@@ -210,7 +218,7 @@ const ICON_SIZES: readonly (readonly [number, string])[] = [
   [128, "a README or a slide"],
   [96, "Android xhdpi launcher"],
   [64, "a list row"],
-  [48, "Android mdpi launcher, and the smallest the two arcs still read at"],
+  [48, "Android mdpi launcher, and the smallest the two parts still read at"],
   [32, "favicon at 2x"],
   [16, "favicon"],
 ];

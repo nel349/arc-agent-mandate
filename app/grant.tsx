@@ -13,6 +13,7 @@ import { Button } from "../src/ui/Button.tsx";
 import { ChoiceListRow } from "../src/ui/ChoiceListRow.tsx";
 import { CornerMarks } from "../src/ui/CornerMarks.tsx";
 import { Field } from "../src/ui/Field.tsx";
+import { PRODUCT_NAME } from "../src/ui/product.ts";
 import { ERROR_LINES, Note } from "../src/ui/Note.tsx";
 import { PresetChip } from "../src/ui/PresetChip.tsx";
 import { ScanModal } from "../src/ui/ScanModal.tsx";
@@ -26,6 +27,7 @@ import { alreadyGranted, entryFromScan, entryFromText, mandateTermsFor, networkO
 import { amountPresets, CARD_TERMS, exceedsWallet, faceOf, grantedSentence, windowEndLabel } from "../src/ui/grant-format.ts";
 import { stepAfter, type GrantStep } from "../src/ui/grant-steps.ts";
 import { readGrantTerms } from "../src/ui/grant-terms.ts";
+import { Granted } from "../src/ui/Granted.tsx";
 import { feelSuccess } from "../src/ui/haptics.ts";
 import { shortAddress } from "../src/ui/mandate-format.ts";
 import { useSession } from "../src/ui/session-context.tsx";
@@ -227,7 +229,7 @@ export default function GrantScreen() {
             accessibilityLabel="Scan your agent's code"
             style={({ pressed }) => [styles.scan, pressed && styles.pressed]}
           >
-            <CornerMarks color={c.muted} length={SCAN_MARK} stroke={tokens.border.hairline * 2} />
+            <CornerMarks color={c.muted} length={SCAN_MARK} stroke={tokens.border.hairline * 2} radius={tokens.radius.md} />
             <Ionicons name="qr-code-outline" size={SCAN_GLYPH} color={c.paper} />
             <Text style={[styles.scanTitle, { color: c.paper }]}>Scan your agent&apos;s code</Text>
             <Text style={[styles.scanBody, { color: c.dim }]}>It shows one when you connect it on your computer.</Text>
@@ -257,7 +259,7 @@ export default function GrantScreen() {
           {"problem" in placed && <Note tone="warn">{placed.problem}</Note>}
           {wallet.error !== null && <Note tone="warn" lines={ERROR_LINES}>{wallet.error}</Note>}
           {typing && agentReady && pairing === null && (
-            <Note>An agent using the Arc Mandate connector will not use this allowance. Scan its code instead.</Note>
+            <Note>{`An agent using the ${PRODUCT_NAME} connector will not use this allowance. Scan its code instead.`}</Note>
           )}
         </Screen>
       </>
@@ -386,6 +388,7 @@ export default function GrantScreen() {
       <Screen header={bar()} footer={<Button tier="solid" title="Done" onPress={leave} />}>
         <AllowanceCard face={{ ...face, spoken: grantedSentence({ who, limit: terms.limit, days: terms.days, network }) }} />
         <View style={styles.done}>
+          <Granted />
           <Text style={[styles.doneTitle, { color: c.paper }]}>Allowance granted</Text>
           <Text style={[styles.doneBody, { color: c.muted }]}>Nothing has left your wallet yet.</Text>
           {/* The next step is on the other device, so the phone says so rather than going quiet. */}

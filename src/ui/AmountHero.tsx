@@ -50,9 +50,8 @@ const styles = StyleSheet.create({
   figure: { flexDirection: "row", alignItems: "baseline", justifyContent: "center", gap: tokens.space.sm },
   input: {
     ...tokens.type.amountEntry,
-    // the figure is typed in mono, as the card it becomes will print it
-    fontFamily: tokens.font.mono,
-    fontWeight: "400",
+    // the figure is typed in the face the card it becomes will show it in
+    fontWeight: "600",
     fontVariant: [...tokens.font.tabular],
     textAlign: "center",
     minWidth: tokens.size.tapTarget,

@@ -4,7 +4,6 @@ import type { Address } from "viem";
 import type { NetworkProfile } from "@kuiralabs/mandate-core";
 import type { Amount } from "../arc/amount.ts";
 import { figure, unitOf } from "./coin.ts";
-import { CornerMarks } from "./CornerMarks.tsx";
 import { fingerprintLines, shortFingerprint } from "./fingerprint.ts";
 import { shortNameOf } from "./network-choice.ts";
 import { accentOf } from "./network-look.ts";
@@ -31,13 +30,15 @@ export interface AllowanceFace {
 }
 
 /**
- * An allowance as a card the wallet issues to an agent, printed like a key listing.
+ * An allowance as a card the wallet issues to an agent.
  *
- * Graphite, inside registration marks, with the one colour in the app: the network's, down its edge
- * and beside its name. The figure is the only large thing on it. Below, label and value rows the way
- * a key is listed, and the agent's address as a fingerprint, which a person can check group by group
- * against what their laptop shows. Everything about the allowance is said here once, so a screen that
- * shows a card repeats none of it.
+ * A soft card with one large thing on it, the figure. The network is a small tag in its own colour,
+ * the only place that colour appears. Below, a label and a value to a row, and the agent's address
+ * as a fingerprint, which a person can check group by group against what their laptop shows.
+ * Everything about the allowance is said here once, so a screen that shows a card repeats none of it.
+ *
+ * It was printed like a key listing: black, in mono capitals, inside registration marks, with the
+ * network down its edge. That belonged to a look built on ink and squared corners.
  */
 export function AllowanceCard({ face }: { readonly face: AllowanceFace }) {
   const c = useTheme().color;
@@ -45,18 +46,15 @@ export function AllowanceCard({ face }: { readonly face: AllowanceFace }) {
 
   return (
     <View
-      style={[styles.card, { backgroundColor: c.groundLow, borderColor: c.hairline }]}
+      style={[styles.card, { backgroundColor: c.glass, borderColor: c.hairline, borderTopColor: c.specular }]}
       accessible
       accessibilityLabel={face.spoken}
     >
-      <View style={[styles.edge, { backgroundColor: accent }]} />
-      <CornerMarks color={c.dim} length={MARK_LENGTH} stroke={MARK_STROKE} />
-
       <View style={styles.head}>
-        <Text style={[styles.kind, { color: c.dim }]}>ALLOWANCE</Text>
-        <View style={styles.network}>
+        <Text style={[styles.kind, { color: c.dim }]}>Allowance</Text>
+        <View style={[styles.network, { borderColor: c.hairline }]}>
           <View style={[styles.dot, { backgroundColor: accent }]} />
-          <Text style={[styles.kind, { color: c.paper }]}>{shortNameOf(face.network).toUpperCase()}</Text>
+          <Text style={[styles.kind, { color: c.paper }]}>{shortNameOf(face.network)}</Text>
         </View>
       </View>
 
@@ -70,31 +68,31 @@ export function AllowanceCard({ face }: { readonly face: AllowanceFace }) {
       <View style={[styles.rule, { backgroundColor: c.hairline }]} />
 
       <View style={styles.rows}>
-        {face.name !== null && <Row label="NAME" color={c}><Text style={[styles.value, { color: c.paper }]} numberOfLines={1}>{face.name}</Text></Row>}
-        <Row label="AGENT" color={c}>
+        {face.name !== null && <Row label="Name" color={c}><Text style={[styles.words, { color: c.paper }]} numberOfLines={1}>{face.name}</Text></Row>}
+        <Row label="Agent" color={c}>
           <View>
             {fingerprintLines(face.agent).map((line) => (
               <Text key={line} style={[styles.value, { color: c.paper }]}>{line}</Text>
             ))}
           </View>
         </Row>
-        {face.askedBy !== null && <Row label="ASKED" color={c}><Text style={[styles.value, { color: c.paper }]} numberOfLines={1}>{face.askedBy}</Text></Row>}
+        {face.askedBy !== null && <Row label="Asked by" color={c}><Text style={[styles.words, { color: c.paper }]} numberOfLines={1}>{face.askedBy}</Text></Row>}
         {face.payees.length > 0 && (
-          <Row label="PAYS" color={c}>
-            <Text style={[styles.value, { color: c.paper }]} numberOfLines={1}>
-              {face.payees.length === 1 ? shortFingerprint(face.payees[0] ?? "") : `${face.payees.length} ADDRESSES ONLY`}
-            </Text>
+          <Row label="Pays" color={c}>
+            {face.payees.length === 1
+              ? <Text style={[styles.value, { color: c.paper }]} numberOfLines={1}>{shortFingerprint(face.payees[0] ?? "")}</Text>
+              : <Text style={[styles.words, { color: c.paper }]} numberOfLines={1}>{`${face.payees.length} addresses only`}</Text>}
           </Row>
         )}
         {face.calls.map((call) => (
-          <Row key={call.contract} label="CALLS" color={c}>
+          <Row key={call.contract} label="Calls" color={c}>
             <View>
-              <Text style={[styles.value, { color: c.paper }]}>{call.functions.map(nameOf).join(", ")}</Text>
+              <Text style={[styles.words, { color: c.paper }]}>{call.functions.map(nameOf).join(", ")}</Text>
               <Text style={[styles.value, { color: c.muted }]}>on {shortFingerprint(call.contract)}</Text>
             </View>
           </Row>
         ))}
-        <Row label="ENDS" color={c}><Text style={[styles.value, { color: c.paper }]}>{(face.ends ?? "never").toUpperCase()}</Text></Row>
+        <Row label="Ends" color={c}><Text style={[styles.words, { color: c.paper }]}>{face.ends ?? "Never"}</Text></Row>
       </View>
     </View>
   );
@@ -113,39 +111,37 @@ function Row({ label, color, children }: { readonly label: string; readonly colo
 /** A function as a person reads it: its name, without the types the chain needs. */
 const nameOf = (signature: string): string => signature.slice(0, signature.indexOf("(")) || signature;
 
-const MARK_LENGTH = 12;
-const MARK_STROKE = 1.5;
-/** The network's stripe down the card's leading edge. */
-const EDGE_WIDTH = 3;
+/** The network's dot in its tag. */
+const DOT = 6;
 /** Wide enough for the longest label, so every value starts on the same line. */
-const LABEL_COLUMN = 64;
-
-const mono = { fontFamily: tokens.font.mono } as const;
-/** Small capitals spaced out, as a label on a printed card is. */
-const TRACKED = 2;
+const LABEL_COLUMN = 76;
 
 const styles = StyleSheet.create({
   card: {
     borderWidth: tokens.border.hairline,
-    borderRadius: tokens.radius.sm,
-    paddingVertical: tokens.space.lg,
-    paddingLeft: tokens.space.lg + EDGE_WIDTH,
-    paddingRight: tokens.space.lg,
+    borderRadius: tokens.radius.lg,
+    padding: tokens.space.lg,
     gap: tokens.space.base,
-    overflow: "hidden",
   },
-  edge: { position: "absolute", left: 0, top: 0, bottom: 0, width: EDGE_WIDTH },
   head: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  network: { flexDirection: "row", alignItems: "center", gap: tokens.space.xs },
-  dot: { width: tokens.space.xs, height: tokens.space.xs },
-  kind: { ...tokens.type.caption, ...mono, letterSpacing: TRACKED },
+  network: {
+    flexDirection: "row", alignItems: "center", gap: tokens.space.xs,
+    borderWidth: tokens.border.hairline, borderRadius: tokens.radius.pill,
+    paddingVertical: tokens.space.tiny, paddingHorizontal: tokens.space.sm,
+  },
+  dot: { width: DOT, height: DOT, borderRadius: tokens.radius.pill },
+  kind: { ...tokens.type.caption, fontWeight: "600" },
   figureRow: { flexDirection: "row", alignItems: "baseline", gap: tokens.space.sm },
-  figure: { ...tokens.type.hero, ...mono, flexShrink: 1, fontVariant: [...tokens.font.tabular] },
-  unit: { ...tokens.type.subheadline, ...mono },
+  figure: { ...tokens.type.hero, flexShrink: 1, fontVariant: [...tokens.font.tabular] },
+  unit: { ...tokens.type.headline, fontWeight: "400" },
   rule: { height: tokens.border.hairline },
   rows: { gap: tokens.space.sm },
   row: { flexDirection: "row", alignItems: "flex-start" },
-  label: { ...tokens.type.data, ...tokens.type.caption, ...mono, width: LABEL_COLUMN, lineHeight: tokens.type.data.lineHeight, letterSpacing: TRACKED },
+  // The label takes the value's line height, so a label beside a two-line fingerprint sits on its first line.
+  label: { ...tokens.type.footnote, width: LABEL_COLUMN, lineHeight: tokens.type.subheadline.lineHeight },
   cell: { flex: 1 },
-  value: tokens.type.data,
+  /** An address, compared group by group. */
+  value: { ...tokens.type.data, lineHeight: tokens.type.subheadline.lineHeight },
+  /** Anything read as a word. */
+  words: tokens.type.subheadline,
 });

@@ -52,10 +52,9 @@ function MandateCardView({
       </View>
 
       {/*
-        The ring and the figures read as one object: the mark states how much is *gone*, the number
-        beside it states what is *left*. They count opposite ways on purpose — what remains is the
-        figure somebody checks before letting an agent loose, and how much is spent is the shape
-        that carries across a room — so the percentage stays, spelling out which way the arc runs.
+        The ring and the figures read as one object: the lit part of the mark and the number beside
+        it both state what is *left*, which is the figure somebody checks before letting an agent
+        loose. The percentage under them says what is gone, in words, so neither has to.
       */}
       <View style={styles.headline}>
         <ArcRing
