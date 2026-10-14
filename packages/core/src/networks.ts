@@ -180,8 +180,9 @@ export const ARC_MAINNET: NetworkProfile = {
   chainId: 5042,
   name: "Arc mainnet",
   rpc: "https://rpc.mainnet.arc.io",
-  explorer: "https://arcscan.app",
-  explorerName: "ArcScan",
+  // arcscan.app does not resolve; Arc mainnet's explorer is explorer.arc.io.
+  explorer: "https://explorer.arc.io",
+  explorerName: "Arc Explorer",
   live: true,
   faucet: null,
   coin: { symbol: "USDC", decimals: 18, dollar: true },
