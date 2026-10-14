@@ -10,7 +10,7 @@ import {
   SESSION_KEY_PLUGIN_MANIFEST_HASH, type MandateTerms,
 } from "./mandate.ts";
 import { Amount } from "./amount.ts";
-import { MONAD_TESTNET, pairingTag, PLAIN_TRANSFER } from "@kuiralabs/mandate-core";
+import { ARC_MAINNET, ARC_TESTNET, MONAD_TESTNET, pairingTag, PLAIN_TRANSFER } from "@kuiralabs/mandate-core";
 
 /**
  * These two constants are the SDK's only hard links to the deployed contract. If either drifts,
@@ -576,4 +576,22 @@ test("the functions an app named are allowed on their contract, and nothing else
     ["updateAccessListFunctionEntry", contract, toFunctionSelector("takeSeat(uint256,uint8,address)"), true],
     ["updateAccessListFunctionEntry", contract, toFunctionSelector("approve(uint256,uint8,bytes32)"), true],
   ]);
+});
+
+test("a grant lets its agent fill an escrow at its own network's Gateway, never another network's", () => {
+  // Gateway is one address on test chains and another on live ones; a mainnet grant naming testnet's refused every top-up.
+  const mainnet = buildGrantPlan(terms(), true, ARC_MAINNET).management.toLowerCase();
+  const testnet = buildGrantPlan(terms(), true, ARC_TESTNET).management.toLowerCase();
+  const mainGateway = ARC_MAINNET.contracts.gatewayWallet!.slice(2).toLowerCase();
+  const testGateway = ARC_TESTNET.contracts.gatewayWallet!.slice(2).toLowerCase();
+  assert.ok(mainnet.includes(mainGateway), "mainnet's grant names mainnet's Gateway");
+  assert.ok(!mainnet.includes(testGateway), "and not testnet's");
+  assert.ok(testnet.includes(testGateway));
+  assert.ok(!testnet.includes(mainGateway));
+});
+
+test("a change that names payees closes its own network's Gateway, not another's", () => {
+  const data = buildChangeCallData(AGENT, { addPayees: [AGENT] }, ARC_MAINNET).toLowerCase();
+  assert.ok(data.includes(ARC_MAINNET.contracts.gatewayWallet!.slice(2).toLowerCase()));
+  assert.ok(data.includes(ARC_MAINNET.contracts.erc8004.identity.slice(2).toLowerCase()), "and opens its own registry");
 });

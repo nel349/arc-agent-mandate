@@ -161,11 +161,19 @@ export interface AllowedCalls {
 /**
  * Filling the agent's escrow at Circle's Gateway, which is how it pays x402 sellers. The money was
  * counted when `approve` was metered, so the deposit itself carries none.
+ *
+ * At the Gateway of the grant's own network. It was testnet's address on every grant, and Gateway is
+ * one address on test chains and another on live ones, so an allowance granted on Arc mainnet let its
+ * agent deposit only into a contract that is not mainnet's Gateway, and every top-up was refused.
  */
-export const ESCROW_CALLS: AllowedCalls = {
-  contract: ARC_CONTRACTS.gatewayWallet,
-  functions: ["depositFor(address,address,uint256)"],
-};
+export function escrowCalls(network: NetworkProfile): AllowedCalls {
+  const gateway = network.contracts.gatewayWallet;
+  if (gateway === undefined) throw new MandateError(`Circle's Gateway does not serve ${network.name}.`);
+  return { contract: gateway, functions: ["depositFor(address,address,uint256)"] };
+}
+
+/** Arc testnet's, for the tests that were written against it. */
+export const ESCROW_CALLS: AllowedCalls = escrowCalls(ARC_TESTNET);
 
 /**
  * Setting up the agent's own ERC-8004 identity, owned by this account.
@@ -285,7 +293,7 @@ function coreTermsOf(terms: MandateTerms, network: NetworkProfile): GrantTerms {
     agent: terms.agent,
     limit: terms.limit.toNativeUnits(),
     payees: terms.payees,
-    calls: [...(escrow ? [ESCROW_CALLS] : []), identityCalls(network), ...(terms.calls ?? [])],
+    calls: [...(escrow ? [escrowCalls(network)] : []), identityCalls(network), ...(terms.calls ?? [])],
     ...(terms.expiresAt !== undefined ? { expiresAt: terms.expiresAt } : {}),
     ...(terms.label !== undefined ? { label: terms.label } : {}),
     ...(terms.pairing !== undefined ? { pairing: terms.pairing } : {}),
@@ -316,7 +324,7 @@ function inTheWalletsWords<T>(build: () => T): T {
  * counts. The view and the Gateway come off the list, and the identity calls go on, so a scoped
  * mandate reached by a change is the same allowlist a scoped grant makes.
  */
-function changeUpdates(change: MandateChange): Hex[] {
+function changeUpdates(change: MandateChange, network: NetworkProfile): Hex[] {
   const payees = change.addPayees ?? [];
   const updates: Hex[] = payees.length > 0
     ? [
@@ -324,8 +332,8 @@ function changeUpdates(change: MandateChange): Hex[] {
           abi: updatesAbi, functionName: "setAccessListType", args: [ACCESS_LIST.allowlist],
         }),
         ...USDC_RAILS.map(disallow),
-        disallow(ESCROW_CALLS.contract),
-        ...allow(IDENTITY_CALLS),
+        ...(network.contracts.gatewayWallet === undefined ? [] : [disallow(network.contracts.gatewayWallet)]),
+        ...allow(identityCalls(network)),
       ]
     : [];
 
@@ -606,16 +614,16 @@ export interface MandateChange {
  * nobody tests. The change path had no such seam, which is precisely why an inversion in
  * `changeUpdates` — payees being denied instead of allowed — sat there uncovered.
  */
-export function buildChangeCallData(agent: Address, change: Omit<MandateChange, "agent">): Hex {
+export function buildChangeCallData(agent: Address, change: Omit<MandateChange, "agent">, network: NetworkProfile = ARC_TESTNET): Hex {
   return encodeFunctionData({
     abi: pluginAbi, functionName: "updateKeyPermissions",
-    args: [agent, changeUpdates({ ...change, agent })],
+    args: [agent, changeUpdates({ ...change, agent }, network)],
   });
 }
 
 export async function updateMandate(account: ArcAccount, change: MandateChange): Promise<Hash> {
   try {
-    return await sendManagement(account, buildChangeCallData(change.agent, change));
+    return await sendManagement(account, buildChangeCallData(change.agent, change, account.network));
   } catch (cause) {
     throw new MandateError(`updating the mandate for ${change.agent} failed`, { cause });
   }
