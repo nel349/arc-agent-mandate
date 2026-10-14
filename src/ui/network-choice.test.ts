@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ARC_MAINNET, ARC_TESTNET, MONAD_TESTNET } from "@kuiralabs/mandate-core";
-import { anotherAddressOn, choiceOf, networkOfChoice, reopenOrder } from "./network-choice.ts";
+import { anotherAddressOn, choiceOf, networkAsked, networkOfChoice, reopenOrder } from "./network-choice.ts";
 
 test("a phone that never chose shows Arc, as every wallet before networks did", () => {
   assert.equal(networkOfChoice(null), ARC_TESTNET);
@@ -34,4 +34,12 @@ test("a network that would open another address is named, and the person told th
   assert.match(anotherAddressOn(MONAD_TESTNET), /different address on Monad Testnet/i);
   assert.match(anotherAddressOn(MONAD_TESTNET), /stayed where it was/);
   assert.doesNotMatch(anotherAddressOn(MONAD_TESTNET), /—/, "no em dash in what a person reads");
+});
+
+test("a link that names a network opens the wallet on it, and one that names none or an unknown one does not", () => {
+  assert.equal(networkAsked("?network=arc"), ARC_MAINNET);
+  assert.equal(networkAsked("?return=x&network=arcTestnet"), ARC_TESTNET);
+  assert.equal(networkAsked("?network=monadTestnet"), MONAD_TESTNET);
+  assert.equal(networkAsked(""), null);
+  assert.equal(networkAsked("?network=somewhere"), null);
 });

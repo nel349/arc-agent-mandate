@@ -31,3 +31,16 @@ export const anotherAddressOn = (network: NetworkProfile): string =>
 
 /** Said on mainnet, above the welcome screen's buttons: the one thing a person with a test wallet needs before tapping. */
 export const MAINNET_IS_SEPARATE = "A separate wallet from your test one, with its own passkey.";
+
+/** The parameter a link to the wallet names a network with, as Circle names it: `?network=arc`. */
+export const NETWORK_PARAM = "network";
+
+/**
+ * The network a link to the wallet asks for, or null when it asks for none or for one this build does
+ * not know. A gym sends its owners here with its network named, so someone coming from the mainnet gym
+ * opens their real-money wallet, whatever this phone showed last.
+ */
+export function networkAsked(search: string): NetworkProfile | null {
+  const name = new URLSearchParams(search).get(NETWORK_PARAM);
+  return name === null ? null : NETWORKS.find((network) => network.circlePath === name) ?? null;
+}

@@ -72,6 +72,27 @@ describe("which wallet the app opens", () => {
   });
 });
 
+describe("a link that names a network", () => {
+  afterEach(() => window.history.replaceState(null, "", "/"));
+
+  it("opens on that network over the one this phone showed last, and remembers it", async () => {
+    remember(NETWORK_CHOICE_KEY, choiceOf(ARC_TESTNET));
+    window.history.replaceState(null, "", "/?network=arc");
+    const { result } = await launched();
+    expect(result.current.network).toBe(ARC_MAINNET);
+    expect(localStorage.getItem(NETWORK_CHOICE_KEY)).toBe(choiceOf(ARC_MAINNET));
+  });
+
+  it("from the mainnet gym never opens the remembered test wallet", async () => {
+    remember(walletMemoryKeyOf("test"), serializeWalletMemory(TEST_WALLET));
+    window.history.replaceState(null, "", "/connect?network=arc&return=x");
+    const { result } = await launched();
+    expect(result.current.network).toBe(ARC_MAINNET);
+    expect(result.current.account).toBeNull();
+    expect(fetches).not.toHaveBeenCalled();
+  });
+});
+
 describe("choosing a network with no wallet open", () => {
   it("is only where the next wallet opens, and is remembered", async () => {
     const { result } = await launched();
