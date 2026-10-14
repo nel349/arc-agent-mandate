@@ -15,7 +15,8 @@
     "typecheck": "tsc --noEmit",
     "test:contracts": "npm run setup:contracts --silent >/dev/null 2>&1 || echo 'Could not fetch the contract dependencies. Run npm run setup:contracts to see why.' >&2; cd contracts && ARC_TESTNET_RPC_URL=${ARC_TESTNET_RPC_URL:-https://rpc.testnet.arc.network} FOUNDRY_DISABLE_NIGHTLY_WARNING=1 forge test",
     "test:integration": "node --conditions=mandate-source --experimental-transform-types --disable-warning=ExperimentalWarning --test --test-concurrency=1 integration/*.test.ts",
-    "gate": "npm run typecheck && npm test && npm run test:contracts && npm run test:integration",
+    "test:components": "vitest run",
+    "gate": "npm run typecheck && npm test && npm run test:components && npm run test:contracts && npm run test:integration",
     "web:export": "node scripts/web-export.mjs",
     "prepare": "npm run setup:contracts --silent >/dev/null 2>&1 || echo 'Could not fetch the contract dependencies. Run npm run setup:contracts to see why.' >&2",
     "setup:contracts": "git submodule update --init --recursive contracts/lib && npm --prefix contracts install --silent"
@@ -53,7 +54,12 @@
   },
   "type": "module",
   "devDependencies": {
+    "@testing-library/jest-dom": "6.9.1",
+    "@testing-library/react": "16.3.0",
+    "@testing-library/user-event": "14.6.1",
     "@types/react": "~19.1.10",
-    "typescript": "~5.9.2"
+    "jsdom": "27.0.0",
+    "typescript": "~5.9.2",
+    "vitest": "3.2.4"
   }
 }

@@ -165,7 +165,7 @@ function Viewfinder({
       />
 
       {/* The dimmed surround and the square, as one column so the square stays centred. */}
-      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+      <View style={[StyleSheet.absoluteFill, { pointerEvents: "none" }]}>
         <View style={[styles.scrim, styles.grow]} />
         <View style={styles.middle}>
           <View style={[styles.scrim, styles.grow]} />
@@ -218,7 +218,7 @@ function RoundButton({
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityState={{ selected: lit }}
+      aria-selected={lit}
       style={[styles.round, lit && styles.roundLit]}
     >
       <Ionicons name={icon} size={tokens.size.buttonIcon} color={lit ? SCRIM_BASE : SCANNER_INK} />

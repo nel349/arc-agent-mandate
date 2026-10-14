@@ -1,3 +1,4 @@
+import { Platform } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { FLAT_PATH, REST_PATH, TRACE_BOX, TRACE_DASH, TRACE_MS, TRACE_PATH, traceOffset } from "./motion.ts";
 import type { Pulse } from "./pulse.ts";
@@ -43,8 +44,11 @@ export function PulseLine({ pulse, label }: {
       width="100%" height={HEIGHT}
       viewBox={`0 0 ${TRACE_BOX.width} ${TRACE_BOX.height}`}
       preserveAspectRatio="none"
-      accessible={label.length > 0}
-      {...(label.length > 0 ? { accessibilityLabel: label } : {})}
+      // A labelled drawing is one image to a screen reader, on the phone and in the browser alike;
+      // without a label it is decoration and says nothing. `accessible` is the phone's word for that,
+      // and only the phone is given it: the browser's svg does not know it, and React warns.
+      {...(label.length > 0 ? { accessibilityRole: "image" as const, accessibilityLabel: label } : {})}
+      {...(label.length > 0 && Platform.OS !== "web" ? { accessible: true } : {})}
     >
       {pulse === "stopped" ? (
         <Path d={FLAT_PATH} fill="none" stroke={c.stop} strokeWidth={STROKE} />

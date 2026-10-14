@@ -43,7 +43,8 @@ export function Button({
       onPress={onPress}
       disabled={off}
       accessibilityRole="button"
-      accessibilityState={{ disabled: off, busy }}
+      aria-disabled={off}
+      aria-busy={busy}
       accessibilityLabel={title}
       // The ripple is drawn in whatever reads on this button's own fill: the ground under a solid
       // one, the lit edge under glass.

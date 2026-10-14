@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { DIMS_ON_PRESS, ripple } from "./press.ts";
 import { useTheme } from "./theme-context.tsx";
 import { tokens } from "./tokens.ts";
+import { hinted } from "./hinted.ts";
 
 /**
  * A label and its value on one line, as a row in an iOS inset list.
@@ -53,8 +54,7 @@ export function DetailRow({
     <Pressable
       onPress={onPress}
       accessibilityRole="link"
-      accessibilityLabel={`${label}: ${value}`}
-      {...(hint === undefined ? {} : { accessibilityHint: hint })}
+      {...hinted(`${label}: ${value}`, hint)}
       android_ripple={ripple(c.specular)}
       style={({ pressed }) => [
         styles.row, rule, DIMS_ON_PRESS && pressed && { opacity: tokens.opacity.pressed },

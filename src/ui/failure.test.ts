@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { HttpRequestError } from "viem";
 import {
-  ALREADY_GRANTED, ARC_BUSY, describeFailure, isCancellation, MANDATE_FAILURES, walletFailure,
+  ALREADY_GRANTED, ARC_BUSY, describeFailure, isCancellation, MANDATE_FAILURES, OTHER_KIND_OF_MONEY, walletFailure,
 } from "./failure.ts";
 import { NO_PASSKEY_TO_OFFER, PasskeyShimError } from "../passkey/errors.ts";
 
@@ -257,4 +257,13 @@ test("an offer that failed is not mistaken for the person cancelling", () => {
   // Different endings, and the screens tell them apart: a cancellation belongs to something that
   // was about to change, an unanswered offer to a launch nobody asked for.
   assert.equal(isCancellation(NOTHING_HERE), false);
+});
+
+test("a test passkey offered to mainnet is said as which wallet it opens, not as Circle's words", () => {
+  // Circle's own refusal, as the wallet showed it on 14 October.
+  const circle = new Error(
+    "Owner identifier already exists in another environment (TEST/LIVE). For security reasons, the same owner cannot be used across different environments",
+  );
+  assert.equal(walletFailure(new Error("signing in failed", { cause: circle })), OTHER_KIND_OF_MONEY);
+  assert.doesNotMatch(OTHER_KIND_OF_MONEY, /—/, "no em dash in what a person reads");
 });

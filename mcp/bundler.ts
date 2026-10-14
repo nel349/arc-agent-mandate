@@ -54,6 +54,7 @@ interface CircleConfig {
 
 /**
  * The published testnet values, so a stranger's agent can pay on testnet with nothing to set up.
+ * Arc mainnet has shared values of its own, a LIVE key (`sharedCredentialsFor` in the core).
  *
  * Nothing here is secret. The key is the one the wallet's web build already carries, readable by
  * anyone who opens https://kuiralabs.github.io/mandate/, with the domain it is bound to. It is a
@@ -62,7 +63,8 @@ interface CircleConfig {
  *
  * What it shares is the gas: every agent using it is sponsored by the one testnet policy behind the
  * key. That is test money, and the trade was chosen on 25 September so that connecting an agent
- * needs no Circle account. Mainnet has no such default; there you bring your own.
+ * needs no Circle account. On 14 October the same trade was made for Arc mainnet, where the shared
+ * key's gas policy carries a daily cap, so a stranger's agent cannot run up the bill.
  */
 const SHARED_TESTNET: CircleConfig = CIRCLE_SHARED_TESTNET;
 
@@ -73,7 +75,7 @@ const own = (): CircleConfig => ({
 });
 
 /**
- * Your own values if you set any, the shared ones on testnet if you set none.
+ * Your own values if you set any, the shared ones for the network if you set none.
  *
  * All or nothing: set one of your own and none of the shared ones fill the gaps, because a key of
  * yours sent with our domain, or ours with yours, is refused as "Invalid credentials" and names

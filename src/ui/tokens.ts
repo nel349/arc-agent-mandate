@@ -211,6 +211,10 @@ export const tokens = {
     markDot: 8,
     /** A disclosure chevron on a row. */
     chevron: 16,
+    /** A network's logo before its name: in the picker's pill, in its rows, and in an allowance card's tag. */
+    networkLogo: { pill: 20, row: 28, tag: 14 },
+    /** The handle at the top of a sheet, as iOS draws it. */
+    grabber: { width: 36, height: 5 },
     /** A glyph before a button's title. */
     buttonIcon: 20,
 
@@ -223,7 +227,8 @@ export const tokens = {
      */
     ring: { wordmark: 24, row: 44, card: 52, review: 120, hero: 176, welcome: 124, welcomeShort: 96, strokeRatio: 0.12 },
   },
-  opacity: { disabled: 0.4, pressed: 0.7 },
+  /** `scrim` is how much a sheet darkens the screen behind it. */
+  opacity: { disabled: 0.4, pressed: 0.7, scrim: 0.55 },
   font: {
     /** For an address or a hash, and nothing else. */
     mono: MONO,

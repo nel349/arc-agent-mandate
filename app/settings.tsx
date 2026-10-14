@@ -7,7 +7,7 @@ import { Button } from "../src/ui/Button.tsx";
 import { Field } from "../src/ui/Field.tsx";
 import { Note } from "../src/ui/Note.tsx";
 import { shortAddress } from "../src/ui/mandate-format.ts";
-import { shortNameOf } from "../src/ui/network-choice.ts";
+import { moneyOf } from "../src/ui/NetworkPicker.tsx";
 import { useSession } from "../src/ui/session-context.tsx";
 import { useAppearance } from "../src/ui/theme-context.tsx";
 import { THEMES, type ThemeId } from "../src/ui/themes.ts";
@@ -104,7 +104,7 @@ export default function SettingsScreen() {
               key={option.id}
               onPress={choose(option.id)}
               accessibilityRole="radio"
-              accessibilityState={{ selected: active }}
+              aria-checked={active}
               accessibilityLabel={`${option.name}. ${option.note}`}
               style={[styles.row, { borderColor: c.hairline }]}
             >
@@ -137,8 +137,9 @@ export default function SettingsScreen() {
       <Surface>
         <Label>Network</Label>
         <View style={styles.plain}>
-          <Text style={[styles.name, { color: c.paper }]}>{shortNameOf(wallet.network)}</Text>
-          <Text style={[styles.value, { color: c.dim }]}>{wallet.network.live ? "Real money" : "Testnet"}</Text>
+          {/* Named in full, and its money in the picker's words: with a mainnet beside them, "Arc" alone could be either. */}
+          <Text style={[styles.name, { color: c.paper }]}>{wallet.network.name}</Text>
+          <Text style={[styles.value, { color: c.dim }]}>{moneyOf(wallet.network)}</Text>
         </View>
 
         {/* Optional, and it says so. The endpoint the app carries works; this is for somebody who

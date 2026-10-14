@@ -387,6 +387,25 @@ An account that sends through a bundler names its own gas, so the wallet and the
 are not affected as they stand. Anything that sends an ordinary transaction from a key on Monad is:
 estimate with no fee fields, and state the gas.
 
+## 16. Circle will not let one passkey own a wallet on a test network and on a live one
+
+Found on 14 October, opening the wallet on Arc mainnet with the passkey that holds the testnet
+wallet. Circle answered "Owner identifier already exists in another environment (TEST/LIVE). For
+security reasons, the same owner cannot be used across different environments". A TEST client key
+and a LIVE one are two environments, and a passkey registered in one is refused in the other, so
+the same passkey cannot be the same wallet on both. Real money is therefore a wallet of its own,
+made with a passkey of its own, and remembered apart from the test wallet (`WalletKind` in
+`src/ui/wallet-memory.ts`). Held in `src/ui/wallet-memory.test.ts` and `src/ui/useArcAccount.test.tsx`.
+
+## 17. react-native-web ignores `accessibilityState`
+
+Found on 14 October, by the first test that drew a component in a page. react-native-web 0.21 reads
+`aria-checked`, `aria-selected`, `aria-disabled`, `aria-busy` and `aria-expanded`, and drops
+`accessibilityState` without a word, so on the web wallet no selected, checked, busy or expanded
+state ever reached a screen reader. React Native reads the same `aria-*` props on a phone, so they
+are used everywhere now. Held in the component tests (`npm run test:components`), which assert the
+state on the page.
+
 ---
 
 **How each claim is held up.** Findings 1–8 are exercised by `npm run gate` in this repository,

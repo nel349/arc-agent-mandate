@@ -1,10 +1,13 @@
 import { Redirect } from "expo-router";
 import { useState } from "react";
+import { NETWORKS } from "@kuiralabs/mandate-core";
 import { ActivityIndicator, Platform, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArcRing } from "../src/ui/ArcRing.tsx";
 import { Button } from "../src/ui/Button.tsx";
 import { ERROR_LINES, Note } from "../src/ui/Note.tsx";
+import { NetworkPicker } from "../src/ui/NetworkPicker.tsx";
+import { MAINNET_IS_SEPARATE } from "../src/ui/network-choice.ts";
 import { WORDMARK } from "../src/ui/product.ts";
 import { ROUTES } from "../src/ui/routes.ts";
 import { Screen } from "../src/ui/Screen.tsx";
@@ -55,8 +58,8 @@ function Welcome() {
    */
   const [chosen, setChosen] = useState<"create" | "signIn" | null>(null);
   const insets = useSafeAreaInsets();
-  // On the smallest phones the second sentence and the line under the buttons give way, so the
-  // headline is not behind the buttons. The same measure the example card draws by.
+  // On the smallest phones the line under the buttons gives way, so the headline is not behind the
+  // buttons. The same measure the example card draws by.
   const { tiny } = exampleLayout(useWindowDimensions().height, tokens.size.shortWindow, tokens.size.tinyWindow);
   const working = (which: "create" | "signIn") => wallet.busy && chosen === which;
 
@@ -67,6 +70,12 @@ function Welcome() {
           {/* Above the buttons that caused it, where it cannot be under them: below the sentence it
               was behind the footer on a short phone, and a cancelled passkey showed nothing. */}
           {wallet.error !== null && <Note tone="warn" lines={ERROR_LINES}>{wallet.error}</Note>}
+          {/* Real money is a wallet of its own, so a person who has a test wallet is told before they
+              reach for its passkey, which would not open this one. One line: the pill above already
+              says it is real money. */}
+          {wallet.network.live && wallet.error === null && (
+            <Text style={[styles.opensWith, { color: c.muted }]}>{MAINNET_IS_SEPARATE}</Text>
+          )}
           <Button
             tier="solid"
             title="Create a wallet"
@@ -82,7 +91,7 @@ function Welcome() {
           />
           {!tiny && (
             <Text style={[styles.opensWith, { color: c.dim }]}>
-              Opens with {OPENS_WITH}. No password, nothing to write down.
+              Opens with {OPENS_WITH}. No password.
             </Text>
           )}
         </>
@@ -91,17 +100,18 @@ function Welcome() {
       {/* Android draws under its status bar, and this is the one screen with no bar of its own and
           nothing centring it clear; iOS insets the scroll view itself. */}
       {Platform.OS === "android" && <View style={{ height: insets.top }} />}
-      <Wordmark />
+      {/* The network the wallet is made or opened on, and the way back to the other kind of money. */}
+      <View style={styles.top}>
+        <Wordmark />
+        <NetworkPicker networks={NETWORKS} selected={wallet.network} onSelect={wallet.switchNetwork} />
+      </View>
       <WelcomeExample unit={unitOf(wallet.network)} />
+      {/* The headline alone. A paragraph under it said what the example above is already showing,
+          a limit, payments arriving and one refused, and made the screen read as busy. */}
       <View style={styles.say}>
         <Text style={[styles.headline, { color: c.paper }]} accessibilityRole="header">
           {HEADLINE}
         </Text>
-        {!tiny && (
-          <Text style={[styles.body, { color: c.muted }]}>
-            Give it a limit and an end date. It cannot spend past either, each payment shows here within seconds, and you can stop it at any moment.
-          </Text>
-        )}
       </View>
     </Screen>
   );
@@ -151,11 +161,11 @@ const HEADLINE = "Watch your agent spend, beat\u00a0by\u00a0beat.";
 const MARK_RING = 0.35;
 
 const styles = StyleSheet.create({
+  top: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: tokens.space.sm },
   wordmark: { flexDirection: "row", alignItems: "center", gap: tokens.space.sm },
   name: tokens.type.wordmark,
   say: { gap: tokens.space.sm, paddingTop: tokens.space.xs },
   headline: tokens.type.display,
-  body: tokens.type.subheadline,
   opensWith: { ...tokens.type.caption, textAlign: "center" },
   opening: { alignItems: "center", gap: tokens.space.base, paddingHorizontal: tokens.space.xl },
 });

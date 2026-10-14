@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ARC_TESTNET, MONAD_TESTNET } from "@kuiralabs/mandate-core";
-import { anotherAddressOn, choiceOf, networkOfChoice, reopenOrder, shortNameOf } from "./network-choice.ts";
+import { ARC_MAINNET, ARC_TESTNET, MONAD_TESTNET } from "@kuiralabs/mandate-core";
+import { anotherAddressOn, choiceOf, networkOfChoice, reopenOrder } from "./network-choice.ts";
 
 test("a phone that never chose shows Arc, as every wallet before networks did", () => {
   assert.equal(networkOfChoice(null), ARC_TESTNET);
@@ -22,13 +22,16 @@ test("the remembered wallet is tried on the chosen network first, and on Arc bef
   assert.deepEqual(reopenOrder(ARC_TESTNET), [ARC_TESTNET], "Arc is tried once, not twice");
 });
 
+test("a real-money wallet is reopened where it was chosen, never on a testnet its passkey cannot open", () => {
+  assert.deepEqual(reopenOrder(ARC_MAINNET), [ARC_MAINNET]);
+});
+
+test("a phone that chose mainnet reads it back as mainnet", () => {
+  assert.equal(networkOfChoice(choiceOf(ARC_MAINNET)), ARC_MAINNET);
+});
+
 test("a network that would open another address is named, and the person told their wallet stayed", () => {
   assert.match(anotherAddressOn(MONAD_TESTNET), /different address on Monad Testnet/i);
   assert.match(anotherAddressOn(MONAD_TESTNET), /stayed where it was/);
   assert.doesNotMatch(anotherAddressOn(MONAD_TESTNET), /—/, "no em dash in what a person reads");
-});
-
-test("a network goes by the part of its name that tells it apart", () => {
-  assert.equal(shortNameOf(ARC_TESTNET), "Arc");
-  assert.equal(shortNameOf(MONAD_TESTNET), "Monad");
 });

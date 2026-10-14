@@ -19,6 +19,7 @@ import { DIMS_ON_PRESS, ripple } from "./press.ts";
 import { RING_WARNS_AT } from "./ring-geometry.ts";
 import { useTheme } from "./theme-context.tsx";
 import { tokens } from "./tokens.ts";
+import { hinted } from "./hinted.ts";
 
 /**
  * One agent in the list: who it is, what it has left, and until when.
@@ -68,8 +69,7 @@ function AgentRowView({
     <Pressable
       onPress={() => onPress(mandate.agent)}
       accessibilityRole="button"
-      accessibilityLabel={`${agentRowLabel(mandate, name, network)}${spending ? ` ${SPENDING}.` : ""}`}
-      accessibilityHint="Opens this allowance"
+      {...hinted(`${agentRowLabel(mandate, name, network)}${spending ? ` ${SPENDING}.` : ""}`, "Opens this allowance")}
       android_ripple={ripple(c.specular)}
       style={({ pressed }) => [
         styles.row,

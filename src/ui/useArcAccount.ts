@@ -8,7 +8,7 @@ import { canOfferExistingPasskey } from "../passkey/shim.ts";
 import { walletFailure } from "./failure.ts";
 import { anotherAddressOn, reopenOrder } from "./network-choice.ts";
 import { loadNetworkChoice, saveNetworkChoice } from "./network-choice-store.ts";
-import { isSameWallet, launchPlan, walletMemoryOf } from "./wallet-memory.ts";
+import { isSameWallet, launchPlan, sameWalletKind, walletKindOf, walletMemoryOf, type WalletMemory } from "./wallet-memory.ts";
 import {
   clearWalletMemory, loadWalletMemory, rememberSignedOut, saveWalletMemory, wasSignedOutOnPurpose,
 } from "./wallet-memory-store.ts";
@@ -76,9 +76,14 @@ export interface ArcWallet {
    */
   signOut(): void;
   /**
-   * Shows the wallet on another network: the same passkey reopened there, with no ceremony, since the
-   * same passkey is the same address on every network. If it ever opened another address, the wallet
-   * stays where it was and says so.
+   * Shows another network. Among the test networks it is the same wallet: the same passkey reopened
+   * there, with no ceremony, since it is the same address on each; if it ever opened another address,
+   * the wallet stays where it was and says so.
+   *
+   * Real money is another wallet with another passkey, because Circle will not let one passkey hold
+   * both. So switching between test money and real money puts the open wallet down, without signing
+   * out of it, and opens the one remembered for the other kind. With none remembered, the welcome
+   * screen offers to create one or to open it with its passkey, on the network chosen.
    */
   switchNetwork(next: NetworkProfile): void;
   refresh(): void;
@@ -127,13 +132,17 @@ export function useArcAccount(): ArcWallet {
    */
   const admit = useCallback(async (next: ArcAccount) => {
     await load(next);
-    await Promise.all([saveWalletMemory(walletMemoryOf(next)), rememberSignedOut(false)])
+    const kind = walletKindOf(next.network);
+    await Promise.all([saveWalletMemory(kind, walletMemoryOf(next)), rememberSignedOut(kind, false)])
       .catch((cause: unknown) => console.warn("[wallet] this phone would not remember the wallet", cause));
   }, [load]);
 
   const create = useCallback(() => run(async () => {
+    // The passkey's name is what the browser lists it by, and it lists test and real-money passkeys
+    // together, so the real-money one says so.
+    const named = chosen.live ? "arc-mainnet" : "arc";
     await admit(await connectArcAccount(
-      { ...circleConfigFor(chosen), username: `arc-${Date.now()}` }, WebAuthnMode.Register, {}, chosen,
+      { ...circleConfigFor(chosen), username: `${named}-${Date.now()}` }, WebAuthnMode.Register, {}, chosen,
     ));
   }), [run, admit, chosen]);
 
@@ -141,36 +150,86 @@ export function useArcAccount(): ArcWallet {
     await admit(await connectArcAccount({ ...circleConfigFor(chosen), username: "" }, WebAuthnMode.Login, {}, chosen));
   }), [run, admit, chosen]);
 
+  /**
+   * The remembered wallet reopened with no ceremony, on the network chosen or, failing that, on the
+   * others `reopenOrder` names. True when it opened. A memory that opens some other wallet everywhere
+   * describes nobody's money, so it is forgotten and the person signs in with the passkey.
+   */
+  const reopenRemembered = useCallback(async (
+    chosenNetwork: NetworkProfile,
+    memory: WalletMemory,
+    /** told each network as it is tried, so a failure can name where it happened */
+    trying: (on: NetworkProfile) => void,
+  ): Promise<boolean> => {
+    const credential = { id: memory.credentialId, publicKey: memory.publicKey };
+    for (const on of reopenOrder(chosenNetwork)) {
+      trying(on);
+      const reopened = await reopenArcAccount(circleConfigFor(on), credential, on);
+      if (!isSameWallet(memory, reopened.address)) continue;
+      await load(reopened);
+      if (on.chainId !== chosenNetwork.chainId) {
+        setError(anotherAddressOn(chosenNetwork));
+        await saveNetworkChoice(on).catch((cause: unknown) => console.warn("[wallet] this phone would not remember the network", cause));
+      }
+      return true;
+    }
+    await clearWalletMemory(walletKindOf(chosenNetwork));
+    return false;
+  }, [load]);
+
   const switchNetwork = useCallback((next: NetworkProfile) => {
-    if (next.chainId === network.chainId) return;
+    if (busy || next.chainId === network.chainId) return;
     const remember = (): void => {
       void saveNetworkChoice(next).catch((cause: unknown) => console.warn("[wallet] this phone would not remember the network", cause));
     };
-    // With no wallet open, it is only where the next one opens.
-    if (!account) {
-      setChosen(next);
-      remember();
+    // The same kind of money: the same wallet, shown on the other network.
+    if (account && sameWalletKind(account.network, next)) {
+      run(async () => {
+        const reopened = await reopenArcAccount(circleConfigFor(next), account.credential, next);
+        if (reopened.address.toLowerCase() !== account.address.toLowerCase()) throw new Error(anotherAddressOn(next));
+        setBalance(null);
+        await load(reopened);
+        remember();
+      });
       return;
     }
-    run(async () => {
-      const reopened = await reopenArcAccount(circleConfigFor(next), account.credential, next);
-      if (reopened.address.toLowerCase() !== account.address.toLowerCase()) throw new Error(anotherAddressOn(next));
-      setBalance(null);
-      await load(reopened);
-      remember();
-    });
-  }, [account, network, run, load]);
+    // Another kind of money, or no wallet open: whatever is open is put down, not signed out of, and
+    // the wallet remembered for this network's kind opens, if there is one. "Opening your wallet" shows
+    // meanwhile, so the welcome screen's buttons do not flash past somebody who has a wallet here.
+    // Set before the memory is read, not after: read first, the welcome screen's Create flashed for
+    // the moment the read took, in front of somebody who may already have a wallet here.
+    setRestoring(true);
+    setAccount(null);
+    setBalance(null);
+    setError(null);
+    setChosen(next);
+    remember();
+    void (async () => {
+      let opening = next;
+      try {
+        const memory = await loadWalletMemory(walletKindOf(next));
+        if (memory === null) return;
+        await reopenRemembered(next, memory, (on) => { opening = on; });
+      } catch (cause) {
+        // The memory is kept, as at launch, so the next try can still open it; the passkey works now.
+        setError(walletFailure(cause, opening));
+      } finally {
+        setRestoring(false);
+      }
+    })();
+  }, [account, busy, network, run, load, reopenRemembered]);
 
   const signOut = useCallback(() => {
     if (busy) return;
+    const kind = walletKindOf(account?.network ?? chosen);
     setAccount(null);
     setBalance(null);
     setError(null);
     // Forgotten on the phone too, and marked as a choice, so the next launch does not offer the
-    // passkey straight back.
-    void Promise.all([clearWalletMemory(), rememberSignedOut(true)])
+    // passkey straight back. Only this kind's wallet: the other kind's is a separate wallet.
+    void Promise.all([clearWalletMemory(kind), rememberSignedOut(kind, true)])
       .catch((cause: unknown) => console.warn("[wallet] this phone could not forget the wallet", cause));
-  }, [busy]);
+  }, [account, busy, chosen]);
 
   /**
    * Reopen the wallet at launch, once.
@@ -190,29 +249,16 @@ export function useArcAccount(): ArcWallet {
       /** Where the wallet is being opened, for a failure to name. */
       let opening: NetworkProfile = ARC_TESTNET;
       try {
-        const [memory, signedOutOnPurpose, lastNetwork] = await Promise.all([
-          loadWalletMemory(), wasSignedOutOnPurpose(), loadNetworkChoice(),
-        ]);
+        const lastNetwork = await loadNetworkChoice();
         setChosen(lastNetwork);
         opening = lastNetwork;
+        // The wallet for the kind of money last shown: test and real money are kept apart.
+        const kind = walletKindOf(lastNetwork);
+        const [memory, signedOutOnPurpose] = await Promise.all([loadWalletMemory(kind), wasSignedOutOnPurpose(kind)]);
         const plan = launchPlan({ memory, signedOutOnPurpose, canOfferPasskey: canOfferExistingPasskey() });
 
         if (plan === "reopen" && memory !== null) {
-          const credential = { id: memory.credentialId, publicKey: memory.publicKey };
-          for (const on of reopenOrder(lastNetwork)) {
-            opening = on;
-            const reopened = await reopenArcAccount(circleConfigFor(on), credential, on);
-            if (!isSameWallet(memory, reopened.address)) continue;
-            await load(reopened);
-            if (on.chainId !== lastNetwork.chainId) {
-              setError(anotherAddressOn(lastNetwork));
-              await saveNetworkChoice(on).catch((cause: unknown) => console.warn("[wallet] this phone would not remember the network", cause));
-            }
-            return;
-          }
-          // The memory describes some other wallet. Opening it quietly would show money that is not
-          // the money the person left, so it is forgotten and they sign in with the passkey.
-          await clearWalletMemory();
+          await reopenRemembered(lastNetwork, memory, (on) => { opening = on; });
         } else if (plan === "offer-passkey") {
           try {
             await admit(await connectArcAccount(
@@ -235,7 +281,7 @@ export function useArcAccount(): ArcWallet {
         setRestoring(false);
       }
     })();
-  }, [load, admit]);
+  }, [admit, reopenRemembered]);
 
   const refresh = useCallback(() => run(async () => {
     if (!account) throw new Error("no wallet yet");

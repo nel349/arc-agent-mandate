@@ -49,7 +49,7 @@ export function WizardTopBar({
             disabled={!action.enabled}
             accessibilityRole="button"
             accessibilityLabel={action.title}
-            accessibilityState={{ disabled: !action.enabled }}
+            aria-disabled={!action.enabled}
             hitSlop={tokens.space.sm}
             style={({ pressed }) => [styles.action, pressed && styles.pressed]}
           >

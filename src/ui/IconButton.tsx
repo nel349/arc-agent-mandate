@@ -2,6 +2,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { Pressable, StyleSheet, Text, type ViewStyle } from "react-native";
 import { useTheme } from "./theme-context.tsx";
 import { tokens } from "./tokens.ts";
+import { hinted } from "./hinted.ts";
 
 /**
  * A small round control: an icon or a single glyph on glass.
@@ -51,9 +52,8 @@ export function IconButton({
       // dominate a header. `hitSlop` takes the touch area past 44 without the button looking it.
       hitSlop={Math.max(0, Math.round((tokens.size.tapTarget - size) / 2))}
       accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityHint={hint}
-      accessibilityState={{ expanded: active }}
+      {...hinted(label, hint)}
+      aria-expanded={active}
       style={[
         styles.box,
         {

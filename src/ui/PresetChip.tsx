@@ -19,7 +19,7 @@ export function PresetChip({
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityState={{ selected }}
+      aria-selected={selected}
       style={({ pressed }) => [
         styles.chip,
         { backgroundColor: c.glass, borderColor: selected ? c.paper : c.hairline },

@@ -42,7 +42,10 @@ export function WelcomeExample({ unit }: { readonly unit: string }) {
   const c = useTheme().color;
   const reduced = useReducedMotion();
   const layout = exampleLayout(useWindowDimensions().height, tokens.size.shortWindow, tokens.size.tinyWindow);
-  const [step, setStep] = useState(DEMO_STILL_STEP);
+  // The first frame is the first step, all of it left, unless less motion was asked for. It was the
+  // still frame for everyone, so the ring counted up from part-spent to full in the first moment
+  // anyone saw it, which reads as money arriving.
+  const [step, setStep] = useState(() => (reduced ? DEMO_STILL_STEP : 0));
 
   useEffect(() => {
     if (reduced) { setStep(DEMO_STILL_STEP); return; }
@@ -115,7 +118,7 @@ const Gauge = memo(function Gauge({ frame, unit, limit, size, still }: {
       <Beat count={frame.beat} size={size} color={c.untested} />
       <Beat count={frame.refusals} size={size} color={c.stop} />
       <ArcRing spent={spent} size={size} label="" />
-      <View style={styles.inRing} pointerEvents="none">
+      <View style={styles.inRing}>
         <Text style={[styles.figure, { color: c.paper }]}>{demoFigure(Math.round(left))}</Text>
         <Text style={[styles.unit, { color: c.dim }]}>{`${unit} left`}</Text>
       </View>
@@ -164,7 +167,6 @@ const Payment = memo(function Payment({ row, still }: { readonly row: DemoRow; r
       ]}
     >
       <Animated.View
-        pointerEvents="none"
         style={[styles.light, { backgroundColor: row.refused ? c.stop : c.untested, opacity: moving.light }]}
       />
       <Text style={[styles.rowWhat, { color: ink }]} numberOfLines={1}>
@@ -197,7 +199,7 @@ const styles = StyleSheet.create({
   status: { flexDirection: "row", alignItems: "center", gap: tokens.space.xs },
   dot: { width: DOT, height: DOT, borderRadius: tokens.radius.pill },
   ring: { alignSelf: "center", alignItems: "center", justifyContent: "center", marginVertical: tokens.space.sm },
-  inRing: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center" },
+  inRing: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", pointerEvents: "none" },
   figure: { ...tokens.type.ringFigure, fontVariant: [...tokens.font.tabular] },
   unit: tokens.type.caption,
   // Its height is set where it is drawn: tall enough for every line it will ever hold, so the card
@@ -212,7 +214,7 @@ const styles = StyleSheet.create({
     borderRadius: tokens.radius.pill, borderWidth: tokens.border.hairline,
     overflow: "hidden",
   },
-  light: StyleSheet.absoluteFillObject,
+  light: { ...StyleSheet.absoluteFillObject, pointerEvents: "none" },
   rowWhat: { ...tokens.type.footnote, flexShrink: 1, fontWeight: "500" },
   amount: { ...tokens.type.footnote, fontFamily: tokens.font.display, fontWeight: "600", fontVariant: [...tokens.font.tabular] },
 });

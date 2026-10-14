@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { ripple } from "./press.ts";
 import { useTheme } from "./theme-context.tsx";
 import { tokens } from "./tokens.ts";
+import { hinted } from "./hinted.ts";
 
 /**
  * A row that goes somewhere: a name, a line saying what is there, and a chevron.
@@ -33,8 +34,7 @@ export function LinkRow({
     <Link href={href} asChild>
       <Pressable
         accessibilityRole="link"
-        accessibilityLabel={name}
-        accessibilityHint={hint}
+        {...hinted(name, hint)}
         android_ripple={ripple(c.specular)}
       >
         <View style={styles.row}>

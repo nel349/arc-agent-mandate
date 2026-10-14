@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
-import { ARC_TESTNET, MONAD_TESTNET, type NetworkProfile } from "@kuiralabs/mandate-core";
+import { ARC_TESTNET, MONAD_TESTNET, NETWORKS, type NetworkProfile } from "@kuiralabs/mandate-core";
 import type { Activity } from "../src/arc/activity.ts";
 import { ActivityRow } from "../src/ui/ActivityRow.tsx";
 import { AgentGauge } from "../src/ui/AgentGauge.tsx";
@@ -15,7 +15,7 @@ import { Button } from "../src/ui/Button.tsx";
 import { Field } from "../src/ui/Field.tsx";
 import { Label } from "../src/ui/Label.tsx";
 import { MandateCard } from "../src/ui/MandateCard.tsx";
-import { NetworkSwitch } from "../src/ui/NetworkSwitch.tsx";
+import { NetworkPicker } from "../src/ui/NetworkPicker.tsx";
 import { AlreadyGranted } from "../src/ui/AlreadyGranted.tsx";
 import { Note } from "../src/ui/Note.tsx";
 import { Surface } from "../src/ui/Surface.tsx";
@@ -158,8 +158,8 @@ export default function PreviewScreen() {
         The same wallet on Monad: figures in MON at the precision they were granted, and the payment
         the connector's proof made there on 3 Oct, so its receipt link goes somewhere true.
       */}
-      <Label>Network switch</Label>
-      <NetworkSwitch networks={[ARC_TESTNET, MONAD_TESTNET]} selected={shown} onSelect={setShown} />
+      <Label>Network picker</Label>
+      <NetworkPicker networks={NETWORKS} selected={shown} onSelect={setShown} />
 
       {/* The card each allowance is issued as: on Monad with everything an app's code can carry, and on Arc with only what the person typed. */}
       <Label>Allowance card · Monad, asked by an app</Label>

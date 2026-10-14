@@ -147,21 +147,19 @@ export function Screen({
   const bar = footer === undefined ? null : (
     <View
       onLayout={measure}
-      pointerEvents="box-none"
       style={[styles.footer, { paddingBottom: insets.bottom + underTabBar + tokens.space.sm }]}
     >
       {Gradient === null ? (
-        <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: c.groundLow }]} />
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: c.groundLow, pointerEvents: "none" }]} />
       ) : (
         <Gradient
-          pointerEvents="none"
           colors={[`${c.groundLow}${CLEAR}`, c.groundLow]}
           locations={[0, 0.4]}
-          style={StyleSheet.absoluteFill}
+          style={[StyleSheet.absoluteFill, { pointerEvents: "none" }]}
         />
       )}
       {/* The same column the content above is drawn in, so a button is never wider than what it acts on. */}
-      <View style={styles.column} pointerEvents="box-none">{footer}</View>
+      <View style={[styles.column, { pointerEvents: "box-none" }]}>{footer}</View>
     </View>
   );
 
@@ -207,6 +205,7 @@ const styles = StyleSheet.create({
   },
   column: { width: "100%", maxWidth: tokens.size.column - tokens.space.lg * 2, alignSelf: "center", gap: tokens.space.sm },
   footer: {
+    pointerEvents: "box-none",
     position: "absolute",
     left: 0,
     right: 0,

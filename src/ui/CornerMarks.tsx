@@ -23,7 +23,6 @@ export function CornerMarks({
       {ALL.map((at) => (
         <View
           key={at}
-          pointerEvents="none"
           style={[styles.mark, { width: length, height: length, borderColor: color }, placed(at, stroke, radius)]}
         />
       ))}
@@ -42,5 +41,5 @@ function placed(at: CornerAt, stroke: number, radius: number): object {
 }
 
 const styles = StyleSheet.create({
-  mark: { position: "absolute" },
+  mark: { position: "absolute", pointerEvents: "none" },
 });

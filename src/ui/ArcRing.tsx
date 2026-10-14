@@ -1,3 +1,4 @@
+import { Platform } from "react-native";
 import Svg, { Circle, G } from "react-native-svg";
 import { useTheme } from "./theme-context.tsx";
 import { ringGeometry, roundedArc } from "./ring-geometry.ts";
@@ -53,8 +54,11 @@ export function ArcRing({
   return (
     <Svg
       width={size} height={size} viewBox={`0 0 ${BOX} ${BOX}`}
-      accessible={label.length > 0}
-      {...(label.length > 0 ? { accessibilityLabel: label } : {})}
+      // A labelled drawing is one image to a screen reader, on the phone and in the browser alike;
+      // without a label it is decoration and says nothing. `accessible` is the phone's word for that,
+      // and only the phone is given it: the browser's svg does not know it, and React warns.
+      {...(label.length > 0 ? { accessibilityRole: "image" as const, accessibilityLabel: label } : {})}
+      {...(label.length > 0 && Platform.OS !== "web" ? { accessible: true } : {})}
     >
       {/* Whole in the colour of what is left when nothing is spent: there is no gone part to show. */}
       <Circle

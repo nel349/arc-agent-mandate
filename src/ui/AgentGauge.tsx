@@ -80,7 +80,7 @@ export function AgentGauge({ mandate, network, lastSpent }: {
       <View style={styles.ring}>
         <Beat count={payments} size={RING} color={c.untested} />
         <ArcRing spent={spent} ended={ended} size={RING} label="" />
-        <View style={styles.inRing} pointerEvents="none" aria-hidden>
+        <View style={styles.inRing} aria-hidden>
           <Text
             style={[styles.figure, { color: ended ? c.dim : c.paper, fontSize: figureSize, lineHeight: Math.round(figureSize * FIGURE_LEADING) }]}
             numberOfLines={1}
@@ -108,7 +108,7 @@ const styles = StyleSheet.create({
   state: { ...tokens.type.caption, fontWeight: "600" },
   // Clear of the words above and below by as far as a halo travels, so one never runs through them.
   ring: { alignSelf: "center", alignItems: "center", justifyContent: "center", marginVertical: HALO_REACH },
-  inRing: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center" },
+  inRing: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", pointerEvents: "none" },
   figure: { ...tokens.type.figure, fontVariant: [...tokens.font.tabular] },
   unit: tokens.type.footnote,
   spent: { ...tokens.type.footnote, textAlign: "center", fontVariant: [...tokens.font.tabular] },

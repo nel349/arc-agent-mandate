@@ -63,7 +63,6 @@ export const Beat = memo(function Beat({ count, size, color }: {
   if (reduced) return null;
   return (
     <Animated.View
-      pointerEvents="none"
       style={[
         styles.halo,
         {
@@ -77,5 +76,5 @@ export const Beat = memo(function Beat({ count, size, color }: {
 });
 
 const styles = StyleSheet.create({
-  halo: { position: "absolute", borderRadius: tokens.radius.pill, borderWidth: STROKE },
+  halo: { position: "absolute", borderRadius: tokens.radius.pill, borderWidth: STROKE, pointerEvents: "none" },
 });

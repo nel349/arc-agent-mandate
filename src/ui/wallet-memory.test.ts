@@ -1,7 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { ARC_MAINNET, ARC_TESTNET, MONAD_TESTNET } from "@kuiralabs/mandate-core";
 import {
-  isSameWallet, launchPlan, parseWalletMemory, serializeWalletMemory, walletMemoryOf, type WalletMemory,
+  isSameWallet, launchPlan, parseWalletMemory, sameWalletKind, serializeWalletMemory, SIGNED_OUT_KEY, signedOutKeyOf,
+  WALLET_MEMORY_KEY, walletKindOf, walletMemoryKeyOf, walletMemoryOf, type WalletMemory,
 } from "./wallet-memory.ts";
 
 const ADDRESS = "0xEe1933BbBC8acd7B32caD469D4f22Ca5B19d7918";
@@ -57,4 +59,20 @@ test("with nothing remembered, the returning-user passkey is offered when the ph
 
 test("after signing out on purpose, the app does not walk the person straight back in", () => {
   assert.equal(launchPlan({ memory: null, signedOutOnPurpose: true, canOfferPasskey: true }), "welcome");
+});
+
+test("test money and real money are two wallets: the test networks share one, mainnet has its own", () => {
+  assert.equal(walletKindOf(ARC_TESTNET), "test");
+  assert.equal(walletKindOf(MONAD_TESTNET), "test");
+  assert.equal(walletKindOf(ARC_MAINNET), "live");
+  assert.ok(sameWalletKind(ARC_TESTNET, MONAD_TESTNET));
+  assert.ok(!sameWalletKind(ARC_TESTNET, ARC_MAINNET));
+});
+
+test("each kind is remembered in its own place, and the test wallet where it always was", () => {
+  assert.equal(walletMemoryKeyOf("test"), WALLET_MEMORY_KEY, "nobody's test wallet is forgotten by the split");
+  assert.equal(signedOutKeyOf("test"), SIGNED_OUT_KEY);
+  assert.notEqual(walletMemoryKeyOf("live"), walletMemoryKeyOf("test"));
+  assert.notEqual(signedOutKeyOf("live"), signedOutKeyOf("test"));
+  assert.notEqual(walletMemoryKeyOf("live"), signedOutKeyOf("live"));
 });

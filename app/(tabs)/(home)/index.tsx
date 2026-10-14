@@ -8,7 +8,7 @@ import { MoreRow } from "../../../src/ui/MoreRow.tsx";
 import { activityRowText } from "../../../src/ui/activity-format.ts";
 import { Button } from "../../../src/ui/Button.tsx";
 import { figure, unitOf } from "../../../src/ui/coin.ts";
-import { NetworkSwitch } from "../../../src/ui/NetworkSwitch.tsx";
+import { NetworkPicker } from "../../../src/ui/NetworkPicker.tsx";
 import { Label } from "../../../src/ui/Label.tsx";
 import { ERROR_LINES, Note } from "../../../src/ui/Note.tsx";
 import { Screen } from "../../../src/ui/Screen.tsx";
@@ -92,8 +92,9 @@ export default function AllowancesScreen() {
       }
     >
       <Surface raised>
-        {/* The same wallet on each network: switching shows its balance and agents there. */}
-        <NetworkSwitch networks={NETWORKS} selected={network} onSelect={wallet.switchNetwork} />
+        {/* Which network, and whether its money is real. A test network shows this wallet there; mainnet
+            is a wallet of its own, opened with its own passkey. */}
+        <NetworkPicker networks={NETWORKS} selected={network} onSelect={wallet.switchNetwork} />
         <Text style={[styles.label, { color: c.dim }]}>In your wallet</Text>
         <View style={styles.walletRow}>
           {/*

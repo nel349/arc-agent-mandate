@@ -7,7 +7,7 @@ wallet inside limits you set on your phone and take back with your face.
 claude mcp add arc-mandate -s user -- npx -y @kuiralabs/arc-mandate
 ```
 
-The wallet it spends from opens in your phone's browser at https://kuiralabs.github.io/mandate/, on Arc and on Monad alike. The connector names it when it shows its code.
+The wallet it spends from opens in your phone's browser at https://kuiralabs.github.io/mandate/, on Arc testnet, Monad testnet and Arc mainnet alike. The connector names it when it shows its code.
 Then, in the agent:
 
 > **you:** what's your payment address?
@@ -92,10 +92,12 @@ another identity, owned by that one.
 
 | | |
 |---|---|
-| `ARC_TESTNET_RPC_URL` | the endpoint, and **the one that wins**: the connector reads `ARC_TESTNET_RPC_URL ?? ARC_RPC_URL ?? Arc testnet`. This is the name `.env.example` uses, so it is the one already set if you copied that file |
+| `ARC_MANDATE_NETWORK` | which network the agent spends on: `arcTestnet` (the default), `monadTestnet`, or `arc` for Arc mainnet, which is real money. On mainnet the owner's wallet is a separate one, made with its own passkey |
+| `ARC_MANDATE_RPC_URL` | an endpoint for whichever network is chosen, ahead of every other setting |
+| `ARC_TESTNET_RPC_URL` | the endpoint on Arc testnet, and **the one that wins** there: the connector reads `ARC_TESTNET_RPC_URL ?? ARC_RPC_URL ?? Arc testnet`. This is the name `.env.example` uses, so it is the one already set if you copied that file |
 | `ARC_RPC_URL` | the same knob under an older name, used only when `ARC_TESTNET_RPC_URL` is unset. Setting this one *while the other is set* changes nothing, silently |
 | `ARC_SESSION_KEY_PLUGIN` | the mandate plugin |
-| `CIRCLE_CLIENT_URL`, `CIRCLE_CLIENT_KEY`, `CIRCLE_PASSKEY_DOMAIN` | the bundler the agent submits through. Arc has no public bundler. **On testnet, leave all three unset** and the connector uses the shared testnet key; set all three to use your own. Set only some and nothing is filled in: the missing ones are named |
+| `CIRCLE_CLIENT_URL`, `CIRCLE_CLIENT_KEY`, `CIRCLE_PASSKEY_DOMAIN` | the bundler the agent submits through. Arc has no public bundler. **Leave all three unset** and the connector uses the shared key for its network, on Arc testnet and on Arc mainnet; set all three to use your own. Set only some and nothing is filled in: the missing ones are named |
 | `ARC_MANDATE_KEY_PATH` | where the agent's key lives (default `~/.arc-mandate/agent.key`). The code image is saved beside it |
 | `ARC_MANDATE_ACCOUNT_PATH` | where the paired wallet is remembered. Move or delete this and the agent forgets which wallet it spends from, and pairing starts over |
 | `ARC_ACCOUNT` | a wallet to spend from without pairing, for a connector you point at your own wallet by hand. Still checked against the chain before every use |
@@ -109,13 +111,13 @@ One line, with Node 22 or later:
 claude mcp add arc-mandate -s user -- npx -y @kuiralabs/arc-mandate
 ```
 
-On testnet that is all: nothing to clone and nothing to configure. Restart the client afterwards;
+On Arc testnet that is all: nothing to clone and nothing to configure. For Arc mainnet add `-e ARC_MANDATE_NETWORK=arc` before the `--`. Restart the client afterwards;
 MCP servers are launched at startup. Without `-s user` this lands in local scope, which is bound to
 the directory you ran it in and shadows every other scope.
 
 The package is the compiled JavaScript of this folder, one file per source file, neither minified
 nor bundled: it holds a key and signs payments, so what it does should be readable where it is
-installed. Values of your own, such as a Circle key on mainnet, go in the client's config as an
+installed. Values of your own, such as a Circle key of your own, go in the client's config as an
 `env` block.
 
 ### From a clone
@@ -149,13 +151,15 @@ key the wallet's web build already publishes at https://kuiralabs.github.io/mand
 domain. Nothing about it is secret: it is a TEST key, which Circle refuses on mainnet, and it
 authorises nothing on its own, since a spend still needs a signature your allowance permits. What
 it shares is the gas, which on testnet is test money. That was chosen on 25 September, so that
-connecting an agent needs no Circle account. It reverses the earlier "bring your own key" for
-testnet only.
+connecting an agent needs no Circle account. It reversed the earlier "bring your own key", at
+first for testnet only.
 
-**On mainnet you bring your own.** A shared key there would put every user's gas on one policy,
-which is a bill rather than a design. The first time a payment needs a key you have not set, the
-connector explains exactly what to do, rather than failing with the names of three environment
-variables.
+**On Arc mainnet it is ours too, with a cap.** Chosen on 14 October, for the same reason: so an
+owner's agent pays on mainnet with nothing to set up. The key is a LIVE one, and public all the
+same, since the wallet's page has to carry it to work. What it shares is the gas, which there is
+real money on our Circle account, so the Gas Station policy behind it limits each operation and
+each day. A shared key with no cap would be a bill rather than a design; with one, it is a
+convenience with a known ceiling. Set your own three values and the connector uses them instead.
 
 That is the whole developer setup. Everything after it is scanning.
 

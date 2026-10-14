@@ -1,4 +1,5 @@
 import { isAddress, isHex, type Address, type Hex } from "viem";
+import type { NetworkProfile } from "@kuiralabs/mandate-core";
 
 /**
  * The wallet the phone remembers between launches, and what to do when the app opens.
@@ -32,6 +33,27 @@ export const WALLET_MEMORY_KEY = "arc.wallet";
  * remembered and offer the passkey straight back, walking the person in again uninvited.
  */
 export const SIGNED_OUT_KEY = "arc.wallet.signedOut";
+
+/**
+ * Which wallet a network opens: one for test money, one for real money.
+ *
+ * Circle keeps its test networks and its live ones apart and will not let one passkey own a wallet
+ * in both ("Owner identifier already exists in another environment"). So real money is a wallet of
+ * its own, made with a passkey of its own, and each is remembered on its own: opening the mainnet
+ * wallet must not forget the test one, and signing out of one must not sign out of the other.
+ */
+export type WalletKind = "test" | "live";
+
+export const walletKindOf = (network: NetworkProfile): WalletKind => (network.live ? "live" : "test");
+
+/** Do two networks open the same wallet? Only if they hold the same kind of money. */
+export const sameWalletKind = (a: NetworkProfile, b: NetworkProfile): boolean => walletKindOf(a) === walletKindOf(b);
+
+/** Where a kind's wallet is remembered. The test wallet keeps the key it always had, so nobody is signed out by this. */
+export const walletMemoryKeyOf = (kind: WalletKind): string => (kind === "test" ? WALLET_MEMORY_KEY : `${WALLET_MEMORY_KEY}.live`);
+
+/** Where signing out of a kind's wallet is remembered, for the same reason kept apart. */
+export const signedOutKeyOf = (kind: WalletKind): string => (kind === "test" ? SIGNED_OUT_KEY : `${SIGNED_OUT_KEY}.live`);
 
 /** A P-256 public key is 33 bytes compressed and 65 uncompressed; anything shorter is not one. */
 const MIN_PUBLIC_KEY_HEX = 2 + 33 * 2;

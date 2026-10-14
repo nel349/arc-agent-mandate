@@ -10,6 +10,7 @@ import { DIMS_ON_PRESS, ripple } from "./press.ts";
 import { useReducedMotion } from "./useReducedMotion.ts";
 import { useTheme } from "./theme-context.tsx";
 import { tokens } from "./tokens.ts";
+import { hinted } from "./hinted.ts";
 
 /** A shape per kind of row, so a grant and a payment differ before either is read. */
 const GLYPHS: Readonly<Record<ActivityKind, keyof typeof Ionicons.glyphMap>> = {
@@ -70,8 +71,7 @@ function ActivityRowView({
     <Pressable
       onPress={() => onPress(item)}
       accessibilityRole="button"
-      accessibilityLabel={`${title}. ${detail}.${amount === null ? "" : ` ${amount} ${unitOf(network)}.`}`}
-      accessibilityHint="Opens the receipt"
+      {...hinted(`${title}. ${detail}.${amount === null ? "" : ` ${amount} ${unitOf(network)}.`}`, "Opens the receipt")}
       android_ripple={ripple(c.specular)}
       style={({ pressed }) => [
         styles.row,
@@ -80,7 +80,7 @@ function ActivityRowView({
       ]}
     >
       {marked && (
-        <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: c.untested, opacity: light.opacity }]} />
+        <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: c.untested, opacity: light.opacity, pointerEvents: "none" }]} />
       )}
       <View style={[styles.glyph, { backgroundColor: c.glass, borderColor: c.hairline }]}>
         <Ionicons name={GLYPHS[item.kind]} size={tokens.size.buttonIcon} color={c.muted} />

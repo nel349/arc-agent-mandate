@@ -138,10 +138,19 @@ export const MANDATE_FAILURES = [
   [/PermissionsCheckFailed|AA2[0-9]/i, "The account refused this. The allowance may have been used up or revoked."],
 ] as const;
 
+/**
+ * Said when a passkey made for one kind of money is offered to the other. The browser lists every
+ * passkey for this site, test and real alike, and Circle refuses one passkey across the two.
+ */
+export const OTHER_KIND_OF_MONEY =
+  "That passkey opens your wallet for the other kind of money. Real money and test money are separate " +
+  "wallets, each with its own passkey: choose the one made for this network, or create a wallet here.";
+
 /** Failures only the wallet ceremony can have. */
 export const WALLET_FAILURES = [
   [/relying party|rp\.id|not associated with domain/i,
    "This app is not associated with the passkey domain yet."],
+  [/already exists in another environment/i, OTHER_KIND_OF_MONEY],
 ] as const;
 
 /**

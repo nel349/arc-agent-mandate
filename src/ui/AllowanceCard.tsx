@@ -5,8 +5,7 @@ import type { NetworkProfile } from "@kuiralabs/mandate-core";
 import type { Amount } from "../arc/amount.ts";
 import { figure, unitOf } from "./coin.ts";
 import { fingerprintLines, shortFingerprint } from "./fingerprint.ts";
-import { shortNameOf } from "./network-choice.ts";
-import { accentOf } from "./network-look.ts";
+import { NetworkLogo } from "./NetworkLogo.tsx";
 import { useTheme } from "./theme-context.tsx";
 import { tokens } from "./tokens.ts";
 
@@ -42,7 +41,6 @@ export interface AllowanceFace {
  */
 export function AllowanceCard({ face }: { readonly face: AllowanceFace }) {
   const c = useTheme().color;
-  const accent = accentOf(face.network);
 
   return (
     <View
@@ -53,8 +51,9 @@ export function AllowanceCard({ face }: { readonly face: AllowanceFace }) {
       <View style={styles.head}>
         <Text style={[styles.kind, { color: c.dim }]}>Allowance</Text>
         <View style={[styles.network, { borderColor: c.hairline }]}>
-          <View style={[styles.dot, { backgroundColor: accent }]} />
-          <Text style={[styles.kind, { color: c.paper }]}>{shortNameOf(face.network)}</Text>
+          <NetworkLogo network={face.network} size={tokens.size.networkLogo.tag} />
+          {/* In full: with Arc mainnet beside the testnets, "Arc" alone could be real money or not. */}
+          <Text style={[styles.kind, { color: c.paper }]}>{face.network.name}</Text>
         </View>
       </View>
 
@@ -111,8 +110,6 @@ function Row({ label, color, children }: { readonly label: string; readonly colo
 /** A function as a person reads it: its name, without the types the chain needs. */
 const nameOf = (signature: string): string => signature.slice(0, signature.indexOf("(")) || signature;
 
-/** The network's dot in its tag. */
-const DOT = 6;
 /** Wide enough for the longest label, so every value starts on the same line. */
 const LABEL_COLUMN = 76;
 
@@ -129,7 +126,6 @@ const styles = StyleSheet.create({
     borderWidth: tokens.border.hairline, borderRadius: tokens.radius.pill,
     paddingVertical: tokens.space.tiny, paddingHorizontal: tokens.space.sm,
   },
-  dot: { width: DOT, height: DOT, borderRadius: tokens.radius.pill },
   kind: { ...tokens.type.caption, fontWeight: "600" },
   figureRow: { flexDirection: "row", alignItems: "baseline", gap: tokens.space.sm },
   figure: { ...tokens.type.hero, flexShrink: 1, fontVariant: [...tokens.font.tabular] },

@@ -25,7 +25,7 @@ export function ChoiceListRow({
     <Pressable
       onPress={onPress}
       accessibilityRole="radio"
-      accessibilityState={{ selected }}
+      aria-checked={selected}
       accessibilityLabel={`${title}. ${detail}`}
       style={({ pressed }) => [
         styles.row,
