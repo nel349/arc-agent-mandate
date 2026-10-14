@@ -1,4 +1,5 @@
 import { parseUnits, type Address } from "viem";
+import type { NetworkProfile } from "@kuiralabs/mandate-core";
 
 /**
  * Circle's own figure for an agent's escrow: shared by the connector and the app.
@@ -7,9 +8,14 @@ import { parseUnits, type Address } from "viem";
  * the app. This needs only `fetch`, which both have, and Circle's service answers any web page.
  */
 
-/** Circle's Gateway service on testnet, which keeps the balances x402 payments are checked against. */
-const GATEWAY_API = "https://gateway-api-testnet.circle.com";
-/** Arc's number among Gateway's chains, as `GET /v1/info` lists it. */
+/**
+ * Circle's Gateway service, which keeps the balances x402 payments are checked against: one for real
+ * money and one for test money. It was the testnet one alone, so on Arc mainnet an agent's escrow was
+ * asked of a service that has never heard of it.
+ */
+const GATEWAY_API = { live: "https://gateway-api.circle.com", test: "https://gateway-api-testnet.circle.com" } as const;
+export const gatewayApiFor = (network: Pick<NetworkProfile, "live">): string => (network.live ? GATEWAY_API.live : GATEWAY_API.test);
+/** Arc's number among Gateway's chains, as `GET /v1/info` lists it: 26 on mainnet and on testnet alike. */
 const ARC_DOMAIN = 26;
 /**
  * What Circle says the agent holds, at ERC-20 scale: the figure a payment is checked against.
@@ -19,8 +25,8 @@ const ARC_DOMAIN = 26;
  * payments Circle has accepted and not yet settled, so it overstates what is left: on 1 October it
  * said $1.476 for an agent Circle held $0.166 for.
  */
-export async function circleEscrow(agentAddress: Address): Promise<bigint> {
-  const res = await fetch(`${GATEWAY_API}/v1/balances`, {
+export async function circleEscrow(agentAddress: Address, network: Pick<NetworkProfile, "live">): Promise<bigint> {
+  const res = await fetch(`${gatewayApiFor(network)}/v1/balances`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ token: "USDC", sources: [{ domain: ARC_DOMAIN, depositor: agentAddress }] }),

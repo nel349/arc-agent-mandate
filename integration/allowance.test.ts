@@ -9,7 +9,7 @@ import { mandateTermsFor } from "../src/ui/grant-entry.ts";
 import {
   IDENTITY_REGISTRY, identityState, registerCall, registeredIdentity, setUpIdentity, type Submit,
 } from "../mcp/erc8004.ts";
-import { GATEWAY_WALLET, topUpCalls, type Call } from "../mcp/gateway.ts";
+import { gatewayWallet, topUpCalls, type Call } from "../mcp/gateway.ts";
 
 /**
  * What the app's allowance lets an agent's key do from the owner's wallet, on a forked Arc.
@@ -187,7 +187,7 @@ describe("what the app's allowance lets an agent do, on a forked Arc", () => {
       ["the registry's other register", { to: IDENTITY_REGISTRY, value: 0n, data: encodeFunctionData({
         abi: registry, functionName: "register", args: ["https://example.com/agent.json"],
       }) }],
-      ["a withdrawal from the Gateway", { to: GATEWAY_WALLET, value: 0n, data: encodeFunctionData({
+      ["a withdrawal from the Gateway", { to: gatewayWallet(), value: 0n, data: encodeFunctionData({
         abi: gateway, functionName: "initiateWithdrawal", args: [arc.USDC_ERC20_VIEW, 1n],
       }) }],
       ["moving USDC by transferFrom, which the meter does not count", { to: arc.USDC_ERC20_VIEW, value: 0n,
@@ -200,7 +200,7 @@ describe("what the app's allowance lets an agent do, on a forked Arc", () => {
 
   it("approving a top-up is counted against the one limit", async () => {
     await asAgent([{ to: arc.USDC_ERC20_VIEW, value: 0n, data: encodeFunctionData({
-      abi: usdcView, functionName: "approve", args: [GATEWAY_WALLET, 1_250_000n],
+      abi: usdcView, functionName: "approve", args: [gatewayWallet(), 1_250_000n],
     }) }]);
     assert.equal((await meter()).limitUsed, 1_250_000n);
   });

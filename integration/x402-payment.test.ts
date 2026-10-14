@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { decodeFunctionData, parseAbi, type Address } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { payableOption, signPayment, type PaymentOption, type SignedPayment } from "../mcp/x402.ts";
-import { GATEWAY_WALLET, topUpCalls, USDC_ERC20_VIEW } from "../mcp/gateway.ts";
+import { gatewayWallet, topUpCalls, USDC_ERC20_VIEW } from "../mcp/gateway.ts";
 
 /**
  * Would Circle actually take the payment we sign?
@@ -35,7 +35,7 @@ function requirements(payTo: Address, overrides: Partial<PaymentOption> = {}): P
     amount: "1000",
     payTo,
     maxTimeoutSeconds: 604800,
-    extra: { name: "GatewayWalletBatched", version: "1", verifyingContract: GATEWAY_WALLET.toLowerCase() },
+    extra: { name: "GatewayWalletBatched", version: "1", verifyingContract: gatewayWallet().toLowerCase() },
     ...overrides,
   };
 }
@@ -146,8 +146,8 @@ test("a top-up approves exactly what it deposits, to the agent, in one batch", (
   });
 
   assert.equal(approval.to, USDC_ERC20_VIEW);
-  assert.equal(deposited.to, GATEWAY_WALLET);
-  assert.equal(approve.args[0], GATEWAY_WALLET, "the allowance must go to Gateway and nowhere else");
+  assert.equal(deposited.to, gatewayWallet());
+  assert.equal(approve.args[0], gatewayWallet(), "the allowance must go to Gateway and nowhere else");
   assert.equal(approve.args[1], 250_000n);
   assert.equal(deposit.args[1].toLowerCase(), agent.toLowerCase(), "the escrow is credited to the agent");
   assert.equal(deposit.args[2], approve.args[1], "approval and deposit must be the same amount");

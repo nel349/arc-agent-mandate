@@ -1,5 +1,6 @@
 import { encodeFunctionData, parseAbi, type Address, type Hex } from "viem";
 import { publicClient, USDC_ERC20_VIEW, type EscrowTally } from "./chain.ts";
+import { NETWORK } from "./network.ts";
 
 /** One call in a batch, as `executeWithSessionKey` takes it. */
 export interface Call {
@@ -84,8 +85,17 @@ export function escrowLedger(
   };
 }
 
-/** Circle's Gateway Wallet. Same address on every chain Gateway supports. */
-export const GATEWAY_WALLET: Address = "0x0077777d7EBA4688BDeF3E311b846F25870A19B9";
+/**
+ * Circle's Gateway Wallet on the network this connector spends on. It is one address on every test
+ * chain and another on every live one, so it comes from the network's profile: written here as the
+ * testnet address, an agent on Arc mainnet topped up a contract its allowance does not name.
+ */
+export function gatewayWallet(): Address {
+  // Asked when used, not at start: Monad has no Gateway, and a connector there must still start and pay.
+  const wallet = NETWORK.contracts.gatewayWallet;
+  if (wallet === undefined) throw new Error(`Circle's Gateway does not serve ${NETWORK.name}, so this connector cannot top up or buy there.`);
+  return wallet;
+}
 
 export { circleEscrow } from "./gateway-balance.ts";
 
@@ -105,7 +115,7 @@ const erc20Abi = parseAbi(["function approve(address spender, uint256 value) ret
 /** What the agent can spend online right now, at ERC-20 scale. */
 export async function readEscrow(agentAddress: Address): Promise<bigint> {
   return publicClient.readContract({
-    address: GATEWAY_WALLET,
+    address: gatewayWallet(),
     abi: gatewayAbi,
     functionName: "availableBalance",
     args: [USDC_ERC20_VIEW, agentAddress],
@@ -162,11 +172,11 @@ export function topUpCalls(agentAddress: Address, amountErc20: bigint): readonly
       data: encodeFunctionData({
         abi: erc20Abi,
         functionName: "approve",
-        args: [GATEWAY_WALLET, amountErc20],
+        args: [gatewayWallet(), amountErc20],
       }),
     },
     {
-      to: GATEWAY_WALLET,
+      to: gatewayWallet(),
       value: 0n,
       data: encodeFunctionData({
         abi: gatewayAbi,
@@ -186,9 +196,9 @@ export function topUpCalls(agentAddress: Address, amountErc20: bigint): readonly
 export async function gatewayAccepting(): Promise<{ ok: true } | { ok: false; reason: string }> {
   const [supported, paused] = await Promise.all([
     publicClient.readContract({
-      address: GATEWAY_WALLET, abi: gatewayAbi, functionName: "isTokenSupported", args: [USDC_ERC20_VIEW],
+      address: gatewayWallet(), abi: gatewayAbi, functionName: "isTokenSupported", args: [USDC_ERC20_VIEW],
     }),
-    publicClient.readContract({ address: GATEWAY_WALLET, abi: gatewayAbi, functionName: "paused" }),
+    publicClient.readContract({ address: gatewayWallet(), abi: gatewayAbi, functionName: "paused" }),
   ]);
   if (paused) return { ok: false, reason: "Circle's Gateway is paused on this network." };
   if (!supported) return { ok: false, reason: "Gateway does not support USDC on this network." };

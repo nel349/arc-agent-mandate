@@ -811,7 +811,7 @@ async function fundEscrow({ account, allowance, needed }: EscrowRequest): Promis
     return { ok: false, reason: `The top-up was refused: ${result.reason}` };
   }
   // The payment comes next, and Circle checks it against its own ledger, not the chain's.
-  await untilCredited(needed, () => circleEscrow(agent.address));
+  await untilCredited(needed, () => circleEscrow(agent.address, NETWORK));
   return { ok: true, toppedUp: shortfall };
 }
 

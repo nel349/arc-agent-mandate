@@ -771,7 +771,7 @@ export async function readMandate(address: Address, agent: Address, network: Net
     // Circle's own figure, which leaves out payments it has accepted and not yet settled; the chain's
     // counts them, and overstated an agent's escrow by more than a dollar. The chain's stands in
     // only when Circle's service does not answer.
-    gateway === undefined ? Promise.resolve(null) : circleEscrow(agent).catch(() => null),
+    gateway === undefined ? Promise.resolve(null) : circleEscrow(agent, network).catch(() => null),
   ]);
   const meter = meterInForce(spend, onlineLimit);
   const { limit, spent } = meter;

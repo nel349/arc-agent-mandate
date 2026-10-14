@@ -4,6 +4,7 @@ import {
 } from "viem";
 import type { PrivateKeyAccount } from "viem/accounts";
 import type { Call } from "./gateway.ts";
+import { NETWORK } from "./network.ts";
 
 /**
  * The agent's ERC-8004 identity: registered by the wallet that granted the allowance, and linked to
@@ -22,8 +23,12 @@ import type { Call } from "./gateway.ts";
  * assigns that number inside `register()`.
  */
 
-/** Arc's ERC-8004 identity registry. The app names the same address in `src/arc/chain.ts`. */
-export const IDENTITY_REGISTRY: Address = "0x8004A818BFB912233c491871b3d84c89A494BD9e";
+/**
+ * The ERC-8004 identity registry on the network this connector spends on, from the network's profile,
+ * where the allowance's own list of calls reads it too. Written here as Arc testnet's, it sent an agent
+ * on mainnet to a registry its allowance does not name, and its identity could not be set up.
+ */
+export const IDENTITY_REGISTRY: Address = NETWORK.contracts.erc8004.identity;
 
 /**
  * How long the agent's link signature stays good. The registry refuses one that is valid for more

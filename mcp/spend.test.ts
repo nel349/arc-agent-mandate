@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { serially } from "./spend.ts";
+import { bidFrom, MIN_PRIORITY_FEE, serially } from "./spend.ts";
 
 /**
  * Operations from one connector go one at a time.
@@ -47,4 +47,14 @@ test("a failed operation does not hold up the next one, and still fails for its 
 
   await assert.rejects(failing, /the bundler said no/);
   assert.equal(await after, "sent");
+});
+
+test("a bid never offers less priority than Circle's bundler takes, and its ceiling covers what it offers", () => {
+  // Arc mainnet's estimate on 14 October: a priority fee of 2,306 wei, which the bundler refused before sending.
+  const mainnet = bidFrom({ maxFeePerGas: 20_000_000_000n, maxPriorityFeePerGas: 2_306n }, 2n);
+  assert.equal(mainnet.maxPriorityFeePerGas, MIN_PRIORITY_FEE);
+  assert.ok(mainnet.maxFeePerGas >= mainnet.maxPriorityFeePerGas);
+  // Testnet's estimate is far above the floor, so the bid is the estimate times the premium, as it was.
+  const testnet = bidFrom({ maxFeePerGas: 50_000_000_000n, maxPriorityFeePerGas: 25_000_000_000n }, 2n);
+  assert.deepEqual(testnet, { maxFeePerGas: 100_000_000_000n, maxPriorityFeePerGas: 50_000_000_000n });
 });

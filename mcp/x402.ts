@@ -113,7 +113,7 @@ function isPayableOn(network: string, value: unknown): value is PaymentOption {
     && typeof value["amount"] === "string";
 }
 import { chain } from "./chain.ts";
-import { GATEWAY_WALLET, USDC_ERC20_VIEW } from "./gateway.ts";
+import { gatewayWallet, USDC_ERC20_VIEW } from "./gateway.ts";
 
 /**
  * Paying for a web request, in the shape sellers already speak.
@@ -333,4 +333,4 @@ function safely<T>(fn: () => T): T | undefined {
   }
 }
 
-export { USDC_ERC20_VIEW, GATEWAY_WALLET };
+export { USDC_ERC20_VIEW, gatewayWallet };

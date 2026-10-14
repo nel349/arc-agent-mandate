@@ -152,6 +152,26 @@ const FEE_PREMIUM = 2n;
 const REPLACEMENT_MULTIPLIER = 3n;
 
 /**
+ * The least priority fee Circle's bundler takes on Arc mainnet: one gwei. Arc's own estimate there was
+ * 2,306 wei, so twice it was still refused before it was sent ("maxPriorityFeePerGas is 2306 but must
+ * be at least 1000000000"), and every agent operation on mainnet, a payment or an identity, failed as
+ * "Missing or invalid parameters". On testnet the estimate is far above it. The paymaster pays either way.
+ */
+export const MIN_PRIORITY_FEE = 1_000_000_000n;
+
+/** A bid: the chain's estimate times a multiplier, never under the bundler's least priority fee, and a ceiling that covers it. */
+export function bidFrom(
+  estimate: { readonly maxFeePerGas: bigint; readonly maxPriorityFeePerGas: bigint },
+  multiplier: bigint,
+): { maxFeePerGas: bigint; maxPriorityFeePerGas: bigint } {
+  const priority = estimate.maxPriorityFeePerGas * multiplier;
+  const maxPriorityFeePerGas = priority > MIN_PRIORITY_FEE ? priority : MIN_PRIORITY_FEE;
+  const ceiling = estimate.maxFeePerGas * multiplier;
+  const covering = estimate.maxFeePerGas + maxPriorityFeePerGas;
+  return { maxFeePerGas: ceiling > covering ? ceiling : covering, maxPriorityFeePerGas };
+}
+
+/**
  * Send, and outbid an operation stuck at the same nonce rather than wedging behind it.
  *
  * An agent's nonce only advances when an operation is *included*. One that the bundler accepted
@@ -163,10 +183,7 @@ async function sendWithFeeBump(bundler: Bundler, calls: readonly Call[]): Promis
   // From the chain, never a constant: Arc's base fee has been seen at 20, 25, 45 and 66 gwei, and
   // an operation offering less than the base fee is never included. The premium is on top of that.
   const estimate = await publicClient.estimateFeesPerGas();
-  const fees = {
-    maxFeePerGas: estimate.maxFeePerGas * FEE_PREMIUM,
-    maxPriorityFeePerGas: estimate.maxPriorityFeePerGas * FEE_PREMIUM,
-  };
+  const fees = bidFrom(estimate, FEE_PREMIUM);
   // the limits the bundler named and took are where the next payment starts, so a network's corrections are asked for once
   const sendAt = async (offered: typeof fees): Promise<Hex> => {
     const { sent, limits } = await sendCorrectingGas(gas, (tried) => bundler.sendUserOperation({ calls, ...tried, ...offered }));
@@ -177,10 +194,7 @@ async function sendWithFeeBump(bundler: Bundler, calls: readonly Call[]): Promis
     return await sendAt(fees);
   } catch (cause) {
     if (!isStuckAtThisNonce(cause)) throw cause;
-    return sendAt({
-      maxFeePerGas: estimate.maxFeePerGas * REPLACEMENT_MULTIPLIER,
-      maxPriorityFeePerGas: estimate.maxPriorityFeePerGas * REPLACEMENT_MULTIPLIER,
-    });
+    return sendAt(bidFrom(estimate, REPLACEMENT_MULTIPLIER));
   }
 }
 
