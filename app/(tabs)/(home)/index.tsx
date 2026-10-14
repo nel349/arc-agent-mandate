@@ -125,16 +125,25 @@ export default function AllowancesScreen() {
         </View>
         <Text style={[styles.address, { color: c.dim }]}>{shortFingerprint(address)}</Text>
         {/* Step 1 of the journey is a funded wallet. An agent can never spend more than this
-            holds, so the way to add some sits beside the figure it changes. */}
-        <Button
-          compact
-          icon="open-outline"
-          title={`Get test ${unitOf(network)}`}
-          onPress={() => void Linking.openURL(network.faucet)}
-        />
-        <Text style={[styles.caption, { color: c.muted }]}>
-          {`On the faucet, paste your wallet's address, from Share address above, and choose ${network.name} if it asks.`}
-        </Text>
+            holds, so the way to add some sits beside the figure it changes. Test money comes from a
+            faucet; real money has none, and is sent here from somewhere that holds it. */}
+        {network.faucet !== null ? (
+          <>
+            <Button
+              compact
+              icon="open-outline"
+              title={`Get test ${unitOf(network)}`}
+              onPress={() => void Linking.openURL(network.faucet!)}
+            />
+            <Text style={[styles.caption, { color: c.muted }]}>
+              {`On the faucet, paste your wallet's address, from Share address above, and choose ${network.name} if it asks.`}
+            </Text>
+          </>
+        ) : (
+          <Text style={[styles.caption, { color: c.muted }]}>
+            {`This is real ${unitOf(network)} on ${network.name}. To add some, send ${unitOf(network)} on ${network.name} to your wallet's address, from Share address above.`}
+          </Text>
+        )}
       </Surface>
 
       {wallet.error !== null && <Note tone="warn" lines={ERROR_LINES}>{wallet.error}</Note>}

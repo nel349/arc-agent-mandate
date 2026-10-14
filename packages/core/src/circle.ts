@@ -32,6 +32,27 @@ export const CIRCLE_SHARED_TESTNET: CircleCredentials & { readonly networks: rea
 /** Whether the shared testnet key serves a network, so nothing has to be set up there. */
 export const sharedKeyServes = (network: Pick<NetworkProfile, "circlePath">): boolean => CIRCLE_SHARED_TESTNET.networks.includes(network.circlePath);
 
+/**
+ * The mainnet values, shared the same way, so an owner's agent pays on Arc mainnet with nothing to set
+ * up. A LIVE client key, and public all the same: the wallet's page has to carry it to work at all, so
+ * it is readable by anyone who opens it. What it shares is the gas, which on mainnet is real money
+ * billed to our Circle account, so the Gas Station policy behind it carries a daily cap. Chosen on
+ * 14 October, in place of 25 September's "mainnet has no shared default; bring your own".
+ */
+export const CIRCLE_SHARED_MAINNET: CircleCredentials & { readonly networks: readonly string[] } = {
+  clientUrl: CIRCLE_SHARED_TESTNET.clientUrl,
+  clientKey: "LIVE_CLIENT_KEY:d2b793661272b314bbc5b0963ba2b9f0:ba25b5f3a8ed22b3c6f2368b4cbcd9dd",
+  passkeyDomain: CIRCLE_SHARED_TESTNET.passkeyDomain,
+  networks: ["arc"],
+};
+
+/**
+ * The shared values that serve a network, test or live, or `null` where none do and an owner brings
+ * their own. `sharedKeyServes` stays as it was, about the testnet key alone, for connectors that read it.
+ */
+export const sharedCredentialsFor = (network: Pick<NetworkProfile, "circlePath">): CircleCredentials | null =>
+  [CIRCLE_SHARED_TESTNET, CIRCLE_SHARED_MAINNET].find((shared) => shared.networks.includes(network.circlePath)) ?? null;
+
 /** Circle's endpoint for one network: the client URL, then the network's own path. */
 export const circleEndpoint = (network: Pick<NetworkProfile, "circlePath">, clientUrl: string): string =>
   `${clientUrl.replace(/\/+$/, "")}/${network.circlePath}`;

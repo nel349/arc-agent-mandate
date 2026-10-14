@@ -3,7 +3,7 @@ import { AppState } from "react-native";
 import { connectArcAccount, reopenArcAccount, WebAuthnMode, type ArcAccount } from "../arc/account.ts";
 import { balanceOf } from "../arc/send.ts";
 import { Amount } from "../arc/amount.ts";
-import { ARC_TESTNET, type NetworkProfile } from "@kuiralabs/mandate-core";
+import { ARC_TESTNET, CIRCLE_SHARED_MAINNET, type NetworkProfile } from "@kuiralabs/mandate-core";
 import { canOfferExistingPasskey } from "../passkey/shim.ts";
 import { walletFailure } from "./failure.ts";
 import { anotherAddressOn, reopenOrder } from "./network-choice.ts";
@@ -26,6 +26,16 @@ export const CIRCLE_CONFIG = {
   clientUrl: process.env.EXPO_PUBLIC_CIRCLE_CLIENT_URL ?? "",
   passkeyDomain: process.env.EXPO_PUBLIC_CIRCLE_PASSKEY_DOMAIN ?? "",
 } as const;
+
+/**
+ * The Circle settings a wallet opens with on a network: the test key from this build's settings on a
+ * test network, and on a live one the LIVE key the core shares, which Circle requires there and which
+ * the connector uses too, so the wallet and its agents are sponsored by the one capped policy.
+ */
+export const circleConfigFor = (network: NetworkProfile): typeof CIRCLE_CONFIG =>
+  network.live
+    ? { clientKey: CIRCLE_SHARED_MAINNET.clientKey, clientUrl: CIRCLE_SHARED_MAINNET.clientUrl, passkeyDomain: CIRCLE_SHARED_MAINNET.passkeyDomain }
+    : CIRCLE_CONFIG;
 
 /** Arc settles in under a second, so ten is unhurried. Matches the mandate poll deliberately. */
 const BALANCE_POLL_MS = 10_000;
@@ -123,12 +133,12 @@ export function useArcAccount(): ArcWallet {
 
   const create = useCallback(() => run(async () => {
     await admit(await connectArcAccount(
-      { ...CIRCLE_CONFIG, username: `arc-${Date.now()}` }, WebAuthnMode.Register, {}, chosen,
+      { ...circleConfigFor(chosen), username: `arc-${Date.now()}` }, WebAuthnMode.Register, {}, chosen,
     ));
   }), [run, admit, chosen]);
 
   const signIn = useCallback(() => run(async () => {
-    await admit(await connectArcAccount({ ...CIRCLE_CONFIG, username: "" }, WebAuthnMode.Login, {}, chosen));
+    await admit(await connectArcAccount({ ...circleConfigFor(chosen), username: "" }, WebAuthnMode.Login, {}, chosen));
   }), [run, admit, chosen]);
 
   const switchNetwork = useCallback((next: NetworkProfile) => {
@@ -143,7 +153,7 @@ export function useArcAccount(): ArcWallet {
       return;
     }
     run(async () => {
-      const reopened = await reopenArcAccount(CIRCLE_CONFIG, account.credential, next);
+      const reopened = await reopenArcAccount(circleConfigFor(next), account.credential, next);
       if (reopened.address.toLowerCase() !== account.address.toLowerCase()) throw new Error(anotherAddressOn(next));
       setBalance(null);
       await load(reopened);
@@ -191,7 +201,7 @@ export function useArcAccount(): ArcWallet {
           const credential = { id: memory.credentialId, publicKey: memory.publicKey };
           for (const on of reopenOrder(lastNetwork)) {
             opening = on;
-            const reopened = await reopenArcAccount(CIRCLE_CONFIG, credential, on);
+            const reopened = await reopenArcAccount(circleConfigFor(on), credential, on);
             if (!isSameWallet(memory, reopened.address)) continue;
             await load(reopened);
             if (on.chainId !== lastNetwork.chainId) {
@@ -206,7 +216,7 @@ export function useArcAccount(): ArcWallet {
         } else if (plan === "offer-passkey") {
           try {
             await admit(await connectArcAccount(
-              { ...CIRCLE_CONFIG, username: "" }, WebAuthnMode.Login, { returningUser: true }, lastNetwork,
+              { ...circleConfigFor(lastNetwork), username: "" }, WebAuthnMode.Login, { returningUser: true }, lastNetwork,
             ));
           } catch (cause) {
             // Two ordinary endings here, and neither is worth a word: the person closed the sheet,

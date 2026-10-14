@@ -1,4 +1,4 @@
-import { ARC_TESTNET, MONAD_TESTNET, type NetworkProfile } from "@kuiralabs/mandate-core";
+import { ARC_MAINNET, ARC_TESTNET, MONAD_TESTNET, type NetworkProfile } from "@kuiralabs/mandate-core";
 
 /**
  * The one colour each network brings to an otherwise graphite app.
@@ -12,6 +12,8 @@ const ACCENTS: ReadonlyMap<number, string> = new Map([
   [MONAD_TESTNET.chainId, "#836EF9"],
   /** the blue Arc's actions are drawn in */
   [ARC_TESTNET.chainId, "#5FBFFF"],
+  /** gold, on Arc mainnet: real money, never to be mistaken for testnet's blue */
+  [ARC_MAINNET.chainId, "#E8B64C"],
 ]);
 
 /** A network this build has no colour for yet: a neutral one, so it is never mistaken for another. */

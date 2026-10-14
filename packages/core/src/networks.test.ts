@@ -61,3 +61,26 @@ test("the wallet's feed reads a bounded number of windows at a time, and falls b
     assert.ok(network.logs.floor > 0n, `${network.name}: no block the plugin arrived in`);
   }
 });
+
+/**
+ * Arc mainnet is real money: no faucet, the standard's mainnet ERC-8004 set (not testnet's, which finds
+ * nothing there), mainnet's own Gateway, and logs read from the block the plugin was deployed in.
+ */
+test("Arc mainnet is live, with its own registries and Gateway, and the plugin where testnet has it", async () => {
+  const { ARC_MAINNET } = await import("./networks.ts");
+  assert.equal(ARC_MAINNET.live, true);
+  assert.equal(ARC_MAINNET.faucet, null);
+  assert.equal(ARC_MAINNET.chainId, 5042);
+  assert.equal(ARC_MAINNET.circlePath, "arc");
+  assert.equal(ARC_MAINNET.contracts.sessionKeyPlugin, ARC_TESTNET.contracts.sessionKeyPlugin);
+  assert.notEqual(ARC_MAINNET.contracts.gatewayWallet, ARC_TESTNET.contracts.gatewayWallet);
+  for (const registry of ["identity", "reputation", "validation"] as const) {
+    assert.notEqual(ARC_MAINNET.contracts.erc8004[registry], ARC_TESTNET.contracts.erc8004[registry]);
+  }
+  assert.equal(ARC_MAINNET.logs.floor, 25_967_007n);
+  assert.ok(NETWORKS.includes(ARC_MAINNET));
+  for (const network of [ARC_TESTNET, MONAD_TESTNET]) {
+    assert.equal(network.live, false);
+    assert.notEqual(network.faucet, null);
+  }
+});

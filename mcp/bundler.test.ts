@@ -60,9 +60,20 @@ test("the app's own values count as yours, as they always did", () => {
   assert.deepEqual(missingBundlerConfig(), ["CIRCLE_CLIENT_URL", "CIRCLE_CLIENT_KEY"]);
 });
 
-/** The shared key is a TEST key; on mainnet Circle refuses it, so it is never offered there. */
-test("off testnet there is no shared key, and every value is asked for", () => {
+/**
+ * The test key is never offered on mainnet, where Circle refuses it. Since 14 October Arc mainnet has
+ * a shared key of its own, a LIVE one whose gas policy carries a daily cap, so an owner's agent pays
+ * there with nothing set too.
+ */
+test("on Arc mainnet the shared LIVE key is used, never the test one", () => {
   process.env.ARC_CIRCLE_CHAIN_PATH = "arc";
+  assert.equal(usesSharedTestnetKey(), false);
+  assert.equal(bundlerConfigured(), true);
+  assert.deepEqual(missingBundlerConfig(), []);
+});
+
+test("off any network a shared key serves, every value is asked for", () => {
+  process.env.ARC_CIRCLE_CHAIN_PATH = "somewhereElse";
   assert.equal(usesSharedTestnetKey(), false);
   assert.equal(bundlerConfigured(), false);
   assert.deepEqual(missingBundlerConfig(), ["CIRCLE_CLIENT_URL", "CIRCLE_CLIENT_KEY", "CIRCLE_PASSKEY_DOMAIN"]);

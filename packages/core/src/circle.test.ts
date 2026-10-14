@@ -32,3 +32,14 @@ test("the shared key is a test key, which Circle refuses on mainnet, bound to th
   assert.match(CIRCLE_SHARED_TESTNET.clientKey, /^TEST_CLIENT_KEY:/);
   assert.equal(CIRCLE_SHARED_TESTNET.passkeyDomain, "kuiralabs.github.io");
 });
+
+/** Chosen on 14 October: Arc mainnet has a shared key too, a LIVE one, its gas capped by its policy. */
+test("Arc mainnet is served by the shared LIVE key, testnets by the test key, and nothing else by either", async () => {
+  const { CIRCLE_SHARED_MAINNET, CIRCLE_SHARED_TESTNET, sharedCredentialsFor } = await import("./circle.ts");
+  assert.match(CIRCLE_SHARED_MAINNET.clientKey, /^LIVE_CLIENT_KEY:/);
+  assert.equal(CIRCLE_SHARED_MAINNET.passkeyDomain, "kuiralabs.github.io");
+  assert.equal(sharedCredentialsFor({ circlePath: "arc" }), CIRCLE_SHARED_MAINNET);
+  assert.equal(sharedCredentialsFor({ circlePath: "arcTestnet" }), CIRCLE_SHARED_TESTNET);
+  assert.equal(sharedCredentialsFor({ circlePath: "monadTestnet" }), CIRCLE_SHARED_TESTNET);
+  assert.equal(sharedCredentialsFor({ circlePath: "elsewhere" }), null);
+});

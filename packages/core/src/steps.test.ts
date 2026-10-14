@@ -27,3 +27,9 @@ test("on Monad the money is MON, and only the step about money says so", () => {
   assert.equal(monad[0]?.title, "Open the wallet, and add test MON");
   assert.deepEqual(monad.slice(1), arc.slice(1));
 });
+
+test("on a live network nothing is called test money", async () => {
+  const { ARC_MAINNET } = await import("./networks.ts");
+  const { stepsOn } = await import("./steps.ts");
+  assert.equal(stepsOn(ARC_MAINNET)[0]?.title, "Open the wallet, and add USDC");
+});

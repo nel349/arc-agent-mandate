@@ -26,8 +26,10 @@ export interface NetworkProfile {
   readonly explorer: string;
   /** what the explorer is called, for a link that opens it */
   readonly explorerName: string;
-  /** where test money for this network is handed out */
-  readonly faucet: string;
+  /** Whether the money is real. On a live network the wallet uses Circle's LIVE client key, and nothing is called test money. */
+  readonly live: boolean;
+  /** where test money for this network is handed out; `null` on a live network, where there is none */
+  readonly faucet: string | null;
   /** the chain's own coin, which pays for whatever a mandate allows when it meters natively; `dollar` when it is one */
   readonly coin: { readonly symbol: string; readonly decimals: number; readonly dollar: boolean };
   readonly meter: Meter;
@@ -113,6 +115,7 @@ export const ARC_TESTNET: NetworkProfile = {
   rpc: "https://rpc.testnet.arc.network",
   explorer: "https://testnet.arcscan.app",
   explorerName: "ArcScan",
+  live: false,
   faucet: "https://faucet.circle.com",
   // Arc's own coin is USDC, at 18 decimals natively and 6 through its ERC-20 view
   coin: { symbol: "USDC", decimals: 18, dollar: true },
@@ -142,6 +145,7 @@ export const MONAD_TESTNET: NetworkProfile = {
   rpc: "https://testnet-rpc.monad.xyz",
   explorer: "https://testnet.monadexplorer.com",
   explorerName: "Monad Explorer",
+  live: false,
   faucet: "https://faucet.monad.xyz",
   coin: { symbol: "MON", decimals: 18, dollar: false },
   meter: "native",
@@ -163,7 +167,43 @@ export const MONAD_TESTNET: NetworkProfile = {
   },
 };
 
-export const NETWORKS: readonly NetworkProfile[] = [ARC_TESTNET, MONAD_TESTNET];
+/**
+ * Arc mainnet: real USDC, Circle's LIVE client key, and gas paid by our Gas Station policy there.
+ *
+ * Circle's contracts and ours are where they are on testnet, the session-key plugin deployed on
+ * 14 October through the same CREATE2 factory. ERC-8004 is the standard's mainnet set, which differs
+ * from its testnet set on purpose, and Gateway is mainnet's own. Its node makes about 1.97 blocks a
+ * second, as testnet's does, so the logs are read as on testnet, from the plugin's deployment.
+ */
+export const ARC_MAINNET: NetworkProfile = {
+  circlePath: "arc",
+  chainId: 5042,
+  name: "Arc mainnet",
+  rpc: "https://rpc.mainnet.arc.io",
+  explorer: "https://arcscan.app",
+  explorerName: "ArcScan",
+  live: true,
+  faucet: null,
+  coin: { symbol: "USDC", decimals: 18, dollar: true },
+  meter: "erc20View",
+  contracts: {
+    entryPoint: SHARED.entryPoint,
+    sessionKeyPlugin: SHARED.sessionKeyPlugin,
+    ownerPlugin: SHARED.ownerPlugin,
+    paymaster: SHARED.paymaster,
+    gatewayWallet: "0x77777777Dcc4d5A8B6E418Fd04D8997ef11000eE",
+    erc20View: { address: "0x3600000000000000000000000000000000000000", decimals: 6 },
+    erc8004: {
+      identity: "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432",
+      reputation: "0x8004BAa17C55a88189AE136b182e5fdA19dE9b63",
+      validation: "0x8004Cc8439f36fd5F9F049D9fF86523Df6dAAB58",
+    },
+  },
+  logs: { window: 9_999n, recent: 29_997n, floor: 25_967_007n, feed: { span: 167_669n, mostBehind: null } },
+  gas: ARC_TESTNET.gas,
+};
+
+export const NETWORKS: readonly NetworkProfile[] = [ARC_TESTNET, MONAD_TESTNET, ARC_MAINNET];
 
 /** The profile of the network with this chain id, if a mandate runs on it. */
 export const networkByChainId = (chainId: number): NetworkProfile | undefined =>

@@ -29,7 +29,7 @@
 import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { http } from "viem";
-import { CIRCLE_SHARED_TESTNET, circleEndpoint, circleHeaders, sharedKeyServes } from "@kuiralabs/mandate-core";
+import { CIRCLE_SHARED_TESTNET, circleEndpoint, circleHeaders, sharedCredentialsFor } from "@kuiralabs/mandate-core";
 import { NETWORK } from "./network.ts";
 
 /**
@@ -82,12 +82,14 @@ const own = (): CircleConfig => ({
 function circle(): CircleConfig {
   const mine = own();
   const setAny = Boolean(mine.clientUrl || mine.clientKey || mine.passkeyDomain);
-  return !setAny && sharedKeyServes({ circlePath: chainPath() }) ? SHARED_TESTNET : mine;
+  // On testnet the shared test key; on Arc mainnet, since 14 October, the shared LIVE key, whose gas
+  // policy carries a daily cap. Your own values, if you set any, win on either.
+  return setAny ? mine : sharedCredentialsFor({ circlePath: chainPath() }) ?? mine;
 }
 
 /** Whether payments go through the shared testnet key rather than one of your own. */
 export function usesSharedTestnetKey(): boolean {
-  return circle() === SHARED_TESTNET;
+  return circle().clientKey === SHARED_TESTNET.clientKey;
 }
 
 

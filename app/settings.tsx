@@ -138,7 +138,7 @@ export default function SettingsScreen() {
         <Label>Network</Label>
         <View style={styles.plain}>
           <Text style={[styles.name, { color: c.paper }]}>{shortNameOf(wallet.network)}</Text>
-          <Text style={[styles.value, { color: c.dim }]}>Testnet</Text>
+          <Text style={[styles.value, { color: c.dim }]}>{wallet.network.live ? "Real money" : "Testnet"}</Text>
         </View>
 
         {/* Optional, and it says so. The endpoint the app carries works; this is for somebody who

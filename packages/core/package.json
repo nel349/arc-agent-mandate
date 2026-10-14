@@ -1,6 +1,6 @@
 {
   "name": "@kuiralabs/mandate-core",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "What a wallet, an agent's connector and a server share to grant and spend a mandate on any EVM network: the networks, and pairing.",
   "repository": {
     "type": "git",
