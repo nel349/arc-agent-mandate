@@ -88,7 +88,7 @@ const SETTLEMENT_HEADER = "PAYMENT-RESPONSE";
 /** What the buyer is told when the seller went quiet between being paid and answering. */
 export const SELLER_WENT_QUIET =
   "The seller stopped answering after it was sent the payment, so whether it took it is not known. " +
-  "The agent's escrow shows it within about a quarter of an hour; check before trying again.";
+  "The agent's balance shows it within about a quarter of an hour; check before trying again.";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;

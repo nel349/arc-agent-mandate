@@ -30,7 +30,7 @@ test("an identity reads as the standard it belongs to, not as a bare number", ()
  * A revoke does not reach money already in the agent's escrow at Circle's Gateway, and the alert said
  * only that "a purchase in progress" was not returned, while a top-up could leave far more there.
  */
-test("the revoke warning names what stays in the agent's escrow, and says only that when there is none", () => {
+test("the revoke warning names what stays in the agent's balance, and says only that when there is none", () => {
   assert.equal(
     revokeWarning(null, Amount.ZERO, ARC_TESTNET),
     "This agent can no longer spend from your wallet once this confirms. Money it already moved to pay " +
@@ -39,10 +39,10 @@ test("the revoke warning names what stays in the agent's escrow, and says only t
   assert.equal(
     revokeWarning("Maze runner", Amount.parse("0.25"), ARC_TESTNET),
     "Maze runner can no longer spend from your wallet once this confirms. The 0.25 USDC already in its " +
-      "escrow at Circle's Gateway stays with it: revoking does not reach that, and only the agent's key " +
+      "balance at Circle's Gateway stays with it: revoking does not reach that, and only the agent's key " +
       "can spend it or withdraw it.",
   );
-  assert.match(revokeWarning("Maze runner", Amount.parse("0.004"), ARC_TESTNET), /The 0\.0040 USDC already in its escrow/);
+  assert.match(revokeWarning("Maze runner", Amount.parse("0.004"), ARC_TESTNET), /The 0\.0040 USDC already in its balance/);
 });
 
 test("a fresh mandate reads as nothing used", () => {

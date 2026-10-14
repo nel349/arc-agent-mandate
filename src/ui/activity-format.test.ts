@@ -39,11 +39,11 @@ test("across every agent a row leads with who, on one agent's screen with what h
   const item = row(at(2026, 8, 10, 19));
   assert.deepEqual(
     activityRowText(item, { name: "Maze runner", withAgent: true, underDayHeading: true }, now),
-    { title: "Maze runner", detail: "Moved to its escrow · 19:00", titleIsAddress: false },
+    { title: "Maze runner", detail: "Moved to its balance · 19:00", titleIsAddress: false },
   );
   assert.deepEqual(
     activityRowText(item, { name: null, withAgent: false, underDayHeading: false }, now),
-    { title: "Moved to its escrow", detail: "Today 19:00", titleIsAddress: false },
+    { title: "Moved to its balance", detail: "Today 19:00", titleIsAddress: false },
   );
   const unnamed = activityRowText(item, { name: null, withAgent: true, underDayHeading: true }, now);
   assert.match(unnamed.title, /^0x3535816e…/);
@@ -63,7 +63,7 @@ test("when the agent last spent is its newest draw in the feed, and a grant is n
 });
 
 test("a payment's receipt names the network that recorded it, and mentions an escrow only where there is one", () => {
-  assert.match(paidExplained(ARC_TESTNET), /Arc testnet records this transfer, so unlike money moved into the agent's escrow/);
+  assert.match(paidExplained(ARC_TESTNET), /Arc testnet records this transfer, so unlike money moved into the agent's balance/);
   assert.equal(
     paidExplained(MONAD_TESTNET),
     "Sent from your wallet to the address below, by this agent, under its allowance. Monad testnet records the payment with who was paid.",

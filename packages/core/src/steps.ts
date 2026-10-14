@@ -19,7 +19,7 @@ export interface Step {
 }
 
 const STEPS: readonly { readonly id: StepId; readonly where: Where; readonly title: (network: NetworkProfile) => string }[] = [
-  { id: "wallet", where: "phone", title: (network) => `Get the app, and add test ${network.coin.symbol}` },
+  { id: "wallet", where: "phone", title: (network) => `Open the wallet, and add test ${network.coin.symbol}` },
   { id: "connect", where: "laptop", title: () => "Connect your agent" },
   { id: "grant", where: "phone", title: () => "Scan to grant" },
   { id: "task", where: "laptop", title: () => "Tell your agent to play" },

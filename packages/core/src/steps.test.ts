@@ -13,7 +13,7 @@ test("five steps, in one order, alternating the phone and the laptop as a person
 
 test("on Arc the steps read as the connector and the maze have always said them", () => {
   assert.deepEqual(stepsOn(ARC_TESTNET).map((step) => step.title), [
-    "Get the app, and add test USDC",
+    "Open the wallet, and add test USDC",
     "Connect your agent",
     "Scan to grant",
     "Tell your agent to play",
@@ -24,6 +24,6 @@ test("on Arc the steps read as the connector and the maze have always said them"
 test("on Monad the money is MON, and only the step about money says so", () => {
   const arc = stepsOn(ARC_TESTNET);
   const monad = stepsOn(MONAD_TESTNET);
-  assert.equal(monad[0]?.title, "Get the app, and add test MON");
+  assert.equal(monad[0]?.title, "Open the wallet, and add test MON");
   assert.deepEqual(monad.slice(1), arc.slice(1));
 });

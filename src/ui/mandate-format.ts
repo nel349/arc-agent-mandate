@@ -105,7 +105,7 @@ function precisely(amount: Amount): string {
 export function revokeWarning(name: string | null, escrow: Amount, network: NetworkProfile): string {
   const stops = `${name ?? "This agent"} can no longer spend from your wallet once this confirms.`;
   if (escrow.isZero()) return `${stops} Money it already moved to pay for a purchase in progress is not returned.`;
-  return `${stops} The ${precisely(escrow)} ${unitOf(network)} already in its escrow at Circle's Gateway stays with it: ` +
+  return `${stops} The ${precisely(escrow)} ${unitOf(network)} already in its balance at Circle's Gateway stays with it: ` +
     "revoking does not reach that, and only the agent's key can spend it or withdraw it.";
 }
 

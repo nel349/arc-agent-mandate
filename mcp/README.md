@@ -44,12 +44,12 @@ that wallet. The code is also saved as `pairing-code.png` beside the agent's key
 | `pay` | send USDC to an address, within the allowance |
 | `call` | call one function an allowance names, on an app's contract, sending the coin with it when the function takes payment |
 | `sign_statement` | sign an app's own structure, so its door can see which agent is knocking, for an app whose contract the allowance reaches |
-| `buy` | fetch a URL and pay if it answers `402 Payment Required` (x402), topping up the agent's escrow from the allowance when it has to |
-| `top_up` | move money into the agent's escrow ahead of a run of small purchases; it counts against the same allowance |
+| `buy` | fetch a URL and pay if it answers `402 Payment Required` (x402), topping up the agent's balance at Circle's Gateway from the allowance when it has to |
+| `top_up` | move money into the agent's balance ahead of a run of small purchases; it counts against the same allowance |
 
 The agent cannot exceed the allowance or keep spending after you revoke, and an allowance that
 names payees cannot pay anyone else. Nor can it touch anything else in your wallet: every allowance
-is an allowlist naming the three things an agent does, paying in USDC, filling its escrow at
+is an allowlist naming the three things an agent does, paying in USDC, filling its balance at
 Circle's Gateway, and setting up its own identity, so your other tokens and NFTs are out of its
 reach. None of that is enforced here: the account enforces it. A
 revoked or expired allowance is refused during validation, before anything runs. On the one-meter

@@ -18,7 +18,7 @@ import { shortAddress } from "./mandate-format.ts";
  * "Funded a purchase", which a top-up made ahead of time is not: it has paid nobody yet.
  */
 export const ACTIVITY_TITLES: Readonly<Record<ActivityKind, string>> = {
-  draw: "Moved to its escrow",
+  draw: "Moved to its balance",
   paid: "Paid someone",
   registered: "Identity registered",
   granted: "Allowance granted",
@@ -87,7 +87,7 @@ export interface ActivityRowText {
  * leaves out the seller without saying why reads as a receipt with a bug in it.
  */
 export const DRAW_EXPLAINED =
-  "Moved from your wallet into this agent's escrow at Circle's Gateway, which it pays sellers from. " +
+  "Moved from your wallet into this agent's balance at Circle's Gateway, which it pays sellers from. " +
   "Arc records that move, not which seller the agent then paid, so no seller is shown here.";
 
 /**
@@ -101,7 +101,7 @@ export function paidExplained(network: NetworkProfile): string {
   const sent = "Sent from your wallet to the address below, by this agent, under its allowance.";
   return network.contracts.gatewayWallet === undefined
     ? `${sent} ${network.name} records the payment with who was paid.`
-    : `${sent} ${network.name} records this transfer, so unlike money moved into the agent's escrow, this one names who was paid.`;
+    : `${sent} ${network.name} records this transfer, so unlike money moved into the agent's balance, this one names who was paid.`;
 }
 
 /** An ERC-8004 identity, as both screens that show one say it. */

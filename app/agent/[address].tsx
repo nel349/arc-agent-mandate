@@ -182,7 +182,7 @@ export default function AgentScreen() {
         <Surface style={styles.group}>
           <DetailRow label="Last used" value={lastUsedLabel(lastUsed)} first />
           {!found.escrow.isZero() && (
-            <DetailRow label="In its escrow" value={`${formatAmount(found.escrow)} ${unitOf(network)}`} />
+            <DetailRow label="Its balance" value={`${formatAmount(found.escrow)} ${unitOf(network)}`} />
           )}
           {identity !== null && <DetailRow label="Identity" value={identityLabel(identity)} />}
         </Surface>

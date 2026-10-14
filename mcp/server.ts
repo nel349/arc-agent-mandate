@@ -215,7 +215,7 @@ const pairAgain = (legacy: Address): string =>
   `from the wallet they want this agent to use. The old allowance can be revoked in the app.`;
 
 /**
- * Money already moved into the agent's escrow, said when an allowance is withdrawn.
+ * Money already moved into the agent's balance, said when an allowance is withdrawn.
  *
  * Revoking stops the agent drawing on the wallet, and does not reach what earlier top-ups put in
  * escrow: that is the agent's at Circle's Gateway, spendable by its key, or withdrawn to its own
@@ -226,11 +226,11 @@ async function escrowLeftBehind(): Promise<string> {
   try {
     held = await spendableEscrow();
   } catch {
-    return "\n\nWhether the agent still holds money in escrow from earlier top-ups could not be read just now.";
+    return "\n\nWhether the agent still holds money in its balance from earlier top-ups could not be read just now.";
   }
   return held === 0n
     ? ""
-    : `\n\nThe agent still holds ${online(held)} in escrow at Circle's Gateway from earlier top-ups. ` +
+    : `\n\nThe agent still holds ${online(held)} in its balance at Circle's Gateway from earlier top-ups. ` +
       `Revoking does not reach it: only this agent's key can spend it, or withdraw it to its own ` +
       `address after Circle's delay.`;
 }
@@ -387,11 +387,11 @@ async function escrowLine(allowance: Allowance): Promise<string[]> {
   try {
     held = await spendableEscrow();
   } catch (cause) {
-    return [`  escrow could not be read: ${unreachable(cause)}`];
+    return [`  its balance at Circle's Gateway could not be read: ${unreachable(cause)}`];
   }
   if (held === 0n) return [];
-  // "plus", not "of which": escrow is money the allowance already moved, so it is extra to the above.
-  return [`  plus ${online(held)} already in escrow, spendable on the web without a top-up`];
+  // "plus", not "of which": the balance is money the allowance already moved, so it is extra to the above.
+  return [`  plus ${online(held)} already in its balance at Circle's Gateway, spendable on the web without a top-up`];
 }
 
 /**
@@ -739,7 +739,7 @@ server.registerTool(
 );
 
 /**
- * Moving money from the wallet into the agent's escrow, so it can pay a seller directly.
+ * Moving money from the wallet into the agent's balance, so it can pay a seller directly.
  *
  * This spends the *same* allowance a direct payment spends — that is the point of metering
  * everything on one rail, and why nobody has to be shown a second number. What escrow buys is not
@@ -879,7 +879,7 @@ if (NETWORK.contracts.gatewayWallet !== undefined) {
         }
         const detail = outcome.settlement?.errorReason ?? outcome.settlement?.error;
         return text(
-          `The seller refused the payment${detail ? `: ${detail}` : ""}. The agent's escrow was not ` +
+          `The seller refused the payment${detail ? `: ${detail}` : ""}. The agent's balance was not ` +
             `charged — a payment that is not settled moves nothing.`,
         );
       }
@@ -891,7 +891,7 @@ if (NETWORK.contracts.gatewayWallet !== undefined) {
       const body = await outcome.response.text();
       if (!outcome.delivered) {
         return text(
-          `Paid ${online(outcome.amount)} to ${outcome.payTo} from the agent's escrow, but the seller ` +
+          `Paid ${online(outcome.amount)} to ${outcome.payTo} from the agent's balance, but the seller ` +
             `answered ${outcome.response.status} ${outcome.response.statusText} instead of delivering. ` +
             `The payment was taken, so do not retry as though it was not. Tell the user, and pass on ` +
             `what the seller said, which names the payment:\n\n${body.slice(0, 4000)}`,
@@ -900,9 +900,9 @@ if (NETWORK.contracts.gatewayWallet !== undefined) {
       return text(
         [
           `Bought ${online(outcome.amount)} from ${outcome.payTo}${reason ? ` for ${reason}` : ""}, ` +
-            `paid from the agent's escrow, which wallet ${walletName(account)} funds.`,
+            `paid from the agent's balance, which wallet ${walletName(account)} funds.`,
           toppedUp > 0n
-            ? `Moved ${online(toppedUp)} from wallet ${walletName(account)} into the agent's escrow first.`
+            ? `Moved ${online(toppedUp)} from wallet ${walletName(account)} into the agent's balance first.`
             : null,
           "",
           body.slice(0, 4000),
@@ -914,11 +914,11 @@ if (NETWORK.contracts.gatewayWallet !== undefined) {
   server.registerTool(
     "top_up",
     {
-      title: "Move money into the agent's escrow ahead of time",
+      title: "Move money into the agent's balance ahead of time",
       description:
-        "Pre-funds the agent's online escrow so later purchases do not each need a top-up first. " +
+        "Pre-funds the agent's balance at Circle's Gateway so later purchases do not each need a top-up first. " +
         "Only worth doing before a run of small payments — `buy` tops up on its own when it has to. " +
-        "Money in escrow is committed to this agent and can only leave as a payment or a delayed " +
+        "Money in that balance is committed to this agent and can only leave as a payment or a delayed " +
         "withdrawal, so top up what the task needs, not what the budget allows.",
       inputSchema: {
         amount: z.string().describe("Amount in USDC, as a decimal string, e.g. \"0.50\""),
@@ -945,7 +945,7 @@ if (NETWORK.contracts.gatewayWallet !== undefined) {
       if (!funded.ok) return text(`Nothing was moved. ${funded.reason}`);
       const holds = await spendableEscrow().then(online, () => null);
       return text(
-        `Moved ${online(funded.toppedUp)} from wallet ${walletName(account)} into the agent's escrow. ` +
+        `Moved ${online(funded.toppedUp)} from wallet ${walletName(account)} into the agent's balance. ` +
           (holds === null
             ? "Its new balance could not be read just now."
             : `It now holds ${holds}, spendable on the web without further approval.`),

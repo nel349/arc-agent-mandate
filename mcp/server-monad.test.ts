@@ -54,7 +54,7 @@ test("on Monad the agent is briefed that its user adds test MON, with the rest o
   const client = await connectOnMonad();
   try {
     const instructions = client.getInstructions() ?? "";
-    assert.match(instructions, /1\. Get the app, and add test MON \(their phone\)/);
+    assert.match(instructions, /1\. Open the wallet, and add test MON \(their phone\)/);
     assert.match(instructions, /3\. Scan to grant \(their phone\)/);
     assert.doesNotMatch(instructions, /test USDC/);
   } finally {
