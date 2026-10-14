@@ -42,3 +42,46 @@ test("a failure with no receipt, or one nobody can read, charged nothing", () =>
   assert.deepEqual(chargeOf(false, null), { charged: false });
   assert.deepEqual(chargeOf(false, "not base64 json"), { charged: false });
 });
+
+/**
+ * An agent told an answer cost five cents paid the ten the seller asked, and learned the price from
+ * the receipt. With a limit the seller's price is read first, and one above it is refused before any
+ * money is moved or anything signed.
+ */
+test("a price above the buyer's limit is refused before anything is funded or signed; one within it goes ahead", async () => {
+  const { chain } = await import("./chain.ts");
+  const { fetchWithPayment } = await import("./x402.ts");
+  const { privateKeyToAccount } = await import("viem/accounts");
+  const agent = privateKeyToAccount(`0x${"1".repeat(64)}`);
+  const offer = {
+    x402Version: 2,
+    accepts: [{
+      scheme: "exact", network: `eip155:${chain.id}`, amount: "100000", payTo: "0x2222222222222222222222222222222222222222",
+      asset: "0x3600000000000000000000000000000000000000", maxTimeoutSeconds: 60,
+      extra: { name: "GatewayWalletBatched", version: "1", verifyingContract: "0x0077777d7EBA4688BDeF3E311b846F25870A19B9" },
+    }],
+  };
+  const realFetch = globalThis.fetch;
+  let requests = 0;
+  globalThis.fetch = (async () => {
+    requests += 1;
+    return new Response("{}", { status: 402, headers: { "PAYMENT-REQUIRED": receipt(offer) } });
+  }) as typeof fetch;
+  try {
+    let funded = 0;
+    const ensureFunds = async () => { funded += 1; return { ok: false as const, reason: "stopped here by the test" }; };
+
+    const over = await fetchWithPayment({ url: "https://seller.test/answer", agent, ensureFunds, most: 50_000n });
+    assert.equal(over.paid, false);
+    assert.equal(!over.paid && over.overLimit, true);
+    assert.equal(!over.paid && over.amount, 100_000n);
+    assert.equal(funded, 0, "nothing was funded for a price above the limit");
+    assert.equal(requests, 1, "only the price was asked; no payment was sent");
+
+    const within = await fetchWithPayment({ url: "https://seller.test/answer", agent, ensureFunds, most: 100_000n });
+    assert.equal(!within.paid && within.overLimit, undefined);
+    assert.equal(funded, 1, "a price at the limit goes on to be funded");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});

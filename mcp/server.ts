@@ -158,7 +158,7 @@ const INSTRUCTIONS = [
 
 // what the package says it is; package.test.ts fails when the two drift, since an agent that asks
 // which connector it is talking to is told this
-const server = new McpServer({ name: "arc-mandate", version: "0.1.3" }, { instructions: INSTRUCTIONS });
+const server = new McpServer({ name: "arc-mandate", version: "0.1.4" }, { instructions: INSTRUCTIONS });
 
 /** An amount of the network's coin as a person reads it: dollars on Arc, MON on Monad. */
 const inCoin = (wei: bigint): string => amountIn(NETWORK, wei);
@@ -833,9 +833,17 @@ if (NETWORK.contracts.gatewayWallet !== undefined) {
         url: z.string().describe("The address to fetch, e.g. https://api.example.com/report"),
         method: z.string().optional().describe("HTTP method, default GET"),
         reason: z.string().optional().describe("What this buys, said back in the reply so the user can match it to the payment"),
+        most: z.string().optional().describe(
+          "The most this one purchase may cost, in USDC as a decimal string, e.g. \"0.05\". A seller asking more is " +
+          "refused and nothing is paid. Set it whenever you know what a thing should cost.",
+        ),
       },
     },
-    async ({ url, method = "GET", reason }) => {
+    async ({ url, method = "GET", reason, most }) => {
+      if (most !== undefined && !DECIMAL.test(most)) {
+        return text(`Nothing was bought and nothing was spent. "${most}" is not an amount; give it as a plain decimal, like 0.05.`);
+      }
+      const cap = most === undefined ? undefined : parseUnits(most, 6);
       const { account, allowance } = await requireMandate();
       let toppedUp = 0n;
 
@@ -845,6 +853,7 @@ if (NETWORK.contracts.gatewayWallet !== undefined) {
           url,
           method,
           agent,
+          ...(cap === undefined ? {} : { most: cap }),
           ensureFunds: async (needed: bigint): Promise<Funding> => {
             const funded = await fundEscrow({ account, allowance, needed });
             if (funded.ok) toppedUp = funded.toppedUp;
@@ -861,6 +870,12 @@ if (NETWORK.contracts.gatewayWallet !== undefined) {
       }
 
       if (!outcome.paid) {
+        if (outcome.overLimit === true && outcome.amount !== undefined && cap !== undefined) {
+          return text(
+            `Nothing was bought and nothing was spent. ${url} asked ${online(outcome.amount)}, more than ` +
+              `the most of ${online(cap)} you set for it.`,
+          );
+        }
         if (outcome.perhapsCharged === true && outcome.amount !== undefined) {
           // Counted as spent until the escrow says otherwise, which errs toward topping up.
           escrow.claimed(outcome.amount);

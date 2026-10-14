@@ -37,6 +37,12 @@ export interface BuyRequest {
   readonly body?: BodyInit;
   readonly agent: PrivateKeyAccount;
   readonly ensureFunds: (needed: bigint, option: PaymentOption) => Promise<Funding>;
+  /**
+   * The most this one purchase may cost, in the token's six decimals. A seller asking more is
+   * refused before anything is moved or signed. Without it an agent told "an answer costs five cents"
+   * paid the ten the seller asked, and learned the price from the receipt.
+   */
+  readonly most?: bigint;
 }
 
 /**
@@ -75,6 +81,8 @@ export type BuyOutcome =
       readonly problem?: string;
       readonly amount?: bigint;
       readonly settlement?: Settlement;
+      /** The seller asked more than the buyer's `most`, so nothing was moved or signed. */
+      readonly overLimit?: true;
       /**
        * The seller stopped answering after it was sent a signed payment, so whether it took it is not
        * known. Counted as spent until the escrow says otherwise, which errs toward topping up.
@@ -230,7 +238,7 @@ export async function signPayment(
  * about the account, the mandate or the budget.
  */
 export async function fetchWithPayment(
-  { url, method = "GET", headers = {}, body, agent, ensureFunds }: BuyRequest,
+  { url, method = "GET", headers = {}, body, agent, ensureFunds, most }: BuyRequest,
 ): Promise<BuyOutcome> {
   const first = await fetch(url, { method, headers, body: body ?? null });
   if (first.status !== 402) return { paid: false, response: first };
@@ -250,6 +258,11 @@ export async function fetchWithPayment(
   const choice = payableOption(paymentRequired);
   if (!choice.ok) return { paid: false, response: first, problem: choice.reason };
   const { option } = choice;
+
+  // Before any money moves: refusing here costs nothing, and the agent hears the price it was asked.
+  if (most !== undefined && BigInt(option.amount) > most) {
+    return { paid: false, response: first, amount: BigInt(option.amount), overLimit: true };
+  }
 
   const funded = await ensureFunds(BigInt(option.amount), option);
   if (!funded.ok) return { paid: false, response: first, problem: funded.reason, amount: BigInt(option.amount) };
