@@ -1,4 +1,4 @@
-import { ARC_TESTNET, NETWORKS, type NetworkProfile } from "@kuiralabs/mandate-core";
+import { ARC_MAINNET, ARC_TESTNET, NETWORKS, type NetworkProfile } from "@kuiralabs/mandate-core";
 
 /**
  * Which network this connector spends on, named the way Circle names it: `arcTestnet`, the default,
@@ -17,8 +17,28 @@ export function networkNamed(name: string | undefined): NetworkProfile {
   return found;
 }
 
-/** The network this connector was started for, read once from its environment. */
-export const NETWORK: NetworkProfile = networkNamed(process.env[NETWORK_SETTING]);
+/**
+ * The words the connector can be started with instead of the setting, so a line that installs it for
+ * real money is the testnet line and one word: `npx -y @kuiralabs/arc-mandate mainnet`.
+ */
+const NETWORK_WORDS: Readonly<Record<string, NetworkProfile>> = { mainnet: ARC_MAINNET, testnet: ARC_TESTNET };
+
+/**
+ * The network a start asks for: a word after the command if there is one, else the setting. A word it
+ * does not know is refused, naming the words it does, rather than quietly starting on testnet.
+ */
+export function networkStarted(args: readonly string[], setting: string | undefined): NetworkProfile {
+  const word = args.find((arg) => !arg.startsWith("-"));
+  if (word === undefined) return networkNamed(setting);
+  const named = NETWORK_WORDS[word.trim().toLowerCase()];
+  if (named === undefined) {
+    throw new Error(`"${word}" is not a network this connector knows. Start it with ${Object.keys(NETWORK_WORDS).join(" or ")}, or with nothing for Arc testnet.`);
+  }
+  return named;
+}
+
+/** The network this connector was started for, read once from how it was started. */
+export const NETWORK: NetworkProfile = networkStarted(process.argv.slice(2), process.env[NETWORK_SETTING]);
 
 /**
  * Where the owner's wallet opens: the Mandate, built for the web, on the domain the shared testnet
@@ -30,3 +50,13 @@ export const NETWORK: NetworkProfile = networkNamed(process.env[NETWORK_SETTING]
  * agent's code, so the connector chose by network. `/mandate-next/` now sends whoever opens it here.
  */
 export const WALLET_URL = "https://kuiralabs.github.io/mandate/";
+
+/**
+ * The wallet, told which network to open on, as each gym links it: a phone that last showed testnet,
+ * or a fresh one, would otherwise open the test wallet for an agent that spends real money.
+ */
+export function walletOn(network: NetworkProfile): string {
+  const url = new URL(WALLET_URL);
+  url.searchParams.set("network", network.circlePath);
+  return url.toString();
+}

@@ -111,7 +111,11 @@ One line, with Node 22 or later:
 claude mcp add arc-mandate -s user -- npx -y @kuiralabs/arc-mandate
 ```
 
-On Arc testnet that is all: nothing to clone and nothing to configure. For Arc mainnet add `-e ARC_MANDATE_NETWORK=arc` before the `--`. Restart the client afterwards;
+On Arc testnet that is all: nothing to clone and nothing to configure. For Arc mainnet, add a second connector beside it, since each one spends on its own network only:
+
+```bash
+claude mcp add arc-mandate-mainnet -s user -- npx -y @kuiralabs/arc-mandate mainnet
+``` Restart the client afterwards;
 MCP servers are launched at startup. Without `-s user` this lands in local scope, which is bound to
 the directory you ran it in and shadows every other scope.
 

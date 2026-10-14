@@ -36,7 +36,7 @@ import { PRODUCT_NAME } from "./product.ts";
 import { briefingSteps } from "./briefing.ts";
 import { encodeCall } from "./call.ts";
 import { statementToSign } from "./statement.ts";
-import { NETWORK, WALLET_URL } from "./network.ts";
+import { NETWORK, walletOn } from "./network.ts";
 
 /** What the network's money is called, in everything the tools say. */
 const COIN = NETWORK.coin.symbol;
@@ -106,7 +106,7 @@ async function showCode(request: AgentRequest = NO_REQUEST): Promise<string> {
     `Grant an allowance to:\n\n${await pairingCode(link)}\n    ${agent.address}\n\n` +
     `The code carries a one-time pairing code, so only an allowance granted by scanning it reaches ` +
     `this agent.${saved}\n\n` +
-    `Step 3 of 5, on your phone: open the ${PRODUCT_NAME} wallet (${WALLET_URL}), tap New ` +
+    `Step 3 of 5, on your phone: open the ${PRODUCT_NAME} wallet (${walletOn(NETWORK)}), tap New ` +
     `allowance, then Scan the agent's code and point the camera at this one (or paste this link: ` +
     `${link}). ${asks ? "It fills in what was asked for; check it, change anything," : "Set a limit and how long it lasts,"} ` +
     `and confirm with your passkey. Tell me when it is done.` +
@@ -138,7 +138,7 @@ const INSTRUCTIONS = [
     `${PRODUCT_NAME} app on their phone. The chain enforces the limit; you cannot exceed it.`,
   "",
   "The path, in five steps, the same words the app and the maze page use:",
-  ...briefingSteps(NETWORK, WALLET_URL),
+  ...briefingSteps(NETWORK, walletOn(NETWORK)),
   "",
   "Before any paid call, call check_allowance. If there is no allowance, call get_pairing_address, " +
     "show the user its code once, and wait for them to say it is done; then check once. Do not " +
@@ -158,7 +158,7 @@ const INSTRUCTIONS = [
 
 // what the package says it is; package.test.ts fails when the two drift, since an agent that asks
 // which connector it is talking to is told this
-const server = new McpServer({ name: "arc-mandate", version: "0.1.6" }, { instructions: INSTRUCTIONS });
+const server = new McpServer({ name: "arc-mandate", version: "0.1.7" }, { instructions: INSTRUCTIONS });
 
 /** An amount of the network's coin as a person reads it: dollars on Arc, MON on Monad. */
 const inCoin = (wei: bigint): string => amountIn(NETWORK, wei);
@@ -195,7 +195,7 @@ function unreachable(cause: unknown): string {
 /** Said when no grant carries this agent's code, and no wallet was ever paired with it. */
 const NO_ALLOWANCE =
   `No allowance yet.\n\nStep 3 of 5, on the user's phone: in the ${PRODUCT_NAME} wallet ` +
-  `(${WALLET_URL}), tap New allowance, then Scan the agent's code, set a limit and how long, and ` +
+  `(${walletOn(NETWORK)}), tap New allowance, then Scan the agent's code, set a limit and how long, and ` +
   `confirm with their passkey. Call ` +
   `get_pairing_address to show the code. It carries a one-time pairing code, and an allowance ` +
   `granted by typing this agent's address alone is not tied to it and will not be used.\n\n` +
